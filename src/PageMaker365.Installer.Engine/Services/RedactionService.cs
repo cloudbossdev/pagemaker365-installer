@@ -51,6 +51,68 @@ public sealed partial class RedactionService
         };
     }
 
+    public TenantDiscoveryResult RedactDiscovery(TenantDiscoveryResult discovery)
+    {
+        return new TenantDiscoveryResult
+        {
+            ContractVersion = discovery.ContractVersion,
+            DiscoveryId = discovery.DiscoveryId,
+            OnboardingSessionId = discovery.OnboardingSessionId,
+            Source = discovery.Source,
+            DataPolicy = discovery.DataPolicy,
+            DiscoveredAt = discovery.DiscoveredAt,
+            Customer =
+            {
+                TenantName = discovery.Customer.TenantName,
+                TenantId = Mask(discovery.Customer.TenantId),
+                PrimaryContact = discovery.Customer.PrimaryContact,
+                VerifiedDomains = discovery.Customer.VerifiedDomains.ToList()
+            },
+            Azure =
+            {
+                TenantId = Mask(discovery.Azure.TenantId),
+                SelectedSubscriptionId = Mask(discovery.Azure.SelectedSubscriptionId),
+                SelectedSubscriptionName = discovery.Azure.SelectedSubscriptionName,
+                RecommendedLocation = discovery.Azure.RecommendedLocation,
+                TargetResourceGroupName = discovery.Azure.TargetResourceGroupName,
+                AccessibleSubscriptions = discovery.Azure.AccessibleSubscriptions
+                    .Select(subscription => new AzureSubscriptionDiscovery
+                    {
+                        SubscriptionId = Mask(subscription.SubscriptionId),
+                        DisplayName = subscription.DisplayName,
+                        State = subscription.State
+                    })
+                    .ToList()
+            },
+            SharePoint =
+            {
+                TenantHostname = discovery.SharePoint.TenantHostname,
+                SiteUrl = discovery.SharePoint.SiteUrl,
+                SiteId = Mask(discovery.SharePoint.SiteId),
+                DefaultDocumentLibrary = discovery.SharePoint.DefaultDocumentLibrary,
+                PermissionMode = discovery.SharePoint.PermissionMode,
+                SiteResolved = discovery.SharePoint.SiteResolved
+            },
+            Entra =
+            {
+                AppRegistrationMode = discovery.Entra.AppRegistrationMode,
+                ConsentStatus = discovery.Entra.ConsentStatus,
+                PermissionMode = discovery.Entra.PermissionMode,
+                RequiredApplicationPermissions = discovery.Entra.RequiredApplicationPermissions.ToList(),
+                RequiredDelegatedScopes = discovery.Entra.RequiredDelegatedScopes.ToList()
+            },
+            Findings = discovery.Findings
+                .Select(finding => new DiscoveryFinding
+                {
+                    Severity = finding.Severity,
+                    Code = finding.Code,
+                    Summary = finding.Summary,
+                    Details = Redact(finding.Details)
+                })
+                .ToList()
+        };
+    }
+
     private static string Mask(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length <= 8)
@@ -70,4 +132,3 @@ public sealed partial class RedactionService
     [GeneratedRegex("(AccountKey|SharedAccessKey|Password|ClientSecret)=([^;\\s]+)", RegexOptions.IgnoreCase)]
     private static partial Regex ConnectionStringRegex();
 }
-

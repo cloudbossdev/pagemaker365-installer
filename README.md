@@ -26,6 +26,11 @@ Implemented:
 - Desktop Azure and Microsoft Graph sign-in command wiring.
 - Deployment contract documentation and package schema.
 - Deployment contract preflight check.
+- Onboarding bootstrap session contract.
+- Tenant discovery result contract.
+- Mock PageMaker365 onboarding API client.
+- Mock tenant discovery payload generation.
+- Redacted local tenant discovery export.
 - PowerShell-backed local prerequisite checks.
 - Azure context validation.
 - Azure RBAC validation scaffold.
@@ -52,6 +57,8 @@ Not implemented yet:
 - Production Bicep resource modules.
 - Real app configuration.
 - Live AI call.
+- Production PageMaker365 API sync.
+- Real Azure, Graph, and SharePoint discovery.
 - Installer packaging/signing.
 
 ## Repository Layout
@@ -80,10 +87,13 @@ support-bundle/
 Start here before wiring the production payload:
 
 - `docs/deployment-contract.md`
+- `docs/onboarding-discovery-contract.md`
 - `docs/implementation-backlog.md`
 - `schemas/customer-install.schema.json`
+- `schemas/onboarding-bootstrap.schema.json`
+- `schemas/tenant-discovery.schema.json`
 
-The control plane should generate customer install packages that match the schema. The installer accepts the older alpha package shape for now, but `Test-PM365DeploymentContract` warns when launch fields are missing and fails when blocked raw secret containers are present.
+The control plane should first create an onboarding session, then use installer discovery results to pre-fill onboarding forms and generate customer install packages that match the install package schema. The installer accepts the older alpha package shape for now, but `Test-PM365DeploymentContract` warns when launch fields are missing and fails when blocked raw secret containers are present.
 
 ## Build
 
@@ -141,13 +151,18 @@ pwsh .\scripts\package.ps1 -CodeSigningCertificatePath C:\certs\pagemaker365.pfx
 ## First Desktop Flow
 
 1. Launch the WPF app.
-2. Click `Load Sample`.
-3. Click `Sign In Azure`.
-4. Click `Sign In Graph`.
-5. Click `Run Preflight`.
-6. Review PowerShell-backed local, Azure, Entra, and SharePoint readiness checks.
-7. Use `Explain Issue`, `Generate Admin Message`, or `Create Support Bundle`.
+2. Click `Continue`.
+3. Click `Load Sample Bootstrap`.
+4. Click `Connect Session`.
+5. Click `Create Discovery`.
+6. Click `Save Redacted JSON` or `Mock Sync To Portal`.
+7. Click `Load Sample`.
+8. Click `Sign In Azure`.
+9. Click `Sign In Graph`.
+10. Click `Run Preflight`.
+11. Review PowerShell-backed local, Azure, Entra, and SharePoint readiness checks.
+12. Use `Explain Issue`, `Generate Admin Message`, or `Create Support Bundle`.
 
 ## Next Development Step
 
-Align the PageMaker365 control-plane deployment export with `schemas/customer-install.schema.json`, then replace the placeholder Bicep template with the real customer runtime Azure resources.
+Replace mock onboarding/discovery with read-only Azure, Microsoft Graph, and SharePoint discovery commands, then wire the production PageMaker365 API endpoints documented in `docs/onboarding-discovery-contract.md`.

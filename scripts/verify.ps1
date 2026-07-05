@@ -15,6 +15,36 @@ Get-ChildItem -Path $repoRoot -Recurse -File -Include *.json |
         Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json | Out-Null
     }
 
+Write-Host 'Checking onboarding discovery samples...'
+$bootstrapPath = Join-Path $repoRoot 'samples\contoso.onboarding.bootstrap.json'
+$discoveryPath = Join-Path $repoRoot 'samples\contoso.tenant.discovery.json'
+$bootstrap = Get-Content -LiteralPath $bootstrapPath -Raw | ConvertFrom-Json
+$discovery = Get-Content -LiteralPath $discoveryPath -Raw | ConvertFrom-Json
+
+@(
+    @{ value = $bootstrap.sessionId; name = 'bootstrap.sessionId' },
+    @{ value = $bootstrap.portalBaseUrl; name = 'bootstrap.portalBaseUrl' },
+    @{ value = $bootstrap.apiBaseUrl; name = 'bootstrap.apiBaseUrl' },
+    @{ value = $bootstrap.oneTimeCode; name = 'bootstrap.oneTimeCode' },
+    @{ value = $discovery.discoveryId; name = 'discovery.discoveryId' },
+    @{ value = $discovery.onboardingSessionId; name = 'discovery.onboardingSessionId' },
+    @{ value = $discovery.dataPolicy; name = 'discovery.dataPolicy' }
+) | ForEach-Object {
+    if ([string]::IsNullOrWhiteSpace([string]$_.value)) {
+        throw "Required onboarding discovery sample field is missing: $($_.name)"
+    }
+}
+
+if ($discovery.dataPolicy -ne 'InstallReadinessOnly') {
+    throw 'Tenant discovery sample must use the InstallReadinessOnly data policy.'
+}
+
+@('documentContent', 'mailboxContent', 'userFiles', 'rawSecrets') | ForEach-Object {
+    if ($bootstrap.discoveryPolicy.excludedDataTypes -notcontains $_) {
+        throw "Bootstrap discovery policy must exclude $_."
+    }
+}
+
 Write-Host 'Checking PowerShell syntax...'
 $scriptRoots = @(
     (Join-Path $repoRoot 'modules')

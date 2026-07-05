@@ -8,9 +8,18 @@ Last updated: 2026-07-05.
 
 Goal: make the customer install package deterministic enough for the installer and runtime agents.
 
+- [x] Define onboarding bootstrap session contract.
+- [x] Define tenant discovery result contract.
+- [x] Add mock onboarding API client.
+- [x] Add mock discovery payload generation.
+- [x] Add redacted local discovery export.
 - [x] Document installer/control-plane/customer-runtime boundary.
 - [x] Add first customer install package schema.
 - [x] Add PowerShell contract preflight check.
+- [ ] Add production PageMaker365 onboarding API client.
+- [ ] Add read-only Azure discovery command.
+- [ ] Add read-only Microsoft Graph tenant/domain discovery command.
+- [ ] Add read-only SharePoint site/library discovery command.
 - [ ] Align control-plane deployment export with `schemas/customer-install.schema.json`.
 - [ ] Add package hash generation in the control plane export.
 - [ ] Add signed export metadata and immutable export ID.
@@ -120,4 +129,3 @@ Acceptance criteria:
 - Installer launches on a clean workstation.
 - SmartScreen/signing behavior is acceptable for customer delivery.
 - Package includes app, modules, Bicep, rules, AI policy files, and README.
-

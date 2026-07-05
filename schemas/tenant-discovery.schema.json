@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pagemaker365.com/schemas/tenant-discovery.schema.json",
+  "title": "PageMaker365 Tenant Discovery Result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "contractVersion",
+    "discoveryId",
+    "onboardingSessionId",
+    "source",
+    "dataPolicy",
+    "discoveredAt",
+    "customer",
+    "azure",
+    "sharePoint",
+    "entra",
+    "findings"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string"
+    },
+    "discoveryId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "onboardingSessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string"
+    },
+    "dataPolicy": {
+      "type": "string",
+      "enum": ["InstallReadinessOnly"]
+    },
+    "discoveredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "customer": {
+      "type": "object",
+      "required": ["tenantName", "tenantId", "verifiedDomains"],
+      "properties": {
+        "tenantName": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "primaryContact": { "type": "string" },
+        "verifiedDomains": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "azure": {
+      "type": "object",
+      "properties": {
+        "tenantId": { "type": "string" },
+        "selectedSubscriptionId": { "type": "string" },
+        "selectedSubscriptionName": { "type": "string" },
+        "recommendedLocation": { "type": "string" },
+        "targetResourceGroupName": { "type": "string" },
+        "accessibleSubscriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["subscriptionId", "displayName", "state"],
+            "properties": {
+              "subscriptionId": { "type": "string" },
+              "displayName": { "type": "string" },
+              "state": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "sharePoint": {
+      "type": "object",
+      "properties": {
+        "tenantHostname": { "type": "string" },
+        "siteUrl": { "type": "string" },
+        "siteId": { "type": "string" },
+        "defaultDocumentLibrary": { "type": "string" },
+        "permissionMode": { "type": "string" },
+        "siteResolved": { "type": "boolean" }
+      }
+    },
+    "entra": {
+      "type": "object",
+      "properties": {
+        "appRegistrationMode": { "type": "string" },
+        "consentStatus": { "type": "string" },
+        "permissionMode": { "type": "string" },
+        "requiredApplicationPermissions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredDelegatedScopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "code", "summary"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["Info", "Warning", "Blocked"]
+          },
+          "code": { "type": "string" },
+          "summary": { "type": "string" },
+          "details": { "type": "string" }
+        }
+      }
+    }
+  }
+}

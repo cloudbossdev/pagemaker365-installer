@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pagemaker365.com/schemas/onboarding-bootstrap.schema.json",
+  "title": "PageMaker365 Onboarding Bootstrap Session",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "contractVersion",
+    "sessionId",
+    "customerName",
+    "portalBaseUrl",
+    "apiBaseUrl",
+    "oneTimeCode",
+    "expiresAt",
+    "allowedOperations",
+    "discoveryPolicy"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "customerName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expectedTenantId": {
+      "type": "string"
+    },
+    "portalBaseUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "apiBaseUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "oneTimeCode": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Short-lived customer onboarding code. Treat as sensitive."
+    },
+    "requestedBy": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "allowedOperations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "TenantDiscovery",
+          "InstallPackageGeneration",
+          "InstallStatusSync",
+          "RemovalDiscovery",
+          "RemovalStatusSync"
+        ]
+      }
+    },
+    "discoveryPolicy": {
+      "type": "object",
+      "required": [
+        "allowAzureDiscovery",
+        "allowGraphDiscovery",
+        "allowSharePointDiscovery",
+        "allowPortalSync",
+        "requiredFields",
+        "excludedDataTypes"
+      ],
+      "properties": {
+        "allowAzureDiscovery": {
+          "type": "boolean"
+        },
+        "allowGraphDiscovery": {
+          "type": "boolean"
+        },
+        "allowSharePointDiscovery": {
+          "type": "boolean"
+        },
+        "allowPortalSync": {
+          "type": "boolean"
+        },
+        "requiredFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excludedDataTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "documentContent",
+              "mailboxContent",
+              "userFiles",
+              "rawSecrets",
+              "broadUserProfileExport",
+              "marketingTrackingData"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "contractVersion": "0.1",
+  "sessionId": "onb_contoso_sandbox_001",
+  "customerName": "Contoso Intranet",
+  "expectedTenantId": "00000000-0000-0000-0000-000000000000",
+  "portalBaseUrl": "https://pagemaker365.com",
+  "apiBaseUrl": "https://api.pagemaker365.com",
+  "oneTimeCode": "PM365-CONTOSO-DEMO",
+  "requestedBy": "admin@contoso.com",
+  "expiresAt": "2099-12-31T23:59:59Z",
+  "allowedOperations": [
+    "TenantDiscovery",
+    "InstallPackageGeneration",
+    "InstallStatusSync"
+  ],
+  "discoveryPolicy": {
+    "allowAzureDiscovery": true,
+    "allowGraphDiscovery": true,
+    "allowSharePointDiscovery": true,
+    "allowPortalSync": true,
+    "requiredFields": [
+      "tenantId",
+      "tenantName",
+      "azureSubscriptionId",
+      "sharePointSiteUrl",
+      "sharePointTenantHostname"
+    ],
+    "excludedDataTypes": [
+      "documentContent",
+      "mailboxContent",
+      "userFiles",
+      "rawSecrets",
+      "broadUserProfileExport"
+    ]
+  }
+}

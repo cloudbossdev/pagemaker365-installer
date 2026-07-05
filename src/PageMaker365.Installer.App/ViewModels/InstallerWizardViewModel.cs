@@ -9,16 +9,27 @@ namespace PageMaker365.Installer.App.ViewModels;
 public sealed class InstallerWizardViewModel : ViewModelBase
 {
     private readonly CustomerConfigService _configService = new();
+    private readonly OnboardingSessionService _onboardingSessionService = new();
     private readonly RedactionService _redactionService = new();
     private readonly InstallerEngine _engine;
     private readonly SupportBundleService _supportBundleService;
+    private readonly TenantDiscoveryService _tenantDiscoveryService;
+    private readonly MockOnboardingApiClient _onboardingApiClient = new();
     private CustomerInstallConfig? _config;
     private InstallerSession? _session;
+    private OnboardingBootstrapSession? _bootstrapSession;
+    private TenantDiscoveryResult? _tenantDiscovery;
 
     private string _packagePath = "No customer package loaded.";
     private string _customerName = "Load a customer package";
     private string _azureSubscription = "Not loaded";
     private string _sharePointSite = "Not loaded";
+    private string _onboardingSessionId = "Not connected";
+    private string _onboardingStatus = "No onboarding session connected.";
+    private string _onboardingApiBaseUrl = "Not connected";
+    private string _discoverySummary = "No discovery snapshot created.";
+    private string _discoveryOutputPath = "Not saved";
+    private string _portalSyncStatus = "Not synced";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -38,11 +49,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         _engine = new InstallerEngine(new StructuredLogger(_redactionService));
         _supportBundleService = new SupportBundleService(_redactionService);
+        _tenantDiscoveryService = new TenantDiscoveryService(_redactionService);
 
         Steps = [];
 
         SelectSetupModeCommand = new RelayCommand(SelectSetupModeAsync);
         SelectRemovalModeCommand = new RelayCommand(SelectRemovalModeAsync);
+        LoadSampleBootstrapCommand = new RelayCommand(LoadSampleBootstrapAsync);
+        BrowseBootstrapCommand = new RelayCommand(BrowseBootstrapAsync);
+        ConnectOnboardingCommand = new RelayCommand(ConnectOnboardingAsync, () => _bootstrapSession is not null);
+        RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, () => _bootstrapSession is not null);
+        SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, () => _bootstrapSession is not null && _tenantDiscovery is not null);
+        SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null);
         LoadSamplePackageCommand = new RelayCommand(LoadSamplePackageAsync);
         BrowsePackageCommand = new RelayCommand(BrowsePackageAsync);
         ConnectAzureCommand = new RelayCommand(ConnectAzureAsync, () => _config is not null);
@@ -63,6 +81,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
     public RelayCommand SelectSetupModeCommand { get; }
     public RelayCommand SelectRemovalModeCommand { get; }
+    public RelayCommand LoadSampleBootstrapCommand { get; }
+    public RelayCommand BrowseBootstrapCommand { get; }
+    public RelayCommand ConnectOnboardingCommand { get; }
+    public RelayCommand RunDiscoveryCommand { get; }
+    public RelayCommand SyncDiscoveryCommand { get; }
+    public RelayCommand SaveDiscoveryCommand { get; }
     public RelayCommand LoadSamplePackageCommand { get; }
     public RelayCommand BrowsePackageCommand { get; }
     public RelayCommand ConnectAzureCommand { get; }
@@ -98,6 +122,42 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _sharePointSite;
         set => SetProperty(ref _sharePointSite, value);
+    }
+
+    public string OnboardingSessionId
+    {
+        get => _onboardingSessionId;
+        set => SetProperty(ref _onboardingSessionId, value);
+    }
+
+    public string OnboardingStatus
+    {
+        get => _onboardingStatus;
+        set => SetProperty(ref _onboardingStatus, value);
+    }
+
+    public string OnboardingApiBaseUrl
+    {
+        get => _onboardingApiBaseUrl;
+        set => SetProperty(ref _onboardingApiBaseUrl, value);
+    }
+
+    public string DiscoverySummary
+    {
+        get => _discoverySummary;
+        set => SetProperty(ref _discoverySummary, value);
+    }
+
+    public string DiscoveryOutputPath
+    {
+        get => _discoveryOutputPath;
+        set => SetProperty(ref _discoveryOutputPath, value);
+    }
+
+    public string PortalSyncStatus
+    {
+        get => _portalSyncStatus;
+        set => SetProperty(ref _portalSyncStatus, value);
     }
 
     public string AiTitle
@@ -189,6 +249,132 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ConfigureRemovalWorkflow();
         FooterStatus = "Removal workflow selected. Continue to discover or load the existing PageMaker365 deployment.";
         return Task.CompletedTask;
+    }
+
+    private async Task LoadSampleBootstrapAsync()
+    {
+        var path = FindSampleBootstrapPath();
+        if (path is null)
+        {
+            LoadBootstrapSession(OnboardingSessionService.CreateFallbackSession(), "Built-in demo onboarding session");
+            return;
+        }
+
+        await LoadBootstrapAsync(path);
+    }
+
+    private async Task BrowseBootstrapAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Select PageMaker365 onboarding bootstrap session",
+            Filter = "PageMaker365 bootstrap (*.pm365bootstrap;*.json)|*.pm365bootstrap;*.json|JSON files (*.json)|*.json|All files (*.*)|*.*"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            await LoadBootstrapAsync(dialog.FileName);
+        }
+    }
+
+    private async Task LoadBootstrapAsync(string path)
+    {
+        var session = await _onboardingSessionService.LoadBootstrapAsync(path);
+        var validation = _onboardingSessionService.Validate(session);
+        if (!validation.IsValid)
+        {
+            FooterStatus = string.Join(" ", validation.Errors);
+            return;
+        }
+
+        LoadBootstrapSession(session, path);
+        if (validation.Warnings.Count > 0)
+        {
+            FooterStatus = string.Join(" ", validation.Warnings);
+        }
+    }
+
+    private void LoadBootstrapSession(OnboardingBootstrapSession session, string source)
+    {
+        _bootstrapSession = session;
+        _tenantDiscovery = null;
+        OnboardingSessionId = session.SessionId;
+        OnboardingApiBaseUrl = session.ApiBaseUrl;
+        OnboardingStatus = $"Bootstrap loaded from {source}.";
+        PortalSyncStatus = "Not synced";
+        DiscoverySummary = "No discovery snapshot created.";
+        DiscoveryOutputPath = "Not saved";
+        if (_config is null)
+        {
+            CustomerName = session.CustomerName;
+        }
+
+        FooterStatus = "Onboarding bootstrap loaded. Connect the session or run mock discovery.";
+        ConnectOnboardingCommand.RaiseCanExecuteChanged();
+        RunDiscoveryCommand.RaiseCanExecuteChanged();
+        SyncDiscoveryCommand.RaiseCanExecuteChanged();
+        SaveDiscoveryCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task ConnectOnboardingAsync()
+    {
+        if (_bootstrapSession is null)
+        {
+            FooterStatus = "Load an onboarding bootstrap session first.";
+            return;
+        }
+
+        var connection = await _onboardingApiClient.ConnectAsync(_bootstrapSession);
+        OnboardingStatus = $"{connection.Status}: {connection.Message}";
+        PortalSyncStatus = $"Connected with correlation {connection.CorrelationId}.";
+        FooterStatus = "Mock onboarding API session connected. No network request was made.";
+    }
+
+    private Task RunDiscoveryAsync()
+    {
+        if (_bootstrapSession is null)
+        {
+            FooterStatus = "Load an onboarding bootstrap session first.";
+            return Task.CompletedTask;
+        }
+
+        _tenantDiscovery = _tenantDiscoveryService.CreateDiscovery(_bootstrapSession, _config);
+        DiscoverySummary = $"{_tenantDiscovery.Customer.TenantName}; tenant {_tenantDiscovery.Customer.TenantId}; SharePoint {_tenantDiscovery.SharePoint.SiteUrl}; subscription {_tenantDiscovery.Azure.SelectedSubscriptionId}";
+        DiscoveryOutputPath = "Not saved";
+        PortalSyncStatus = "Discovery created locally. Not synced.";
+        FooterStatus = "Mock tenant discovery created. Review, save a redacted copy, or sync to the mock portal client.";
+        AiTitle = "Discovery snapshot ready";
+        AiSummary = "The installer has created an install-readiness payload shaped for portal onboarding. This build uses mock discovery derived from the bootstrap session and loaded package.";
+        SyncDiscoveryCommand.RaiseCanExecuteChanged();
+        SaveDiscoveryCommand.RaiseCanExecuteChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task SyncDiscoveryAsync()
+    {
+        if (_bootstrapSession is null || _tenantDiscovery is null)
+        {
+            FooterStatus = "Create a discovery snapshot before syncing.";
+            return;
+        }
+
+        var submission = await _onboardingApiClient.SubmitDiscoveryAsync(_bootstrapSession, _tenantDiscovery);
+        PortalSyncStatus = $"{submission.Status}: {submission.PortalRecordUrl}";
+        FooterStatus = "Discovery synced to the mock PageMaker365 API client. No network request was made.";
+    }
+
+    private async Task SaveDiscoveryAsync()
+    {
+        if (_tenantDiscovery is null)
+        {
+            FooterStatus = "Create a discovery snapshot before saving.";
+            return;
+        }
+
+        var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
+        var path = await _tenantDiscoveryService.SaveRedactedAsync(_tenantDiscovery, outputRoot);
+        DiscoveryOutputPath = path;
+        FooterStatus = $"Redacted tenant discovery saved: {path}";
     }
 
     private async Task LoadSamplePackageAsync()
@@ -526,13 +712,25 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         _config = null;
         _session = null;
+        _bootstrapSession = null;
+        _tenantDiscovery = null;
         PackagePath = "No customer package loaded.";
         CustomerName = "Load a customer package";
         AzureSubscription = "Not loaded";
         SharePointSite = "Not loaded";
+        OnboardingSessionId = "Not connected";
+        OnboardingStatus = "No onboarding session connected.";
+        OnboardingApiBaseUrl = "Not connected";
+        DiscoverySummary = "No discovery snapshot created.";
+        DiscoveryOutputPath = "Not saved";
+        PortalSyncStatus = "Not synced";
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
+        ConnectOnboardingCommand.RaiseCanExecuteChanged();
+        RunDiscoveryCommand.RaiseCanExecuteChanged();
+        SyncDiscoveryCommand.RaiseCanExecuteChanged();
+        SaveDiscoveryCommand.RaiseCanExecuteChanged();
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
@@ -654,6 +852,20 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         foreach (var root in EnumerateCandidateRoots())
         {
             var candidate = Path.Combine(root, "samples", "contoso.customer.install.json");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindSampleBootstrapPath()
+    {
+        foreach (var root in EnumerateCandidateRoots())
+        {
+            var candidate = Path.Combine(root, "samples", "contoso.onboarding.bootstrap.json");
             if (File.Exists(candidate))
             {
                 return candidate;
