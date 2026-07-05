@@ -48,7 +48,7 @@ public partial class MainWindow : Window
         SetupChoiceCard.Margin = compact ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 12);
         RemovalChoiceCard.Margin = compact ? new Thickness(0, 0, 0, 12) : new Thickness(9, 0, 0, 12);
 
-        OnboardingActionsGrid.Columns = compact ? 2 : 3;
+        OnboardingActionsGrid.Columns = compact ? 2 : 4;
         CompactGuidanceActions.Columns = ActualWidth > 0 && ActualWidth < 820 ? 1 : 3;
         RemovalPreviewGrid.Columns = compact ? 1 : 3;
 

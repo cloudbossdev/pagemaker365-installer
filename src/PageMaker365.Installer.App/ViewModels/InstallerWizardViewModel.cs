@@ -21,6 +21,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private InstallerSession? _session;
     private OnboardingBootstrapSession? _bootstrapSession;
     private TenantDiscoveryResult? _tenantDiscovery;
+    private OnboardingPortalStatus? _onboardingPortalStatus;
+    private OnboardingPackageReadiness? _packageReadiness;
     private AssistantWorkspaceWindow? _assistantWindow;
 
     private string _packagePath = "No customer package loaded.";
@@ -33,6 +35,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _discoverySummary = "No discovery snapshot created.";
     private string _discoveryOutputPath = "Not saved";
     private string _portalSyncStatus = "Not synced";
+    private string _portalMissingFieldsSummary = "Package readiness has not been checked.";
+    private string _packageReadinessStatus = "Not checked";
+    private string _packageReadinessVersion = "Not available";
+    private string _packageDownloadPath = "Not downloaded";
+    private string _portalStatusOutputPath = "Not saved";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -64,6 +71,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, () => _bootstrapSession is not null);
         SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, () => _bootstrapSession is not null && _tenantDiscovery is not null);
         SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null);
+        CheckPackageReadinessCommand = new RelayCommand(CheckPackageReadinessAsync, () => _bootstrapSession is not null);
+        DownloadGeneratedPackageCommand = new RelayCommand(DownloadGeneratedPackageAsync, CanDownloadGeneratedPackage);
         LoadSamplePackageCommand = new RelayCommand(LoadSamplePackageAsync);
         BrowsePackageCommand = new RelayCommand(BrowsePackageAsync);
         ConnectAzureCommand = new RelayCommand(ConnectAzureAsync, () => _config is not null);
@@ -91,6 +100,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand RunDiscoveryCommand { get; }
     public RelayCommand SyncDiscoveryCommand { get; }
     public RelayCommand SaveDiscoveryCommand { get; }
+    public RelayCommand CheckPackageReadinessCommand { get; }
+    public RelayCommand DownloadGeneratedPackageCommand { get; }
     public RelayCommand LoadSamplePackageCommand { get; }
     public RelayCommand BrowsePackageCommand { get; }
     public RelayCommand ConnectAzureCommand { get; }
@@ -163,6 +174,36 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _portalSyncStatus;
         set => SetProperty(ref _portalSyncStatus, value);
+    }
+
+    public string PortalMissingFieldsSummary
+    {
+        get => _portalMissingFieldsSummary;
+        set => SetProperty(ref _portalMissingFieldsSummary, value);
+    }
+
+    public string PackageReadinessStatus
+    {
+        get => _packageReadinessStatus;
+        set => SetProperty(ref _packageReadinessStatus, value);
+    }
+
+    public string PackageReadinessVersion
+    {
+        get => _packageReadinessVersion;
+        set => SetProperty(ref _packageReadinessVersion, value);
+    }
+
+    public string PackageDownloadPath
+    {
+        get => _packageDownloadPath;
+        set => SetProperty(ref _packageDownloadPath, value);
+    }
+
+    public string PortalStatusOutputPath
+    {
+        get => _portalStatusOutputPath;
+        set => SetProperty(ref _portalStatusOutputPath, value);
     }
 
     public string AiTitle
@@ -303,12 +344,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         _bootstrapSession = session;
         _tenantDiscovery = null;
+        _onboardingPortalStatus = null;
+        _packageReadiness = null;
         OnboardingSessionId = session.SessionId;
         OnboardingApiBaseUrl = session.ApiBaseUrl;
         OnboardingStatus = $"Bootstrap loaded from {source}.";
         PortalSyncStatus = "Not synced";
         DiscoverySummary = "No discovery snapshot created.";
         DiscoveryOutputPath = "Not saved";
+        PortalMissingFieldsSummary = "Package readiness has not been checked.";
+        PackageReadinessStatus = "Not checked";
+        PackageReadinessVersion = "Not available";
+        PackageDownloadPath = "Not downloaded";
+        PortalStatusOutputPath = "Not saved";
         if (_config is null)
         {
             CustomerName = session.CustomerName;
@@ -319,6 +367,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunDiscoveryCommand.RaiseCanExecuteChanged();
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
+        CheckPackageReadinessCommand.RaiseCanExecuteChanged();
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
     private async Task ConnectOnboardingAsync()
@@ -344,14 +394,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         _tenantDiscovery = _tenantDiscoveryService.CreateDiscovery(_bootstrapSession, _config);
+        _onboardingPortalStatus = null;
+        _packageReadiness = null;
         DiscoverySummary = $"{_tenantDiscovery.Customer.TenantName}; tenant {_tenantDiscovery.Customer.TenantId}; SharePoint {_tenantDiscovery.SharePoint.SiteUrl}; subscription {_tenantDiscovery.Azure.SelectedSubscriptionId}";
         DiscoveryOutputPath = "Not saved";
         PortalSyncStatus = "Discovery created locally. Not synced.";
+        PackageReadinessStatus = "Discovery changed; check readiness";
+        PortalMissingFieldsSummary = "Discovery is ready to sync. Check package readiness after portal sync.";
         FooterStatus = "Mock tenant discovery created. Review, save a redacted copy, or sync to the mock portal client.";
         AiTitle = "Discovery snapshot ready";
         AiSummary = "The installer has created an install-readiness payload shaped for portal onboarding. This build uses mock discovery derived from the bootstrap session and loaded package.";
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
         return Task.CompletedTask;
     }
 
@@ -366,6 +421,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var submission = await _onboardingApiClient.SubmitDiscoveryAsync(_bootstrapSession, _tenantDiscovery);
         PortalSyncStatus = $"{submission.Status}: {submission.PortalRecordUrl}";
         FooterStatus = "Discovery synced to the mock PageMaker365 API client. No network request was made.";
+        await RefreshOnboardingPortalStatusAsync("Discovery synced. Package readiness refreshed.");
     }
 
     private async Task SaveDiscoveryAsync()
@@ -380,6 +436,88 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var path = await _tenantDiscoveryService.SaveRedactedAsync(_tenantDiscovery, outputRoot);
         DiscoveryOutputPath = path;
         FooterStatus = $"Redacted tenant discovery saved: {path}";
+    }
+
+    private async Task CheckPackageReadinessAsync()
+    {
+        if (_bootstrapSession is null)
+        {
+            FooterStatus = "Load an onboarding bootstrap session before checking package readiness.";
+            return;
+        }
+
+        await RefreshOnboardingPortalStatusAsync("Package readiness checked.");
+    }
+
+    private async Task RefreshOnboardingPortalStatusAsync(string footerStatus)
+    {
+        if (_bootstrapSession is null)
+        {
+            return;
+        }
+
+        _onboardingPortalStatus = await _onboardingApiClient.GetOnboardingStatusAsync(_bootstrapSession, _tenantDiscovery, _config);
+        _packageReadiness = _onboardingPortalStatus.PackageReadiness;
+        PackageReadinessStatus = _packageReadiness.Status;
+        PackageReadinessVersion = string.IsNullOrWhiteSpace(_packageReadiness.PackageVersion)
+            ? "Not available"
+            : _packageReadiness.PackageVersion;
+        PackageDownloadPath = string.IsNullOrWhiteSpace(_packageReadiness.LocalPackagePath)
+            ? "Not downloaded"
+            : _packageReadiness.LocalPackagePath;
+        PortalMissingFieldsSummary = _onboardingPortalStatus.MissingFields.Count == 0
+            ? "No required onboarding fields are missing."
+            : string.Join("; ", _onboardingPortalStatus.MissingFields.Select(field => $"{field.Label} ({field.FieldKey})"));
+        PortalSyncStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.PortalRecordUrl}";
+        OnboardingStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.Message}";
+
+        var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
+        PortalStatusOutputPath = await _onboardingApiClient.SaveMockStatusAsync(_onboardingPortalStatus, outputRoot);
+        FooterStatus = $"{footerStatus} {_packageReadiness.Message}";
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+    }
+
+    private bool CanDownloadGeneratedPackage()
+    {
+        return _bootstrapSession is not null
+            && _packageReadiness is not null
+            && _packageReadiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task DownloadGeneratedPackageAsync()
+    {
+        if (_bootstrapSession is null)
+        {
+            FooterStatus = "Load an onboarding bootstrap session before downloading a generated package.";
+            return;
+        }
+
+        if (_packageReadiness is null)
+        {
+            await RefreshOnboardingPortalStatusAsync("Package readiness checked before download.");
+        }
+
+        if (!CanDownloadGeneratedPackage() || _packageReadiness is null)
+        {
+            FooterStatus = "The portal package is not ready yet. Complete missing onboarding fields or sync discovery first.";
+            return;
+        }
+
+        var download = await _onboardingApiClient.DownloadPackageAsync(_bootstrapSession, _packageReadiness, GetWorkspaceRoot());
+        PackageDownloadPath = download.PackagePath;
+        PackageReadinessStatus = download.Status;
+        if (!download.Status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase))
+        {
+            FooterStatus = download.Message;
+            return;
+        }
+
+        await LoadPackageAsync(download.PackagePath);
+        PackageDownloadPath = download.PackagePath;
+        PackageReadinessStatus = "Downloaded";
+        PackageReadinessVersion = download.PackageVersion;
+        FooterStatus = $"Generated install package downloaded and loaded: {download.PackagePath}";
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
     private async Task LoadSamplePackageAsync()
@@ -428,10 +566,17 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private void LoadConfig(CustomerInstallConfig config, string path)
     {
         _config = config;
+        _onboardingPortalStatus = null;
+        _packageReadiness = null;
         PackagePath = path;
         CustomerName = config.Customer.TenantName;
         AzureSubscription = $"{config.Azure.SubscriptionId} / {config.Azure.ResourceGroupName}";
         SharePointSite = config.SharePoint.SiteUrl;
+        if (_bootstrapSession is not null)
+        {
+            PackageReadinessStatus = "Package changed; check readiness";
+            PortalMissingFieldsSummary = "Loaded package can be used as readiness context. Check package readiness again.";
+        }
         FooterStatus = IsRemovalMode
             ? "Customer package loaded. Sign in so the app can inventory the existing deployment."
             : "Customer package loaded. Run preflight checks next.";
@@ -443,6 +588,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
     private async Task ConnectAzureAsync()
@@ -719,6 +865,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _session = null;
         _bootstrapSession = null;
         _tenantDiscovery = null;
+        _onboardingPortalStatus = null;
+        _packageReadiness = null;
         PackagePath = "No customer package loaded.";
         CustomerName = "Load a customer package";
         AzureSubscription = "Not loaded";
@@ -729,6 +877,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DiscoverySummary = "No discovery snapshot created.";
         DiscoveryOutputPath = "Not saved";
         PortalSyncStatus = "Not synced";
+        PortalMissingFieldsSummary = "Package readiness has not been checked.";
+        PackageReadinessStatus = "Not checked";
+        PackageReadinessVersion = "Not available";
+        PackageDownloadPath = "Not downloaded";
+        PortalStatusOutputPath = "Not saved";
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -736,6 +889,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunDiscoveryCommand.RaiseCanExecuteChanged();
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
+        CheckPackageReadinessCommand.RaiseCanExecuteChanged();
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();

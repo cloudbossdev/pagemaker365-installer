@@ -86,6 +86,58 @@ GET  /api/onboarding/installer/{sessionId}/install-package
 
 The first desktop build uses `MockOnboardingApiClient`, which does not make network calls. It lets the app prove the UI, model, redaction, and local persistence flow before the portal API exists.
 
+### Onboarding Status / Package Readiness
+
+Sample: `samples/contoso.onboarding.status.json`
+
+The status endpoint should tell the installer whether the portal has enough customer/onboarding data to generate the final install package.
+
+Important fields:
+
+- `sessionId`: portal onboarding session ID.
+- `status`: high-level onboarding state, such as `NeedsCustomerInput`, `Ready`, or `Downloaded`.
+- `missingFields`: required fields still needed before package generation.
+- `packageReadiness.status`: package state, such as `NotChecked`, `NeedsCustomerInput`, `Ready`, or `Downloaded`.
+- `packageReadiness.packageVersion`: generated package contract/version identifier.
+- `packageReadiness.packageDownloadUrl`: API endpoint the installer can use to retrieve the generated package.
+- `correlationId`: server-side trace ID for audit/support.
+
+Example response:
+
+```json
+{
+  "contractVersion": "0.1",
+  "sessionId": "onb_contoso_sandbox_001",
+  "customerName": "Contoso Intranet",
+  "status": "Ready",
+  "portalRecordUrl": "https://pagemaker365.com/admin/onboarding/onb_contoso_sandbox_001",
+  "correlationId": "server-correlation-id",
+  "message": "Portal has enough onboarding data to generate the install package.",
+  "lastSyncAt": "2026-07-05T22:00:00Z",
+  "missingFields": [],
+  "packageReadiness": {
+    "status": "Ready",
+    "packageVersion": "0.2",
+    "packageDownloadUrl": "https://pagemaker365.com/api/onboarding/installer/onb_contoso_sandbox_001/install-package",
+    "localPackagePath": "",
+    "readyAt": "2026-07-05T22:00:00Z",
+    "message": "Generated package is ready for installer download."
+  }
+}
+```
+
+The desktop app currently implements this in mock mode by writing:
+
+`support-bundle/onboarding/{sessionId}/portal-status.mock.json`
+
+When the package is ready, mock download copies:
+
+`samples/contoso.customer.install.json`
+
+to:
+
+`support-bundle/onboarding/{sessionId}/generated-package/{sessionId}.customer.install.json`
+
 ## Security Rules
 
 - Discovery is read-only.
@@ -105,6 +157,8 @@ Implemented in this repo:
 - Mock PageMaker365 API connect and discovery submission.
 - Mock discovery generation from the bootstrap session and loaded install package.
 - Redacted local discovery JSON export.
+- Mock package-readiness status.
+- Mock generated package download and load into the installer.
 
 Not implemented yet:
 
@@ -113,4 +167,4 @@ Not implemented yet:
 - Real SharePoint site/library discovery.
 - Production PageMaker365 API integration.
 - Portal-side onboarding form population.
-- Signed final install package download.
+- Signed final install package download from the production portal API.

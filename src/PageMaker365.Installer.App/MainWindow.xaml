@@ -239,14 +239,47 @@
                                 </StackPanel>
                             </Grid>
 
-                            <UniformGrid x:Name="OnboardingActionsGrid" Columns="3" Margin="0,18,0,0">
+                            <UniformGrid x:Name="OnboardingActionsGrid" Columns="4" Margin="0,18,0,0">
                                 <Button Content="Load Sample Bootstrap" Command="{Binding LoadSampleBootstrapCommand}" Margin="0,0,8,8" />
                                 <Button Content="Browse Bootstrap" Command="{Binding BrowseBootstrapCommand}" Margin="4,0,4,8" />
                                 <Button Content="Connect Session" Command="{Binding ConnectOnboardingCommand}" Margin="8,0,0,8" />
                                 <Button Content="Create Discovery" Command="{Binding RunDiscoveryCommand}" Margin="0,0,8,0" />
                                 <Button Content="Save Redacted JSON" Command="{Binding SaveDiscoveryCommand}" Margin="4,0,4,0" />
-                                <Button Content="Mock Sync To Portal" Command="{Binding SyncDiscoveryCommand}" Margin="8,0,0,0" />
+                                <Button Content="Mock Sync To Portal" Command="{Binding SyncDiscoveryCommand}" Margin="8,0,8,0" />
+                                <Button Content="Check Readiness" Command="{Binding CheckPackageReadinessCommand}" Margin="4,0,4,0" />
+                                <Button Content="Download Package" Command="{Binding DownloadGeneratedPackageCommand}" Margin="8,0,0,0" />
                             </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                        <StackPanel>
+                            <TextBlock Text="Portal Package Readiness" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="Use this status to confirm whether the portal has enough onboarding data to generate the install package."
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="20"
+                                       Margin="0,8,0,16" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,9,0">
+                                    <TextBlock Text="Readiness" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageReadinessStatus}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="Package Version" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageReadinessVersion}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="Missing Fields" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PortalMissingFieldsSummary}" FontSize="14" TextWrapping="Wrap" LineHeight="19" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="9,0,0,0">
+                                    <TextBlock Text="Mock Status Output" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PortalStatusOutputPath}" FontSize="14" TextWrapping="Wrap" LineHeight="19" Margin="0,4,0,12" />
+                                    <TextBlock Text="Package Download" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageDownloadPath}" FontSize="14" TextWrapping="Wrap" LineHeight="19" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Border>
 

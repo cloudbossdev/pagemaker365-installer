@@ -1,0 +1,19 @@
+{
+  "contractVersion": "0.1",
+  "sessionId": "onb_contoso_sandbox_001",
+  "customerName": "Contoso Intranet",
+  "status": "Ready",
+  "portalRecordUrl": "https://pagemaker365.com/admin/onboarding/onb_contoso_sandbox_001",
+  "correlationId": "sample-status-correlation",
+  "message": "Portal has enough onboarding data to generate the install package.",
+  "lastSyncAt": "2026-07-05T22:00:00Z",
+  "missingFields": [],
+  "packageReadiness": {
+    "status": "Ready",
+    "packageVersion": "0.2-mock",
+    "packageDownloadUrl": "https://pagemaker365.com/api/onboarding/installer/onb_contoso_sandbox_001/install-package",
+    "localPackagePath": "",
+    "readyAt": "2026-07-05T22:00:00Z",
+    "message": "Generated package is ready for installer download."
+  }
+}
