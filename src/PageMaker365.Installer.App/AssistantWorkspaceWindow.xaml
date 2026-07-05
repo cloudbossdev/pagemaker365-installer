@@ -93,6 +93,7 @@
                                                             <StackPanel Width="150">
                                                                 <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                                                 <TextBlock Text="{Binding SizeLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                                                <TextBlock Text="{Binding UploadStatus}" Foreground="{StaticResource PmCyan}" FontSize="12" />
                                                             </StackPanel>
                                                         </StackPanel>
                                                     </Border>
@@ -144,6 +145,28 @@
                             <Button Content="Paste Screenshot" Command="{Binding PasteClipboardImageCommand}" />
                         </StackPanel>
                     </Border>
+
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Support Handoff" FontSize="18" FontWeight="Bold" />
+                            <TextBlock Text="Create a draft support ticket from this conversation. In mock mode it writes a local portal outbox."
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="19"
+                                       Margin="0,6,0,12" />
+                            <CheckBox Content="Upload attachments with handoff"
+                                      IsChecked="{Binding UploadAttachmentsWithHandoff}"
+                                      Foreground="{StaticResource PmText}"
+                                      Margin="0,0,0,12" />
+                            <Button Content="Create Support Ticket Draft"
+                                    Command="{Binding CreateSupportTicketDraftCommand}"
+                                    Margin="0,0,0,12" />
+                            <TextBlock Text="{Binding SupportTicketStatus}"
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="18" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -179,6 +202,7 @@
                                     <StackPanel Width="170">
                                         <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding SizeLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                        <TextBlock Text="{Binding UploadStatus}" Foreground="{StaticResource PmCyan}" FontSize="12" />
                                     </StackPanel>
                                     <Button Content="Remove"
                                             MinHeight="30"

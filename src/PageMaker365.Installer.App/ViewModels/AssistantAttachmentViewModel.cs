@@ -14,6 +14,7 @@ public sealed class AssistantAttachmentViewModel
     public string Kind => Model.IsImage ? "Image" : Model.ContentType;
     public string PreviewPath => Model.IsImage ? Model.StoredPath : "";
     public string SizeLabel => FormatSize(Model.SizeBytes);
+    public string UploadStatus => string.IsNullOrWhiteSpace(Model.UploadStatus) ? "Local" : Model.UploadStatus;
 
     private static string FormatSize(long bytes)
     {

@@ -43,12 +43,20 @@ public sealed class AssistantApiOptionsService
         ApplyString("PM365_ASSISTANT_MODE", value => options.Mode = value);
         ApplyString("PM365_ASSISTANT_API_BASE_URL", value => options.PortalApiBaseUrl = value);
         ApplyString("PM365_ASSISTANT_ENDPOINT_PATH", value => options.MessageEndpointPath = value);
+        ApplyString("PM365_ASSISTANT_ATTACHMENT_ENDPOINT_PATH", value => options.AttachmentEndpointPath = value);
+        ApplyString("PM365_ASSISTANT_SUPPORT_TICKET_ENDPOINT_PATH", value => options.SupportTicketEndpointPath = value);
         ApplyString("PM365_ASSISTANT_API_KEY_ENV", value => options.ApiKeyEnvironmentVariable = value);
 
         var timeout = Environment.GetEnvironmentVariable("PM365_ASSISTANT_TIMEOUT_SECONDS");
         if (int.TryParse(timeout, out var timeoutSeconds) && timeoutSeconds > 0)
         {
             options.TimeoutSeconds = timeoutSeconds;
+        }
+
+        var maxAttachmentBytes = Environment.GetEnvironmentVariable("PM365_ASSISTANT_MAX_ATTACHMENT_BYTES");
+        if (long.TryParse(maxAttachmentBytes, out var bytes) && bytes > 0)
+        {
+            options.MaxAttachmentBytes = bytes;
         }
 
         var fallback = Environment.GetEnvironmentVariable("PM365_ASSISTANT_FALLBACK_TO_MOCK");
@@ -84,6 +92,16 @@ public sealed class AssistantApiOptionsService
             options.MessageEndpointPath = "/api/installer/assistant/messages";
         }
 
+        if (string.IsNullOrWhiteSpace(options.AttachmentEndpointPath))
+        {
+            options.AttachmentEndpointPath = "/api/installer/assistant/attachments";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.SupportTicketEndpointPath))
+        {
+            options.SupportTicketEndpointPath = "/api/installer/support-tickets";
+        }
+
         if (string.IsNullOrWhiteSpace(options.ApiKeyEnvironmentVariable))
         {
             options.ApiKeyEnvironmentVariable = "PM365_ASSISTANT_API_KEY";
@@ -92,6 +110,11 @@ public sealed class AssistantApiOptionsService
         if (options.TimeoutSeconds <= 0)
         {
             options.TimeoutSeconds = 30;
+        }
+
+        if (options.MaxAttachmentBytes <= 0)
+        {
+            options.MaxAttachmentBytes = 10 * 1024 * 1024;
         }
     }
 }

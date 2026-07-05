@@ -2,7 +2,10 @@
   "mode": "Mock",
   "portalApiBaseUrl": "https://pagemaker365.com",
   "messageEndpointPath": "/api/installer/assistant/messages",
+  "attachmentEndpointPath": "/api/installer/assistant/attachments",
+  "supportTicketEndpointPath": "/api/installer/support-tickets",
   "apiKeyEnvironmentVariable": "PM365_ASSISTANT_API_KEY",
   "timeoutSeconds": 30,
+  "maxAttachmentBytes": 10485760,
   "fallbackToMockOnFailure": true
 }

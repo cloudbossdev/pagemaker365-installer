@@ -46,6 +46,53 @@ public sealed class AssistantApiClient
         }
     }
 
+    public async Task<AssistantAttachmentUploadResponse> UploadAttachmentAsync(
+        AssistantAttachmentUploadRequest request,
+        string storedPath,
+        string outboxRoot,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateAttachmentForUpload(request, storedPath);
+
+        if (_options.UseMock)
+        {
+            return await UploadAttachmentToMockAsync(request, storedPath, outboxRoot, usedFallback: false, cancellationToken);
+        }
+
+        try
+        {
+            return await UploadAttachmentToPortalAsync(request, storedPath, cancellationToken);
+        }
+        catch (Exception) when (_options.FallbackToMockOnFailure)
+        {
+            return await UploadAttachmentToMockAsync(request, storedPath, outboxRoot, usedFallback: true, cancellationToken);
+        }
+    }
+
+    public async Task<AssistantSupportTicketResponse> CreateSupportTicketDraftAsync(
+        AssistantSupportTicketRequest request,
+        string outboxRoot,
+        CancellationToken cancellationToken = default)
+    {
+        if (_options.UseMock)
+        {
+            return await CreateSupportTicketDraftInMockAsync(request, outboxRoot, usedFallback: false, cancellationToken);
+        }
+
+        try
+        {
+            return await PostJsonAsync<AssistantSupportTicketRequest, AssistantSupportTicketResponse>(
+                _options.SupportTicketEndpoint,
+                request,
+                fallbackSource: "PortalApi",
+                cancellationToken);
+        }
+        catch (Exception) when (_options.FallbackToMockOnFailure)
+        {
+            return await CreateSupportTicketDraftInMockAsync(request, outboxRoot, usedFallback: true, cancellationToken);
+        }
+    }
+
     private async Task<AssistantMessageResponse> SendToMockAsync(
         AssistantMessageRequest request,
         bool usedFallback,
@@ -81,11 +128,7 @@ public sealed class AssistantApiClient
         {
             Content = new StringContent(JsonSerializer.Serialize(request, JsonOptions), Encoding.UTF8, "application/json")
         };
-        var apiKey = Environment.GetEnvironmentVariable(_options.ApiKeyEnvironmentVariable);
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
+        ApplyAuthorization(httpRequest);
 
         using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -104,6 +147,190 @@ public sealed class AssistantApiClient
             ? "PortalApi"
             : assistantResponse.Source;
         return assistantResponse;
+    }
+
+    private async Task<AssistantAttachmentUploadResponse> UploadAttachmentToPortalAsync(
+        AssistantAttachmentUploadRequest request,
+        string storedPath,
+        CancellationToken cancellationToken)
+    {
+        await using var fileStream = File.OpenRead(storedPath);
+        using var content = new MultipartFormDataContent();
+        content.Add(
+            new StringContent(JsonSerializer.Serialize(request, JsonOptions), Encoding.UTF8, "application/json"),
+            "metadata");
+        var fileContent = new StreamContent(fileStream);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(request.ContentType);
+        content.Add(fileContent, "file", request.FileName);
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _options.AttachmentEndpoint)
+        {
+            Content = content
+        };
+        ApplyAuthorization(httpRequest);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Assistant attachment API returned {(int)response.StatusCode}: {body}");
+        }
+
+        var uploadResponse = JsonSerializer.Deserialize<AssistantAttachmentUploadResponse>(body, JsonOptions);
+        if (uploadResponse is null)
+        {
+            throw new InvalidOperationException("Assistant attachment API returned an empty response.");
+        }
+
+        uploadResponse.Source = string.IsNullOrWhiteSpace(uploadResponse.Source)
+            ? "PortalApi"
+            : uploadResponse.Source;
+        return uploadResponse;
+    }
+
+    private async Task<AssistantAttachmentUploadResponse> UploadAttachmentToMockAsync(
+        AssistantAttachmentUploadRequest request,
+        string storedPath,
+        string outboxRoot,
+        bool usedFallback,
+        CancellationToken cancellationToken)
+    {
+        var attachmentRoot = Path.Combine(outboxRoot, "attachments");
+        Directory.CreateDirectory(attachmentRoot);
+
+        var safeFileName = SafeFileName(request.FileName);
+        var outboxFilePath = Path.Combine(attachmentRoot, $"{request.AttachmentId}-{safeFileName}");
+        await using (var source = File.OpenRead(storedPath))
+        await using (var target = File.Create(outboxFilePath))
+        {
+            await source.CopyToAsync(target, cancellationToken);
+        }
+
+        var response = new AssistantAttachmentUploadResponse
+        {
+            ConversationId = request.ConversationId,
+            AttachmentId = request.AttachmentId,
+            UploadedAttachmentId = $"mock-upload-{request.AttachmentId}",
+            Source = usedFallback ? "LocalMockFallback" : "LocalMock",
+            UsedFallback = usedFallback,
+            Status = "Uploaded",
+            Message = $"Attachment copied to local portal outbox: {outboxFilePath}"
+        };
+
+        var manifestPath = Path.Combine(attachmentRoot, $"{request.AttachmentId}.upload.json");
+        await WriteJsonAsync(
+            manifestPath,
+            new
+            {
+                request,
+                response,
+                outboxFile = Path.GetFileName(outboxFilePath)
+            },
+            cancellationToken);
+        return response;
+    }
+
+    private async Task<AssistantSupportTicketResponse> CreateSupportTicketDraftInMockAsync(
+        AssistantSupportTicketRequest request,
+        string outboxRoot,
+        bool usedFallback,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(outboxRoot);
+        var ticketDraftId = $"mock-ticket-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
+        var response = new AssistantSupportTicketResponse
+        {
+            ConversationId = request.ConversationId,
+            TicketDraftId = ticketDraftId,
+            PortalRecordUrl = Path.Combine(outboxRoot, "support-ticket-draft.json"),
+            Source = usedFallback ? "LocalMockFallback" : "LocalMock",
+            UsedFallback = usedFallback,
+            Status = "Drafted",
+            Message = "Support ticket draft was written to the local portal outbox.",
+            UploadedAttachments = request.UploadedAttachments
+        };
+
+        await WriteJsonAsync(
+            Path.Combine(outboxRoot, "support-ticket-draft.json"),
+            new
+            {
+                request,
+                response
+            },
+            cancellationToken);
+        return response;
+    }
+
+    private async Task<TResponse> PostJsonAsync<TRequest, TResponse>(
+        Uri endpoint,
+        TRequest request,
+        string fallbackSource,
+        CancellationToken cancellationToken)
+    {
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(request, JsonOptions), Encoding.UTF8, "application/json")
+        };
+        ApplyAuthorization(httpRequest);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Assistant API returned {(int)response.StatusCode}: {body}");
+        }
+
+        var result = JsonSerializer.Deserialize<TResponse>(body, JsonOptions);
+        if (result is null)
+        {
+            throw new InvalidOperationException("Assistant API returned an empty response.");
+        }
+
+        if (result is AssistantSupportTicketResponse ticketResponse
+            && string.IsNullOrWhiteSpace(ticketResponse.Source))
+        {
+            ticketResponse.Source = fallbackSource;
+        }
+
+        return result;
+    }
+
+    private void ValidateAttachmentForUpload(AssistantAttachmentUploadRequest request, string storedPath)
+    {
+        if (!File.Exists(storedPath))
+        {
+            throw new FileNotFoundException("Assistant attachment file does not exist.", storedPath);
+        }
+
+        if (request.SizeBytes > _options.MaxAttachmentBytes)
+        {
+            throw new InvalidOperationException($"Attachment exceeds the configured upload limit of {_options.MaxAttachmentBytes} bytes.");
+        }
+    }
+
+    private void ApplyAuthorization(HttpRequestMessage httpRequest)
+    {
+        var apiKey = Environment.GetEnvironmentVariable(_options.ApiKeyEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+    }
+
+    private static async Task WriteJsonAsync(string path, object value, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
+        var json = JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true
+        });
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+    }
+
+    private static string SafeFileName(string fileName)
+    {
+        return string.Concat(fileName.Select(character =>
+            Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
     }
 
     private static List<AssistantRecommendedAction> BuildMockRecommendedActions(AssistantMessageRequest request)

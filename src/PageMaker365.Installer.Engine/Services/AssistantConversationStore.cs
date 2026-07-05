@@ -62,6 +62,10 @@ public sealed class AssistantConversationStore
             SizeBytes = attachment.SizeBytes,
             Sha256 = attachment.Sha256,
             IsImage = attachment.IsImage,
+            UploadStatus = attachment.UploadStatus,
+            UploadedAttachmentId = attachment.UploadedAttachmentId,
+            UploadCorrelationId = attachment.UploadCorrelationId,
+            UploadError = string.IsNullOrWhiteSpace(attachment.UploadError) ? "" : "[upload error omitted]",
             CreatedAt = attachment.CreatedAt
         };
     }
