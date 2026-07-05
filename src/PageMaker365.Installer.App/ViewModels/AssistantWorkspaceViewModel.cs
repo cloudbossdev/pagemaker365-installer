@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
@@ -15,12 +16,14 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     private readonly AssistantConversationStore _conversationStore;
     private readonly AssistantApiClient _assistantApiClient;
     private readonly RedactionService _redactionService;
+    private readonly AssistantActionHandlers _actionHandlers;
     private readonly AssistantConversation _conversation;
     private readonly string _conversationRoot;
     private readonly string _attachmentRoot;
     private readonly string _outboxRoot;
     private string _draftMessage = "";
     private string _statusText;
+    private string _recommendedActionsStatus = "Recommended actions appear after the assistant responds.";
     private string _supportTicketStatus = "No support ticket draft created.";
     private bool _includeDiagnostics = true;
     private bool _uploadAttachmentsWithHandoff = true;
@@ -28,9 +31,11 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     public AssistantWorkspaceViewModel(
         AssistantDiagnosticContext diagnosticContext,
         string workspaceRoot,
-        RedactionService redactionService)
+        RedactionService redactionService,
+        AssistantActionHandlers? actionHandlers = null)
     {
         _redactionService = redactionService;
+        _actionHandlers = actionHandlers ?? new AssistantActionHandlers();
         _conversationStore = new AssistantConversationStore(redactionService);
         var assistantOptions = new AssistantApiOptionsService().Load(workspaceRoot);
         _assistantApiClient = new AssistantApiClient(assistantOptions);
@@ -48,17 +53,20 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         SendMessageCommand = new RelayCommand(SendMessageAsync, CanSendMessage);
         RemovePendingAttachmentCommand = new RelayCommand(RemovePendingAttachmentAsync);
         CreateSupportTicketDraftCommand = new RelayCommand(CreateSupportTicketDraftAsync, CanCreateSupportTicketDraft);
+        ExecuteRecommendedActionCommand = new RelayCommand(ExecuteRecommendedActionAsync);
 
         AddAssistantGreeting();
     }
 
     public ObservableCollection<AssistantMessageViewModel> Messages { get; } = [];
     public ObservableCollection<AssistantAttachmentViewModel> PendingAttachments { get; } = [];
+    public ObservableCollection<AssistantRecommendedActionViewModel> RecommendedActions { get; } = [];
     public RelayCommand AttachFilesCommand { get; }
     public RelayCommand PasteClipboardImageCommand { get; }
     public RelayCommand SendMessageCommand { get; }
     public RelayCommand RemovePendingAttachmentCommand { get; }
     public RelayCommand CreateSupportTicketDraftCommand { get; }
+    public RelayCommand ExecuteRecommendedActionCommand { get; }
 
     public string DraftMessage
     {
@@ -82,6 +90,12 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     {
         get => _statusText;
         set => SetProperty(ref _statusText, value);
+    }
+
+    public string RecommendedActionsStatus
+    {
+        get => _recommendedActionsStatus;
+        set => SetProperty(ref _recommendedActionsStatus, value);
     }
 
     public string SupportTicketStatus
@@ -224,6 +238,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         var assistantMessage = response.Message;
         _conversation.Messages.Add(assistantMessage);
         Messages.Add(new AssistantMessageViewModel(assistantMessage));
+        SetRecommendedActions(response.RecommendedActions);
 
         var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
         StatusText = $"Saved assistant transcript: {savedPath}. Source: {response.Source}; correlation: {response.CorrelationId}.";
@@ -258,6 +273,110 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
                 }
             };
         }
+    }
+
+    private void SetRecommendedActions(IEnumerable<AssistantRecommendedAction> actions)
+    {
+        RecommendedActions.Clear();
+        foreach (var action in actions.Where(action => action.Enabled))
+        {
+            RecommendedActions.Add(new AssistantRecommendedActionViewModel(action));
+        }
+
+        RecommendedActionsStatus = RecommendedActions.Count == 0
+            ? "No recommended actions were returned for this response."
+            : $"{RecommendedActions.Count} recommended action(s) ready.";
+    }
+
+    private async Task ExecuteRecommendedActionAsync(object? parameter)
+    {
+        if (parameter is not AssistantRecommendedActionViewModel action)
+        {
+            return;
+        }
+
+        if (!action.Enabled)
+        {
+            action.ExecutionStatus = "Disabled";
+            return;
+        }
+
+        if (action.RequiresApproval)
+        {
+            var result = MessageBox.Show(
+                $"{action.Label}{Environment.NewLine}{Environment.NewLine}{action.Description}",
+                "Approve Assistant Action",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes)
+            {
+                action.ExecutionStatus = "Cancelled";
+                AppendSystemMessage($"Recommended action cancelled: {action.Label}");
+                await SaveTranscriptAsync();
+                return;
+            }
+        }
+
+        action.ExecutionStatus = "Running";
+        AppendSystemMessage($"Recommended action started: {action.Label}");
+
+        try
+        {
+            var result = await ExecuteKnownActionAsync(action.ActionId);
+            action.ExecutionStatus = "Complete";
+            AppendSystemMessage($"Recommended action completed: {action.Label}{Environment.NewLine}{result}");
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            action.ExecutionStatus = "Failed";
+            AppendSystemMessage($"Recommended action failed: {action.Label}{Environment.NewLine}{exception.Message}");
+        }
+
+        await SaveTranscriptAsync();
+    }
+
+    private async Task<string> ExecuteKnownActionAsync(string actionId)
+    {
+        return actionId switch
+        {
+            "create-support-bundle" => _actionHandlers.CreateSupportBundleAsync is null
+                ? "No active installer session is available for support bundle creation."
+                : await _actionHandlers.CreateSupportBundleAsync(),
+            "create-support-ticket-draft" => await ExecuteSupportTicketActionAsync(),
+            "draft-admin-message" => _actionHandlers.DraftAdminMessageAsync is null
+                ? "No installer admin-message callback is available."
+                : await _actionHandlers.DraftAdminMessageAsync(),
+            "rerun-preflight" => _actionHandlers.RerunPreflightAsync is null
+                ? "No installer preflight callback is available."
+                : await _actionHandlers.RerunPreflightAsync(),
+            "open-portal-outbox" => OpenPortalOutbox(),
+            "copy-escalation-summary" => CopyEscalationSummary(),
+            _ => $"Action '{actionId}' is not wired in this installer build."
+        };
+    }
+
+    private async Task<string> ExecuteSupportTicketActionAsync()
+    {
+        await CreateSupportTicketDraftAsync();
+        return SupportTicketStatus;
+    }
+
+    private string OpenPortalOutbox()
+    {
+        Directory.CreateDirectory(_outboxRoot);
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = _outboxRoot,
+            UseShellExecute = true
+        });
+        return $"Opened portal outbox folder: {_outboxRoot}";
+    }
+
+    private string CopyEscalationSummary()
+    {
+        var summary = $"{CreateSupportTicketSubject()}{Environment.NewLine}{Environment.NewLine}{_redactionService.Redact(CreateSupportTicketDescription())}";
+        Clipboard.SetText(summary);
+        return "Copied redacted escalation summary to the clipboard.";
     }
 
     private bool CanCreateSupportTicketDraft()
@@ -478,6 +597,24 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         {
             Messages.Add(new AssistantMessageViewModel(message));
         }
+    }
+
+    private void AppendSystemMessage(string content)
+    {
+        var message = new AssistantMessage
+        {
+            Role = "System",
+            Content = content,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        _conversation.Messages.Add(message);
+        Messages.Add(new AssistantMessageViewModel(message));
+    }
+
+    private async Task SaveTranscriptAsync()
+    {
+        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+        StatusText = $"Assistant transcript saved: {savedPath}";
     }
 
     private static string ShortPath(string path)

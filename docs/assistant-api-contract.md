@@ -67,6 +67,34 @@ The desktop app sends metadata and local attachment manifests. Binary attachment
 
 Recommended actions are advisory until the installer explicitly wires approved buttons to them.
 
+## Recommended Actions
+
+The message response can include advisory action cards. The desktop app only executes known action IDs and keeps risky actions approval-gated.
+
+Supported installer action IDs:
+
+- `create-support-bundle`: create a local redacted support bundle from the current installer session.
+- `create-support-ticket-draft`: create a support ticket draft from the assistant conversation and attachments.
+- `draft-admin-message`: generate an administrator-facing message in the installer guidance state.
+- `rerun-preflight`: rerun preflight after explicit user approval.
+- `open-portal-outbox`: open the local mock portal handoff folder.
+- `copy-escalation-summary`: copy a redacted issue summary to the clipboard.
+
+Example:
+
+```json
+{
+  "actionId": "rerun-preflight",
+  "label": "Rerun preflight",
+  "description": "Retry the preflight check after the blocker has been resolved.",
+  "category": "Installer",
+  "requiresApproval": true,
+  "enabled": true
+}
+```
+
+The assistant service should not recommend irreversible install, uninstall, cleanup, or destructive tenant actions until the desktop app has explicit approval controls for those operations.
+
 ## Attachment Upload Endpoint
 
 `POST /api/installer/assistant/attachments`

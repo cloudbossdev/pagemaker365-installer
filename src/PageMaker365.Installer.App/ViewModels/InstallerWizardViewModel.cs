@@ -863,7 +863,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var viewModel = new AssistantWorkspaceViewModel(
             CreateAssistantDiagnosticContext(),
             GetWorkspaceRoot(),
-            _redactionService);
+            _redactionService,
+            new AssistantActionHandlers
+            {
+                CreateSupportBundleAsync = CreateSupportBundleForAssistantAsync,
+                DraftAdminMessageAsync = DraftAdminMessageForAssistantAsync,
+                RerunPreflightAsync = RerunPreflightForAssistantAsync
+            });
         _assistantWindow = new AssistantWorkspaceWindow(viewModel)
         {
             Owner = Application.Current.MainWindow
@@ -871,6 +877,34 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _assistantWindow.Closed += (_, _) => _assistantWindow = null;
         _assistantWindow.Show();
         return Task.CompletedTask;
+    }
+
+    private async Task<string> CreateSupportBundleForAssistantAsync()
+    {
+        if (_session is null)
+        {
+            return "No active installer session exists yet. Run sign-in or preflight before creating a support bundle.";
+        }
+
+        await CreateSupportBundleAsync();
+        return FooterStatus;
+    }
+
+    private async Task<string> DraftAdminMessageForAssistantAsync()
+    {
+        await GenerateAdminMessageAsync();
+        return AiSummary;
+    }
+
+    private async Task<string> RerunPreflightForAssistantAsync()
+    {
+        if (_config is null)
+        {
+            return "Load a customer package before rerunning preflight.";
+        }
+
+        await RunPreflightAsync();
+        return FooterStatus;
     }
 
     private AssistantDiagnosticContext CreateAssistantDiagnosticContext()

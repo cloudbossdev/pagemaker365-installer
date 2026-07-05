@@ -133,6 +133,40 @@
                         </StackPanel>
                     </Border>
 
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Recommended Actions" FontSize="18" FontWeight="Bold" />
+                            <TextBlock Text="{Binding RecommendedActionsStatus}"
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="18"
+                                       Margin="0,6,0,12" />
+                            <ItemsControl ItemsSource="{Binding RecommendedActions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#0C1222"
+                                                BorderBrush="{StaticResource PmLine}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="12"
+                                                Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Category}" Foreground="{StaticResource PmCyan}" FontSize="12" FontWeight="Bold" />
+                                                <TextBlock Text="{Binding Label}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                                <TextBlock Text="{Binding Description}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="18" Margin="0,6,0,8" />
+                                                <TextBlock Text="{Binding ApprovalLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" Margin="0,0,0,8" />
+                                                <TextBlock Text="{Binding ExecutionStatus}" Foreground="{StaticResource PmCyan}" FontSize="12" Margin="0,0,0,8" />
+                                                <Button Content="Run"
+                                                        Command="{Binding DataContext.ExecuteRecommendedActionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
                     <Border Background="#111B38" BorderBrush="#3E55A0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,16,0,0">
                         <StackPanel>
                             <TextBlock Text="Attachments" FontSize="18" FontWeight="Bold" />

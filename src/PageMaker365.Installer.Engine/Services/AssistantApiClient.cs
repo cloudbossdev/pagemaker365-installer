@@ -347,6 +347,30 @@ public sealed class AssistantApiClient
                 Description = "Package the redacted installer session, logs, assistant transcript, and attachments for escalation.",
                 Category = "Support",
                 RequiresApproval = false
+            },
+            new()
+            {
+                ActionId = "create-support-ticket-draft",
+                Label = "Create support ticket draft",
+                Description = "Create a draft support ticket from the current assistant conversation and local attachments.",
+                Category = "Support",
+                RequiresApproval = false
+            },
+            new()
+            {
+                ActionId = "open-portal-outbox",
+                Label = "Open portal outbox",
+                Description = "Open the local mock portal handoff folder for this assistant conversation.",
+                Category = "Support",
+                RequiresApproval = false
+            },
+            new()
+            {
+                ActionId = "copy-escalation-summary",
+                Label = "Copy escalation summary",
+                Description = "Copy a redacted issue summary that can be pasted into email or Teams.",
+                Category = "Communication",
+                RequiresApproval = false
             }
         };
 
