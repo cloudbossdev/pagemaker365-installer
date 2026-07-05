@@ -31,6 +31,12 @@ $scriptRoots |
         }
     }
 
+Write-Host 'Restoring solution...'
+dotnet restore (Join-Path $repoRoot 'PageMaker365.Installer.sln')
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet restore failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Building solution...'
 dotnet build (Join-Path $repoRoot 'PageMaker365.Installer.sln') --no-restore
 if ($LASTEXITCODE -ne 0) {

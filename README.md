@@ -1,5 +1,7 @@
 # PageMaker365 Installer
 
+[![CI](https://github.com/cloudbossdev/pagemaker365-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/cloudbossdev/pagemaker365-installer/actions/workflows/ci.yml)
+
 This repository contains the first-build scaffold for the PageMaker365 Windows desktop installer.
 
 The installer is intended to provide a polished customer-facing setup experience while keeping deployment logic deterministic and auditable.
@@ -92,6 +94,21 @@ dotnet build .\PageMaker365.Installer.sln
 ```
 
 Verified on 2026-07-05 with .NET SDK `8.0.422`.
+
+## CI
+
+GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and manual dispatch.
+
+The workflow runs:
+
+- JSON parsing checks.
+- PowerShell syntax checks.
+- .NET restore and solution build.
+- Installer module export checks.
+- Preflight, deployment contract, what-if guard, smoke test scaffold, and report generation.
+- Release-mode package smoke build.
+
+Successful runs upload a short-retention package artifact named `pagemaker365-installer-ci-package`.
 
 ## Run Headless Preflight
 
