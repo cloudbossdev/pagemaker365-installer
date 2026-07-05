@@ -5,15 +5,15 @@
         Icon="Assets/pagemaker365-icon.png"
         Width="1220"
         Height="760"
-        MinWidth="1080"
-        MinHeight="680"
+        MinWidth="800"
+        MinHeight="560"
         Background="{StaticResource PmBackground}"
         WindowStartupLocation="CenterScreen">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280" />
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="320" />
+            <ColumnDefinition x:Name="LeftColumn" Width="280" />
+            <ColumnDefinition x:Name="CenterColumn" Width="*" />
+            <ColumnDefinition x:Name="RightColumn" Width="320" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -21,11 +21,12 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border Grid.ColumnSpan="3" Padding="28,22" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,0,1">
+        <Border x:Name="HeaderBar" Grid.ColumnSpan="3" Padding="28,22" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left" Width="420">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Image Source="Assets/pagemaker365-wordmark.png"
+                        <Image x:Name="HeaderWordmark"
+                               Source="Assets/pagemaker365-wordmark.png"
                                Width="250"
                                Height="38"
                                Stretch="Uniform"
@@ -52,8 +53,9 @@
             </DockPanel>
         </Border>
 
-        <Border Grid.Row="1" Grid.Column="0" Padding="22,24" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,1,0">
-            <StackPanel>
+        <Border x:Name="LeftRail" Grid.Row="1" Grid.Column="0" Padding="22,24" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,1,0">
+            <ScrollViewer Style="{StaticResource PmScrollViewer}">
+                <StackPanel>
                 <TextBlock Text="{Binding WorkflowTitle}" FontSize="24" FontWeight="Bold" />
                 <TextBlock Text="{Binding WorkflowSubtitle}"
                            Foreground="{StaticResource PmMuted}"
@@ -112,11 +114,32 @@
                         Command="{Binding GoHomeCommand}"
                         Margin="0,12,0,0"
                         HorizontalContentAlignment="Center" />
-            </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
-        <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Auto">
-            <Grid Margin="30">
+        <ScrollViewer x:Name="CenterScrollViewer" Grid.Row="1" Grid.Column="1" Style="{StaticResource PmScrollViewer}">
+            <StackPanel x:Name="CenterContent" Margin="30">
+                <Border x:Name="CompactGuidanceCard"
+                        Visibility="Collapsed"
+                        Background="#111B38"
+                        BorderBrush="#3E55A0"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16"
+                        Margin="0,0,0,18">
+                    <StackPanel>
+                        <TextBlock Text="Guidance" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                        <TextBlock Text="{Binding AiTitle}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding AiSummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,14" />
+                        <UniformGrid x:Name="CompactGuidanceActions" Columns="3">
+                            <Button Content="Explain Issue" Command="{Binding ExplainIssueCommand}" Margin="0,0,6,0" />
+                            <Button Content="Admin Message" Command="{Binding GenerateAdminMessageCommand}" Margin="3,0,3,0" />
+                            <Button Content="Support Bundle" Command="{Binding CreateSupportBundleCommand}" Margin="6,0,0,0" />
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
                 <StackPanel Visibility="{Binding IsWelcomeStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="Welcome to the PageMaker365 Installer" FontSize="34" FontWeight="Bold" TextWrapping="Wrap" />
                     <TextBlock Text="Choose whether this session will install PageMaker365 or safely guide removal from a customer tenant."
@@ -125,11 +148,11 @@
                                TextWrapping="Wrap"
                                Margin="0,8,0,24" />
 
-                    <UniformGrid Columns="2">
-                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,9,12">
+                    <UniformGrid x:Name="WelcomeChoiceGrid" Columns="2">
+                        <Border x:Name="SetupChoiceCard" Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,9,12">
                             <StackPanel>
                                 <TextBlock Text="Install or Update" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                                <TextBlock Text="Deploy PageMaker365" FontSize="20" FontWeight="Bold" Margin="0,8,0,0" />
+                                <TextBlock Text="Deploy PageMaker365" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0" />
                                 <TextBlock Text="Load the customer package, verify prerequisites, preview deployment, install resources, run smoke tests, and generate evidence."
                                            Foreground="{StaticResource PmMuted}"
                                            TextWrapping="Wrap"
@@ -138,10 +161,10 @@
                                 <Button Content="Use Setup Workflow" Command="{Binding SelectSetupModeCommand}" HorizontalAlignment="Left" />
                             </StackPanel>
                         </Border>
-                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="9,0,0,12">
+                        <Border x:Name="RemovalChoiceCard" Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="9,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="Uninstall or Remove" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                                <TextBlock Text="Clean up PageMaker365" FontSize="20" FontWeight="Bold" Margin="0,8,0,0" />
+                                <TextBlock Text="Clean up PageMaker365" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0" />
                                 <TextBlock Text="Discover the existing deployment, inventory owned resources, preview cleanup, remove approved items, validate cleanup, and generate a final report."
                                            Foreground="{StaticResource PmMuted}"
                                            TextWrapping="Wrap"
@@ -215,7 +238,7 @@
                                 </StackPanel>
                             </Grid>
 
-                            <UniformGrid Columns="3" Margin="0,18,0,0">
+                            <UniformGrid x:Name="OnboardingActionsGrid" Columns="3" Margin="0,18,0,0">
                                 <Button Content="Load Sample Bootstrap" Command="{Binding LoadSampleBootstrapCommand}" Margin="0,0,8,8" />
                                 <Button Content="Browse Bootstrap" Command="{Binding BrowseBootstrapCommand}" Margin="4,0,4,8" />
                                 <Button Content="Connect Session" Command="{Binding ConnectOnboardingCommand}" Margin="8,0,0,8" />
@@ -404,7 +427,7 @@
                                    FontSize="16"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,24" />
-                        <UniformGrid Columns="3">
+                        <UniformGrid x:Name="RemovalPreviewGrid" Columns="3">
                             <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Will Remove" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
@@ -525,11 +548,12 @@
                         </StackPanel>
                     </Border>
                 </StackPanel>
-            </Grid>
+            </StackPanel>
         </ScrollViewer>
 
-        <Border Grid.Row="1" Grid.Column="2" Padding="24" BorderBrush="{StaticResource PmLine}" BorderThickness="1,0,0,0">
-            <StackPanel>
+        <Border x:Name="RightRail" Grid.Row="1" Grid.Column="2" Padding="24" BorderBrush="{StaticResource PmLine}" BorderThickness="1,0,0,0">
+            <ScrollViewer Style="{StaticResource PmScrollViewer}">
+                <StackPanel>
                 <TextBlock Text="Guidance" FontSize="24" FontWeight="Bold" />
                 <TextBlock Text="Use assistant actions and session details to resolve blocked setup or removal sessions."
                            Foreground="{StaticResource PmMuted}"
@@ -554,17 +578,28 @@
                         <TextBlock Text="{Binding SessionStatus}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,8,0,0" />
                     </StackPanel>
                 </Border>
-            </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
-        <Border Grid.Row="2" Grid.ColumnSpan="3" BorderBrush="{StaticResource PmLine}" BorderThickness="0,1,0,0" Padding="22">
-            <DockPanel LastChildFill="False">
-                <TextBlock Text="{Binding FooterStatus}" Foreground="{StaticResource PmMuted}" VerticalAlignment="Center" DockPanel.Dock="Left" />
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+        <Border x:Name="FooterBar" Grid.Row="2" Grid.ColumnSpan="3" BorderBrush="{StaticResource PmLine}" BorderThickness="0,1,0,0" Padding="22">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="FooterStatusText"
+                           Text="{Binding FooterStatus}"
+                           Foreground="{StaticResource PmMuted}"
+                           TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"
+                           Margin="0,0,18,0" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Content="Back" Command="{Binding BackCommand}" Margin="0,0,10,0" />
                     <Button Content="{Binding NextButtonText}" Command="{Binding NextCommand}" />
                 </StackPanel>
-            </DockPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>
