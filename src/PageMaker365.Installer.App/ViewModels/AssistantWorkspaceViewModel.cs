@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
@@ -12,7 +13,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 {
     private readonly AssistantAttachmentService _attachmentService = new();
     private readonly AssistantConversationStore _conversationStore;
-    private readonly MockAssistantService _assistantService = new();
+    private readonly AssistantApiClient _assistantApiClient;
     private readonly AssistantConversation _conversation;
     private readonly string _conversationRoot;
     private readonly string _attachmentRoot;
@@ -26,13 +27,15 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         RedactionService redactionService)
     {
         _conversationStore = new AssistantConversationStore(redactionService);
+        var assistantOptions = new AssistantApiOptionsService().Load(workspaceRoot);
+        _assistantApiClient = new AssistantApiClient(assistantOptions);
         _conversation = new AssistantConversation
         {
             DiagnosticContext = diagnosticContext
         };
         _conversationRoot = Path.Combine(workspaceRoot, "support-bundle", "assistant", _conversation.ConversationId);
         _attachmentRoot = Path.Combine(_conversationRoot, "attachments");
-        _statusText = $"Transcript will be saved to {_conversationRoot}";
+        _statusText = $"{_assistantApiClient.ConnectionLabel}. Transcript will be saved to {_conversationRoot}";
 
         AttachFilesCommand = new RelayCommand(AttachFilesAsync);
         PasteClipboardImageCommand = new RelayCommand(PasteClipboardImageAsync);
@@ -80,6 +83,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     public string ContextStatus => _conversation.DiagnosticContext.InstallerSessionStatus;
     public string ContextSite => _conversation.DiagnosticContext.SharePointSite;
     public string ConversationRoot => _conversationRoot;
+    public string AssistantConnectionLabel => _assistantApiClient.ConnectionLabel;
 
     public async Task AddDroppedFilesAsync(IEnumerable<string> paths)
     {
@@ -196,12 +200,43 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         PendingAttachments.Clear();
         SendMessageCommand.RaiseCanExecuteChanged();
 
-        var assistantMessage = await _assistantService.CreateResponseAsync(_conversation, userMessage, IncludeDiagnostics);
+        var response = await SendAssistantMessageAsync(userMessage);
+        var assistantMessage = response.Message;
         _conversation.Messages.Add(assistantMessage);
         Messages.Add(new AssistantMessageViewModel(assistantMessage));
 
         var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"Saved assistant transcript: {savedPath}";
+        StatusText = $"Saved assistant transcript: {savedPath}. Source: {response.Source}; correlation: {response.CorrelationId}.";
+    }
+
+    private async Task<AssistantMessageResponse> SendAssistantMessageAsync(AssistantMessage userMessage)
+    {
+        try
+        {
+            return await _assistantApiClient.SendMessageAsync(new AssistantMessageRequest
+            {
+                ConversationId = _conversation.ConversationId,
+                IncludeDiagnostics = IncludeDiagnostics,
+                DiagnosticContext = _conversation.DiagnosticContext,
+                UserMessage = userMessage,
+                ConversationHistory = _conversation.Messages.ToList(),
+                LocalTranscriptPath = _conversationRoot
+            });
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return new AssistantMessageResponse
+            {
+                ConversationId = _conversation.ConversationId,
+                Source = "ClientError",
+                Message = new AssistantMessage
+                {
+                    Role = "Assistant",
+                    Content = $"The assistant API could not be reached: {exception.Message}{Environment.NewLine}{Environment.NewLine}The transcript and attachments were kept locally. If this needs escalation, create a support bundle.",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            };
+        }
     }
 
     private void AddAssistantGreeting()

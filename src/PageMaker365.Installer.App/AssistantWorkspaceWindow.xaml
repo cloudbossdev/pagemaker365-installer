@@ -117,6 +117,8 @@
 
                     <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16">
                         <StackPanel>
+                            <TextBlock Text="Connection" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding AssistantConnectionLabel}" TextWrapping="Wrap" Margin="0,6,0,14" />
                             <TextBlock Text="Current Step" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                             <TextBlock Text="{Binding ContextStep}" TextWrapping="Wrap" Margin="0,6,0,14" />
                             <TextBlock Text="Customer" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />

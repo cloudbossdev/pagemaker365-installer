@@ -1,0 +1,8 @@
+{
+  "mode": "Mock",
+  "portalApiBaseUrl": "https://pagemaker365.com",
+  "messageEndpointPath": "/api/installer/assistant/messages",
+  "apiKeyEnvironmentVariable": "PM365_ASSISTANT_API_KEY",
+  "timeoutSeconds": 30,
+  "fallbackToMockOnFailure": true
+}
