@@ -132,6 +132,7 @@
                         <TextBlock Text="Guidance" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                         <TextBlock Text="{Binding AiTitle}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0" />
                         <TextBlock Text="{Binding AiSummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,14" />
+                        <Button Content="Open Assistant Workspace" Command="{Binding OpenAssistantCommand}" Margin="0,0,0,8" />
                         <UniformGrid x:Name="CompactGuidanceActions" Columns="3">
                             <Button Content="Explain Issue" Command="{Binding ExplainIssueCommand}" Margin="0,0,6,0" />
                             <Button Content="Admin Message" Command="{Binding GenerateAdminMessageCommand}" Margin="3,0,3,0" />
@@ -565,6 +566,7 @@
                         <TextBlock Text="AI Deployment Assistant" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                         <TextBlock Text="{Binding AiTitle}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" Margin="0,12,0,0" />
                         <TextBlock Text="{Binding AiSummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="20" Margin="0,10,0,16" />
+                        <Button Content="Open Assistant Workspace" Command="{Binding OpenAssistantCommand}" Margin="0,0,0,8" />
                         <Button Content="Explain Issue" Command="{Binding ExplainIssueCommand}" Margin="0,0,0,8" />
                         <Button Content="Generate Admin Message" Command="{Binding GenerateAdminMessageCommand}" Margin="0,0,0,8" />
                         <Button Content="Create Support Bundle" Command="{Binding CreateSupportBundleCommand}" />

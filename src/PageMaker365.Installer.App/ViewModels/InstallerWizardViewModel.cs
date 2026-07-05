@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows;
+using PageMaker365.Installer.App;
 using Microsoft.Win32;
 using PageMaker365.Installer.Engine.Models;
 using PageMaker365.Installer.Engine.Services;
@@ -19,6 +21,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private InstallerSession? _session;
     private OnboardingBootstrapSession? _bootstrapSession;
     private TenantDiscoveryResult? _tenantDiscovery;
+    private AssistantWorkspaceWindow? _assistantWindow;
 
     private string _packagePath = "No customer package loaded.";
     private string _customerName = "Load a customer package";
@@ -69,6 +72,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null);
         GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null);
         CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null);
+        OpenAssistantCommand = new RelayCommand(OpenAssistantAsync);
         BackCommand = new RelayCommand(GoBackAsync, () => CanGoBack);
         NextCommand = new RelayCommand(GoNextAsync, () => CanGoNext);
         GoToStepCommand = new RelayCommand(GoToStepAsync, CanGoToStep);
@@ -95,6 +99,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand ExplainIssueCommand { get; }
     public RelayCommand GenerateAdminMessageCommand { get; }
     public RelayCommand CreateSupportBundleCommand { get; }
+    public RelayCommand OpenAssistantCommand { get; }
     public RelayCommand BackCommand { get; }
     public RelayCommand NextCommand { get; }
     public RelayCommand GoToStepCommand { get; }
@@ -845,6 +850,65 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
         var path = await _supportBundleService.CreateAsync(_session, outputRoot);
         FooterStatus = $"Support bundle created: {path}";
+    }
+
+    private Task OpenAssistantAsync()
+    {
+        if (_assistantWindow is { IsVisible: true })
+        {
+            _assistantWindow.Activate();
+            return Task.CompletedTask;
+        }
+
+        var viewModel = new AssistantWorkspaceViewModel(
+            CreateAssistantDiagnosticContext(),
+            GetWorkspaceRoot(),
+            _redactionService);
+        _assistantWindow = new AssistantWorkspaceWindow(viewModel)
+        {
+            Owner = Application.Current.MainWindow
+        };
+        _assistantWindow.Closed += (_, _) => _assistantWindow = null;
+        _assistantWindow.Show();
+        return Task.CompletedTask;
+    }
+
+    private AssistantDiagnosticContext CreateAssistantDiagnosticContext()
+    {
+        var currentStep = Steps.FirstOrDefault(step => step.IsCurrent);
+        return new AssistantDiagnosticContext
+        {
+            WorkflowMode = _workflowMode,
+            WorkflowTitle = WorkflowTitle,
+            CurrentStep = currentStep is null ? $"Step {_currentStepNumber}" : $"{currentStep.Number}. {currentStep.Name}",
+            CustomerName = CustomerName,
+            PackagePath = PackagePath,
+            AzureSubscription = AzureSubscription,
+            SharePointSite = SharePointSite,
+            OnboardingSessionId = OnboardingSessionId,
+            OnboardingStatus = OnboardingStatus,
+            OnboardingApiBaseUrl = OnboardingApiBaseUrl,
+            PortalSyncStatus = PortalSyncStatus,
+            DiscoverySummary = DiscoverySummary,
+            DiscoveryOutputPath = DiscoveryOutputPath,
+            InstallerSessionId = SessionId,
+            InstallerSessionStatus = SessionStatus,
+            FooterStatus = FooterStatus,
+            Checks = _session?.Results.Select(ToAssistantCheckSummary).ToList() ?? []
+        };
+    }
+
+    private static AssistantCheckSummary ToAssistantCheckSummary(InstallerStepResult result)
+    {
+        return new AssistantCheckSummary
+        {
+            Name = result.StepName,
+            Code = result.Code,
+            Status = result.Status.ToString(),
+            Summary = result.Summary,
+            RetrySafe = result.RetrySafe,
+            RequiresApproval = result.RequiresApproval
+        };
     }
 
     private static string? FindSamplePackagePath()

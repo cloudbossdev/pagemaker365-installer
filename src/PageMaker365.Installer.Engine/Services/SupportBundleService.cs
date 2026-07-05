@@ -47,6 +47,12 @@ public sealed class SupportBundleService
             File.Copy(redactedLogPath, Path.Combine(bundleRoot, "redacted-install.log"), overwrite: true);
         }
 
+        var assistantRoot = Path.Combine(outputRoot, "assistant");
+        if (Directory.Exists(assistantRoot))
+        {
+            CopyDirectory(assistantRoot, Path.Combine(bundleRoot, "assistant"));
+        }
+
         var bundlePath = Path.Combine(outputRoot, $"{session.SessionId}-support-bundle.zip");
         if (File.Exists(bundlePath))
         {
@@ -55,5 +61,20 @@ public sealed class SupportBundleService
 
         ZipFile.CreateFromDirectory(bundleRoot, bundlePath, CompressionLevel.Fastest, includeBaseDirectory: false);
         return bundlePath;
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string targetDirectory)
+    {
+        Directory.CreateDirectory(targetDirectory);
+
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory))
+        {
+            File.Copy(file, Path.Combine(targetDirectory, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(sourceDirectory))
+        {
+            CopyDirectory(directory, Path.Combine(targetDirectory, Path.GetFileName(directory)));
+        }
     }
 }

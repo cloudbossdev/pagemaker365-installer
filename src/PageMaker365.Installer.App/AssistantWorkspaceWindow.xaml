@@ -1,0 +1,225 @@
+<Window x:Class="PageMaker365.Installer.App.AssistantWorkspaceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PageMaker365 AI Deployment Assistant"
+        Icon="Assets/pagemaker365-icon.png"
+        Width="940"
+        Height="700"
+        MinWidth="760"
+        MinHeight="560"
+        Background="{StaticResource PmBackground}"
+        WindowStartupLocation="CenterOwner"
+        AllowDrop="True"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Padding="24,20" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,0,1">
+            <DockPanel LastChildFill="True">
+                <Image Source="Assets/pagemaker365-logo.png"
+                       DockPanel.Dock="Left"
+                       Width="38"
+                       Height="38"
+                       Stretch="Uniform"
+                       Margin="0,0,14,0" />
+                <StackPanel>
+                    <TextBlock Text="{Binding ContextTitle}" FontSize="26" FontWeight="Bold" />
+                    <TextBlock Text="Local assistant workspace for screenshots, logs, diagnostics, and escalation notes."
+                               Foreground="{StaticResource PmMuted}"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Padding="22" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,1,0">
+                <ScrollViewer Style="{StaticResource PmScrollViewer}">
+                    <ItemsControl ItemsSource="{Binding Messages}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource PmPanel}"
+                                        BorderBrush="{StaticResource PmLine}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="16"
+                                        Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding Role}"
+                                                       Foreground="{StaticResource PmCyan}"
+                                                       FontWeight="Bold"
+                                                       DockPanel.Dock="Left" />
+                                            <TextBlock Text="{Binding Timestamp}"
+                                                       Foreground="{StaticResource PmMuted}"
+                                                       FontSize="12"
+                                                       DockPanel.Dock="Right" />
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding Content}"
+                                                   TextWrapping="Wrap"
+                                                   LineHeight="21"
+                                                   Margin="0,8,0,0" />
+                                        <ItemsControl ItemsSource="{Binding Attachments}" Margin="0,10,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#0C1222"
+                                                            BorderBrush="{StaticResource PmLine}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="6"
+                                                            Padding="8"
+                                                            Margin="0,0,8,8">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Image Source="{Binding PreviewPath}"
+                                                                   Width="46"
+                                                                   Height="34"
+                                                                   Stretch="UniformToFill"
+                                                                   Margin="0,0,8,0" />
+                                                            <StackPanel Width="150">
+                                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding SizeLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+
+            <ScrollViewer Grid.Column="1" Style="{StaticResource PmScrollViewer}">
+                <StackPanel Margin="20">
+                    <TextBlock Text="Session Context" FontSize="22" FontWeight="Bold" />
+                    <TextBlock Text="Included when diagnostics are enabled."
+                               Foreground="{StaticResource PmMuted}"
+                               TextWrapping="Wrap"
+                               Margin="0,6,0,18" />
+
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="Current Step" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ContextStep}" TextWrapping="Wrap" Margin="0,6,0,14" />
+                            <TextBlock Text="Customer" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ContextCustomer}" TextWrapping="Wrap" Margin="0,6,0,14" />
+                            <TextBlock Text="Session" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ContextSession}" TextWrapping="Wrap" Margin="0,6,0,14" />
+                            <TextBlock Text="Status" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ContextStatus}" TextWrapping="Wrap" Margin="0,6,0,14" />
+                            <TextBlock Text="SharePoint" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ContextSite}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#111B38" BorderBrush="#3E55A0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Attachments" FontSize="18" FontWeight="Bold" />
+                            <TextBlock Text="Paste screenshots with Ctrl+V, drag files here, or use attach."
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="19"
+                                       Margin="0,6,0,14" />
+                            <Button Content="Attach Files" Command="{Binding AttachFilesCommand}" Margin="0,0,0,8" />
+                            <Button Content="Paste Screenshot" Command="{Binding PasteClipboardImageCommand}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Border Grid.Row="2" BorderBrush="{StaticResource PmLine}" BorderThickness="0,1,0,0" Padding="20">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <ItemsControl Grid.Row="0" ItemsSource="{Binding PendingAttachments}" Margin="0,0,0,10">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{StaticResource PmPanel}"
+                                    BorderBrush="{StaticResource PmLine}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="8"
+                                    Margin="0,0,8,8">
+                                <StackPanel Orientation="Horizontal">
+                                    <Image Source="{Binding PreviewPath}"
+                                           Width="52"
+                                           Height="38"
+                                           Stretch="UniformToFill"
+                                           Margin="0,0,8,0" />
+                                    <StackPanel Width="170">
+                                        <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding SizeLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                    </StackPanel>
+                                    <Button Content="Remove"
+                                            MinHeight="30"
+                                            Padding="10,4"
+                                            Margin="8,0,0,0"
+                                            Command="{Binding DataContext.RemovePendingAttachmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Text="{Binding DraftMessage, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MinHeight="84"
+                             Padding="12"
+                             Foreground="{StaticResource PmText}"
+                             Background="{StaticResource PmPanel}"
+                             BorderBrush="{StaticResource PmLine}"
+                             CaretBrush="{StaticResource PmText}"
+                             VerticalScrollBarVisibility="Auto" />
+                    <StackPanel Grid.Column="1" Width="190" Margin="14,0,0,0">
+                        <CheckBox Content="Include current diagnostics"
+                                  IsChecked="{Binding IncludeDiagnostics}"
+                                  Foreground="{StaticResource PmText}"
+                                  Margin="0,0,0,12" />
+                        <Button Content="Send" Command="{Binding SendMessageCommand}" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Grid.Row="2"
+                           Text="{Binding StatusText}"
+                           Foreground="{StaticResource PmMuted}"
+                           TextWrapping="Wrap"
+                           Margin="0,10,0,0" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
