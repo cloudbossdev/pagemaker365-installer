@@ -1,0 +1,125 @@
+{
+  "MissingApplicationAdministrator": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "Unable to grant application consent",
+      "Insufficient privileges to complete the operation"
+    ],
+    "cause": "The signed-in user does not have an Entra role that can approve the required application permissions.",
+    "fix": "Ask a Global Administrator, Cloud Application Administrator, or Application Administrator to complete consent.",
+    "retrySafe": false,
+    "requiresCustomerAdmin": true
+  },
+  "BicepMissing": {
+    "category": "Prerequisite",
+    "phase": "LocalPrerequisites",
+    "symptoms": [
+      "bicep command not found",
+      "Bicep is not available on PATH"
+    ],
+    "cause": "The local machine cannot run Bicep deployments yet.",
+    "fix": "Install Azure CLI with Bicep support or add Bicep to PATH before running deployment.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": false
+  },
+  "AzureTenantMismatch": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "The signed-in Azure tenant does not match the customer package"
+    ],
+    "cause": "The installer is authenticated to a different tenant than the one in the customer install package.",
+    "fix": "Sign in to the correct customer tenant or load a package generated for the current tenant.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": false
+  },
+  "GraphNotSignedIn": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "Microsoft Graph sign-in is required for Entra permission checks"
+    ],
+    "cause": "The installer cannot validate Entra consent readiness without a Microsoft Graph session.",
+    "fix": "Sign in to Microsoft Graph with the required scopes before running Entra permission checks.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": false
+  },
+  "GraphNotSignedInForSharePoint": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "Microsoft Graph sign-in is required for SharePoint access checks"
+    ],
+    "cause": "The installer cannot resolve the SharePoint site through Graph without a signed-in Graph session.",
+    "fix": "Sign in to Microsoft Graph with SharePoint site read permissions, then rerun preflight.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": false
+  },
+  "AzureSignInFailed": {
+    "category": "Permission",
+    "phase": "SignIn",
+    "symptoms": [
+      "Azure sign-in did not complete"
+    ],
+    "cause": "The user cancelled sign-in, used the wrong tenant account, or does not have access to the target subscription.",
+    "fix": "Retry Azure sign-in with an account that belongs to the customer tenant and has access to the target subscription.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": false
+  },
+  "GraphSignInFailed": {
+    "category": "Permission",
+    "phase": "SignIn",
+    "symptoms": [
+      "Microsoft Graph sign-in did not complete"
+    ],
+    "cause": "The user cancelled sign-in or did not approve the requested Microsoft Graph scopes.",
+    "fix": "Retry Microsoft Graph sign-in and approve the required tenant, app consent, and SharePoint scopes.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": true
+  },
+  "AzureRbacInsufficient": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "Azure RBAC may not allow deployment"
+    ],
+    "cause": "The signed-in account does not appear to have Owner or Contributor access at the subscription or resource group scope.",
+    "fix": "Grant Contributor or Owner access for the target resource group or subscription, then rerun preflight.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": true
+  },
+  "GraphConsentScopesMissing": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "Additional Graph consent scopes may be required"
+    ],
+    "cause": "The current Microsoft Graph session does not include every scope needed for app consent and SharePoint validation.",
+    "fix": "Sign in to Microsoft Graph again and approve all requested scopes.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": true
+  },
+  "EntraAdminRoleMissing": {
+    "category": "Permission",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "The signed-in Graph account may not be able to approve app consent"
+    ],
+    "cause": "The signed-in account is not an active Global Administrator, Cloud Application Administrator, or Application Administrator.",
+    "fix": "Use an account with one of the supported Entra admin roles for the consent step.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": true
+  },
+  "SharePointSiteResolveFailed": {
+    "category": "SharePoint",
+    "phase": "PreflightAndPermissions",
+    "symptoms": [
+      "SharePoint site could not be resolved through Microsoft Graph"
+    ],
+    "cause": "The site URL is wrong, the Graph tenant is wrong, or the signed-in Graph account lacks SharePoint read consent.",
+    "fix": "Confirm the SharePoint URL, sign in to the correct Graph tenant with Sites.Read.All, then rerun preflight.",
+    "retrySafe": true,
+    "requiresCustomerAdmin": false
+  }
+}

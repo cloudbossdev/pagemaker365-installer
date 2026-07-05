@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pagemaker365.com/schemas/customer-install.schema.json",
+  "title": "PageMaker365 Customer Install Package",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["customer", "azure", "sharePoint", "app", "features"],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "description": "Installer package contract version, for example 0.2."
+    },
+    "customer": {
+      "type": "object",
+      "required": ["tenantName", "tenantId", "primaryContact"],
+      "properties": {
+        "customerId": { "type": "string" },
+        "accountKey": { "type": "string" },
+        "installationId": { "type": "string" },
+        "tenantName": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": "string", "minLength": 1 },
+        "primaryContact": { "type": "string", "minLength": 1 }
+      }
+    },
+    "azure": {
+      "type": "object",
+      "required": ["subscriptionId", "location", "resourceGroupName", "environment"],
+      "properties": {
+        "tenantId": { "type": "string" },
+        "subscriptionId": { "type": "string", "minLength": 1 },
+        "location": { "type": "string", "minLength": 1 },
+        "resourceGroupName": { "type": "string", "minLength": 1 },
+        "environment": { "type": "string", "minLength": 1 },
+        "resourceNames": {
+          "type": "object",
+          "properties": {
+            "keyVaultName": { "type": "string" },
+            "storageAccountName": { "type": "string" },
+            "logAnalyticsName": { "type": "string" },
+            "applicationInsightsName": { "type": "string" },
+            "appServicePlanName": { "type": "string" },
+            "apiAppName": { "type": "string" },
+            "portalAppName": { "type": "string" },
+            "managedIdentityName": { "type": "string" }
+          }
+        }
+      }
+    },
+    "sharePoint": {
+      "type": "object",
+      "required": ["siteUrl", "defaultDocumentLibrary"],
+      "properties": {
+        "siteUrl": { "type": "string", "format": "uri" },
+        "siteId": { "type": "string" },
+        "defaultDocumentLibrary": { "type": "string" },
+        "permissionMode": {
+          "type": "string",
+          "enum": ["SitesSelected", "SitesReadAll", "Manual"]
+        }
+      }
+    },
+    "app": {
+      "type": "object",
+      "required": ["appName", "supportEmail"],
+      "properties": {
+        "appName": { "type": "string", "minLength": 1 },
+        "customDomain": { "type": "string" },
+        "runtimeBaseUrl": { "type": "string" },
+        "apiBaseUrl": { "type": "string" },
+        "supportEmail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "entra": {
+      "type": "object",
+      "properties": {
+        "appRegistrationMode": {
+          "type": "string",
+          "enum": ["Create", "Reuse", "Manual"]
+        },
+        "portalClientId": { "type": "string" },
+        "apiClientId": { "type": "string" },
+        "permissionMode": {
+          "type": "string",
+          "enum": ["SitesSelected", "BroadGraphRead", "Manual"]
+        },
+        "requiredApplicationPermissions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredDelegatedScopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "controlPlane": {
+      "type": "object",
+      "properties": {
+        "baseUrl": { "type": "string" },
+        "deploymentExportId": { "type": "string" },
+        "environmentId": { "type": "string" },
+        "licenseActivationId": { "type": "string" },
+        "entitlementSyncUrl": { "type": "string" },
+        "publicKeyId": { "type": "string" },
+        "packageHash": { "type": "string" }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "keyVaultName": { "type": "string" },
+        "requiredSecretNames": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "promptForSecrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "label"],
+            "properties": {
+              "name": { "type": "string" },
+              "label": { "type": "string" },
+              "required": { "type": "boolean" },
+              "generatedByInstaller": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["values"] },
+          { "required": ["connectionStrings"] },
+          { "required": ["passwords"] }
+        ]
+      }
+    },
+    "features": {
+      "type": "object",
+      "required": ["knowledgeBase", "customerPortal", "billingIntegration"],
+      "properties": {
+        "knowledgeBase": { "type": "boolean" },
+        "customerPortal": { "type": "boolean" },
+        "billingIntegration": { "type": "boolean" },
+        "connectors": { "type": "boolean" },
+        "orchestrator": { "type": "boolean" }
+      }
+    },
+    "smokeTests": {
+      "type": "object",
+      "properties": {
+        "apiHealthPath": { "type": "string" },
+        "portalPath": { "type": "string" },
+        "licenseValidationPath": { "type": "string" },
+        "entitlementSyncPath": { "type": "string" }
+      }
+    }
+  }
+}
+

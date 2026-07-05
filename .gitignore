@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.vscode/
+TestResults/
+artifacts/
+*.user
+*.suo
+*.rsuser
+logs/*
+!logs/.gitkeep
+support-bundle/*
+!support-bundle/.gitkeep
+*.zip
+*.log
+*.tmp
+*.bak

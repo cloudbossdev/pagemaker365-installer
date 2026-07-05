@@ -1,0 +1,65 @@
+{
+  "MissingApplicationAdministrator": {
+    "title": "Request Entra administrator consent",
+    "operatorSteps": [
+      "Pause the install before deployment.",
+      "Ask the customer to provide a Global Administrator, Cloud Application Administrator, or Application Administrator.",
+      "Retry the permissions check after the administrator is available."
+    ],
+    "customerMessage": "We are ready to continue the PageMaker365 install, but need an authorized Entra administrator to approve the application permissions."
+  },
+  "AzureTenantMismatch": {
+    "title": "Switch to the correct Azure tenant",
+    "operatorSteps": [
+      "Confirm the tenant ID in the customer package.",
+      "Sign in to Azure using an account from that tenant.",
+      "Rerun preflight after the Azure context matches the package."
+    ],
+    "customerMessage": "The installer is currently signed in to a different Azure tenant than the one in the PageMaker365 install package. Please sign in with the correct tenant account before continuing."
+  },
+  "GraphNotSignedIn": {
+    "title": "Sign in to Microsoft Graph",
+    "operatorSteps": [
+      "Start a Microsoft Graph sign-in session.",
+      "Use the required consent scopes for Entra and SharePoint validation.",
+      "Rerun preflight after sign-in completes."
+    ],
+    "customerMessage": "The installer needs Microsoft Graph sign-in to validate Entra and SharePoint readiness before deployment."
+  },
+  "AzureRbacInsufficient": {
+    "title": "Grant Azure deployment access",
+    "operatorSteps": [
+      "Confirm the target subscription and resource group from the customer package.",
+      "Ask the customer's Azure administrator to grant Contributor or Owner access.",
+      "Rerun Azure preflight after access is granted."
+    ],
+    "customerMessage": "The installer can see the Azure tenant, but the signed-in account may not have enough access to deploy PageMaker365 resources."
+  },
+  "GraphConsentScopesMissing": {
+    "title": "Approve required Graph scopes",
+    "operatorSteps": [
+      "Start Microsoft Graph sign-in from the installer.",
+      "Use an account allowed to approve tenant-level application consent.",
+      "Approve the requested app, directory, and SharePoint scopes."
+    ],
+    "customerMessage": "The installer needs additional Microsoft Graph permissions to validate Entra and SharePoint readiness."
+  },
+  "EntraAdminRoleMissing": {
+    "title": "Use an Entra administrator",
+    "operatorSteps": [
+      "Ask for a Global Administrator, Cloud Application Administrator, or Application Administrator.",
+      "Have that admin complete Microsoft Graph sign-in and consent.",
+      "Rerun preflight after the admin role check passes."
+    ],
+    "customerMessage": "The current account may not be allowed to approve the PageMaker365 application permissions."
+  },
+  "SharePointSiteResolveFailed": {
+    "title": "Resolve SharePoint site access",
+    "operatorSteps": [
+      "Confirm the SharePoint site URL in the package.",
+      "Confirm Microsoft Graph is signed in to the same tenant.",
+      "Approve Sites.Read.All or the final Sites.Selected consent model, then rerun preflight."
+    ],
+    "customerMessage": "The installer could not confirm access to the SharePoint site that PageMaker365 will use."
+  }
+}

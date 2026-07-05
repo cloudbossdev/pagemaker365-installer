@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>PageMaker365.Installer</AssemblyName>
+    <RootNamespace>PageMaker365.Installer.App</RootNamespace>
+    <ApplicationIcon />
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PageMaker365.Installer.Engine\PageMaker365.Installer.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\pagemaker365-logo.png" />
+    <Resource Include="Assets\pagemaker365-icon.png" />
+    <Resource Include="Assets\pagemaker365-wordmark.png" />
+  </ItemGroup>
+</Project>

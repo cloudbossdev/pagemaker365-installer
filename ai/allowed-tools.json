@@ -1,0 +1,13 @@
+{
+  "tools": [
+    "Get-InstallState",
+    "Get-RedactedLog",
+    "Get-KnownError",
+    "Get-RemediationPlaybook",
+    "Create-CustomerMessageDraft",
+    "Collect-SupportBundle"
+  ],
+  "stateChangingToolsRequireApproval": true,
+  "arbitraryShellExecutionAllowed": false
+}
+

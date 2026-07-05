@@ -1,0 +1,64 @@
+{
+  "checks": [
+    {
+      "code": "PowerShellReady",
+      "name": "PowerShell 7",
+      "required": true
+    },
+    {
+      "code": "AzAccountsReady",
+      "name": "Az.Accounts module",
+      "required": true
+    },
+    {
+      "code": "BicepReady",
+      "name": "Bicep",
+      "required": true
+    },
+    {
+      "code": "AzureTenantReady",
+      "name": "Azure tenant context",
+      "required": true
+    },
+    {
+      "code": "AzureSubscriptionReady",
+      "name": "Azure subscription context",
+      "required": true
+    },
+    {
+      "code": "AzureRbacReady",
+      "name": "Azure deployment RBAC",
+      "required": true
+    },
+    {
+      "code": "GraphTenantReady",
+      "name": "Microsoft Graph tenant context",
+      "required": true
+    },
+    {
+      "code": "GraphConsentScopesReady",
+      "name": "Microsoft Graph consent scopes",
+      "required": true
+    },
+    {
+      "code": "EntraAdminRoleReady",
+      "name": "Entra app consent admin role",
+      "required": true
+    },
+    {
+      "code": "SharePointSiteUrlReady",
+      "name": "SharePoint site URL",
+      "required": true
+    },
+    {
+      "code": "SharePointSiteResolved",
+      "name": "SharePoint site Graph resolution",
+      "required": true
+    },
+    {
+      "code": "SharePointLibraryReady",
+      "name": "SharePoint document library access",
+      "required": true
+    }
+  ]
+}

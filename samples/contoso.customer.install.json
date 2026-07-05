@@ -1,0 +1,93 @@
+{
+  "contractVersion": "0.2",
+  "customer": {
+    "customerId": "cust_contoso",
+    "accountKey": "contoso",
+    "installationId": "inst_contoso_sandbox",
+    "tenantName": "Contoso Intranet",
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "primaryContact": "admin@contoso.com"
+  },
+  "azure": {
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "subscriptionId": "11111111-1111-1111-1111-111111111111",
+    "location": "eastus",
+    "resourceGroupName": "rg-pagemaker365-contoso-prod",
+    "environment": "prod",
+    "resourceNames": {
+      "keyVaultName": "kv-pm365-contoso-prod",
+      "storageAccountName": "stpm365contosoprod",
+      "logAnalyticsName": "log-pm365-contoso-prod",
+      "applicationInsightsName": "ai-pm365-contoso-prod",
+      "appServicePlanName": "asp-pm365-contoso-prod",
+      "apiAppName": "app-pm365-contoso-api-prod",
+      "portalAppName": "swa-pm365-contoso-prod",
+      "managedIdentityName": "id-pm365-contoso-prod"
+    }
+  },
+  "sharePoint": {
+    "siteUrl": "https://contoso.sharepoint.com/sites/intranet",
+    "siteId": "",
+    "defaultDocumentLibrary": "Documents",
+    "permissionMode": "SitesSelected"
+  },
+  "app": {
+    "appName": "pagemaker365-contoso",
+    "runtimeBaseUrl": "https://contoso.pagemaker365.example",
+    "apiBaseUrl": "https://contoso-api.pagemaker365.example",
+    "customDomain": "",
+    "supportEmail": "support@pagemaker365.com"
+  },
+  "entra": {
+    "appRegistrationMode": "Create",
+    "portalClientId": "",
+    "apiClientId": "",
+    "permissionMode": "SitesSelected",
+    "requiredApplicationPermissions": [
+      "Sites.Selected"
+    ],
+    "requiredDelegatedScopes": [
+      "openid",
+      "profile",
+      "email"
+    ]
+  },
+  "controlPlane": {
+    "baseUrl": "https://pagemaker365.com",
+    "deploymentExportId": "export_contoso_sandbox_001",
+    "environmentId": "env_contoso_sandbox",
+    "licenseActivationId": "lic_contoso_sandbox_001",
+    "entitlementSyncUrl": "https://api.pagemaker365.com/api/runtime/entitlements/sync",
+    "publicKeyId": "pm365-runtime-signing-key-001",
+    "packageHash": ""
+  },
+  "secrets": {
+    "keyVaultName": "kv-pm365-contoso-prod",
+    "requiredSecretNames": [
+      "runtime-license-public-key",
+      "runtime-session-secret",
+      "graph-client-secret"
+    ],
+    "promptForSecrets": [
+      {
+        "name": "graph-client-secret",
+        "label": "Microsoft Graph app client secret",
+        "required": true,
+        "generatedByInstaller": true
+      }
+    ]
+  },
+  "features": {
+    "knowledgeBase": true,
+    "customerPortal": true,
+    "billingIntegration": true,
+    "connectors": true,
+    "orchestrator": false
+  },
+  "smokeTests": {
+    "apiHealthPath": "/health",
+    "portalPath": "/",
+    "licenseValidationPath": "/api/runtime/license/validate",
+    "entitlementSyncPath": "/api/runtime/entitlements/sync"
+  }
+}
