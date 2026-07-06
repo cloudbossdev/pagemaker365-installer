@@ -176,6 +176,56 @@
                         </Border>
                     </UniformGrid>
 
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,6,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Standard Setup Path" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="The installer is designed to move a customer deployment from prepared package to signed evidence without requiring users to work from PowerShell."
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="20"
+                                       Margin="0,8,0,0" />
+
+                            <UniformGrid x:Name="WelcomeWorkflowGrid" Columns="4" Margin="0,16,0,0">
+                                <StackPanel x:Name="WelcomeWorkflowPackageCard" Margin="0,0,8,0">
+                                    <TextBlock Text="1" Foreground="{StaticResource PmCyan}" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock Text="Package &amp; Sign In" FontSize="16" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    <TextBlock Text="Load the customer package, then connect Azure and Microsoft Graph."
+                                               Foreground="{StaticResource PmMuted}"
+                                               TextWrapping="Wrap"
+                                               LineHeight="18"
+                                               Margin="0,6,0,0" />
+                                </StackPanel>
+                                <StackPanel x:Name="WelcomeWorkflowPreviewCard" Margin="4,0,4,0">
+                                    <TextBlock Text="2" Foreground="{StaticResource PmCyan}" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock Text="Preflight &amp; Preview" FontSize="16" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    <TextBlock Text="Resolve blockers and review the Azure What-If before anything deploys."
+                                               Foreground="{StaticResource PmMuted}"
+                                               TextWrapping="Wrap"
+                                               LineHeight="18"
+                                               Margin="0,6,0,0" />
+                                </StackPanel>
+                                <StackPanel x:Name="WelcomeWorkflowInstallCard" Margin="4,0,4,0">
+                                    <TextBlock Text="3" Foreground="{StaticResource PmCyan}" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock Text="Install &amp; Validate" FontSize="16" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    <TextBlock Text="Approve the deployment, run setup, then confirm smoke-test results."
+                                               Foreground="{StaticResource PmMuted}"
+                                               TextWrapping="Wrap"
+                                               LineHeight="18"
+                                               Margin="0,6,0,0" />
+                                </StackPanel>
+                                <StackPanel x:Name="WelcomeWorkflowFinishCard" Margin="8,0,0,0">
+                                    <TextBlock Text="4" Foreground="{StaticResource PmCyan}" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock Text="Final Evidence" FontSize="16" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    <TextBlock Text="Generate the final report, manifest, and support bundle for the customer record."
+                                               Foreground="{StaticResource PmMuted}"
+                                               TextWrapping="Wrap"
+                                               LineHeight="18"
+                                               Margin="0,6,0,0" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
                     <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,6,0,0">
                         <StackPanel>
                             <TextBlock Text="Safety" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />

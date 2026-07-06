@@ -88,6 +88,7 @@ Start here before wiring the production payload:
 
 - `docs/deployment-contract.md`
 - `docs/onboarding-discovery-contract.md`
+- `docs/using-the-installer.md`
 - `docs/implementation-backlog.md`
 - `schemas/customer-install.schema.json`
 - `schemas/onboarding-bootstrap.schema.json`
@@ -151,17 +152,16 @@ pwsh .\scripts\package.ps1 -CodeSigningCertificatePath C:\certs\pagemaker365.pfx
 ## First Desktop Flow
 
 1. Launch the WPF app.
-2. Click `Continue`.
-3. Click `Load Sample Bootstrap`.
-4. Click `Connect Session`.
-5. Click `Create Discovery`.
-6. Click `Save Redacted JSON` or `Mock Sync To Portal`.
-7. Click `Load Sample`.
-8. Click `Sign In Azure`.
-9. Click `Sign In Graph`.
-10. Click `Run Preflight`.
-11. Review PowerShell-backed local, Azure, Entra, and SharePoint readiness checks.
-12. Use `Explain Issue`, `Generate Admin Message`, or `Create Support Bundle`.
+2. Choose `Use Setup Workflow`.
+3. Load the customer package.
+4. Sign in to Azure and Microsoft Graph.
+5. Run preflight checks.
+6. Run deployment preview.
+7. Approve and run install.
+8. Run validation smoke tests.
+9. Generate the final evidence package.
+
+See `docs/using-the-installer.md` for the detailed step-by-step guide and evidence output locations.
 
 ## Next Development Step
 
