@@ -73,6 +73,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet build failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Running onboarding API contract tests...'
+$contractTestProject = Join-Path $repoRoot 'tests\PageMaker365.Installer.Engine.Tests\PageMaker365.Installer.Engine.Tests.csproj'
+dotnet run --project $contractTestProject --no-build
+if ($LASTEXITCODE -ne 0) {
+    throw "Onboarding API contract tests failed with exit code $LASTEXITCODE."
+}
+
 $modulePath = Join-Path $repoRoot 'modules\PageMaker365.Install\PageMaker365.Install.psd1'
 $configPath = Join-Path $repoRoot 'samples\contoso.customer.install.json'
 $reportPath = Join-Path $repoRoot 'support-bundle\verify-install-report.md'

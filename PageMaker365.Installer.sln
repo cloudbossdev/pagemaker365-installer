@@ -6,6 +6,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PageMaker365.Installer.App"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PageMaker365.Installer.Engine", "src\PageMaker365.Installer.Engine\PageMaker365.Installer.Engine.csproj", "{8D987CB3-362E-4821-B9D4-3F72F825BD94}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{14EE4D61-CB6F-4772-9841-BF9851B01265}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PageMaker365.Installer.Engine.Tests", "tests\PageMaker365.Installer.Engine.Tests\PageMaker365.Installer.Engine.Tests.csproj", "{C33B2241-73BE-40A2-A12F-ED616C4332F8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,9 +24,15 @@ Global
 		{8D987CB3-362E-4821-B9D4-3F72F825BD94}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8D987CB3-362E-4821-B9D4-3F72F825BD94}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8D987CB3-362E-4821-B9D4-3F72F825BD94}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C33B2241-73BE-40A2-A12F-ED616C4332F8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C33B2241-73BE-40A2-A12F-ED616C4332F8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C33B2241-73BE-40A2-A12F-ED616C4332F8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C33B2241-73BE-40A2-A12F-ED616C4332F8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C33B2241-73BE-40A2-A12F-ED616C4332F8} = {14EE4D61-CB6F-4772-9841-BF9851B01265}
+	EndGlobalSection
 EndGlobal
-
