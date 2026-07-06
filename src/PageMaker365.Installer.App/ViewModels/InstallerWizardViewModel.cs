@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using PageMaker365.Installer.App;
 using Microsoft.Win32;
@@ -42,6 +43,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _portalStatusOutputPath = "Not saved";
     private string _discoveryReviewSummary = "Create discovery to populate Azure, Microsoft Graph, SharePoint, and Entra readiness.";
     private string _discoveredLibrariesSummary = "No SharePoint document libraries discovered yet.";
+    private string _discoverySyncReadinessSummary = "Create discovery before syncing onboarding data to the portal.";
+    private string _discoverySyncStatusBrush = "#8290AA";
+    private string _packageReadinessStatusBrush = "#8290AA";
+    private string _packageReadinessSummary = "Package readiness has not been checked.";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -72,7 +77,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         BrowseBootstrapCommand = new RelayCommand(BrowseBootstrapAsync);
         ConnectOnboardingCommand = new RelayCommand(ConnectOnboardingAsync, () => _bootstrapSession is not null);
         RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, () => _bootstrapSession is not null);
-        SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, () => _bootstrapSession is not null && _tenantDiscovery is not null);
+        SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, CanSyncDiscovery);
         SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null);
         CheckPackageReadinessCommand = new RelayCommand(CheckPackageReadinessAsync, () => _bootstrapSession is not null);
         DownloadGeneratedPackageCommand = new RelayCommand(DownloadGeneratedPackageAsync, CanDownloadGeneratedPackage);
@@ -99,6 +104,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public ObservableCollection<DiscoveryValueViewModel> DiscoveryValues { get; } = [];
     public ObservableCollection<DiscoveryFindingViewModel> DiscoveryFindings { get; } = [];
     public ObservableCollection<SharePointLibraryViewModel> DiscoveredLibraries { get; } = [];
+    public ObservableCollection<MissingFieldViewModel> PortalMissingFields { get; } = [];
+    public PortalSyncReceiptViewModel PortalSyncReceipt { get; } = new();
     public RelayCommand SelectSetupModeCommand { get; }
     public RelayCommand SelectRemovalModeCommand { get; }
     public RelayCommand LoadSampleBootstrapCommand { get; }
@@ -223,6 +230,30 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _discoveredLibrariesSummary;
         set => SetProperty(ref _discoveredLibrariesSummary, value);
+    }
+
+    public string DiscoverySyncReadinessSummary
+    {
+        get => _discoverySyncReadinessSummary;
+        set => SetProperty(ref _discoverySyncReadinessSummary, value);
+    }
+
+    public string DiscoverySyncStatusBrush
+    {
+        get => _discoverySyncStatusBrush;
+        set => SetProperty(ref _discoverySyncStatusBrush, value);
+    }
+
+    public string PackageReadinessStatusBrush
+    {
+        get => _packageReadinessStatusBrush;
+        set => SetProperty(ref _packageReadinessStatusBrush, value);
+    }
+
+    public string PackageReadinessSummary
+    {
+        get => _packageReadinessSummary;
+        set => SetProperty(ref _packageReadinessSummary, value);
     }
 
     public string AiTitle
@@ -372,6 +403,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DiscoverySummary = "No discovery snapshot created.";
         DiscoveryOutputPath = "Not saved";
         ClearDiscoveryReview();
+        ClearPortalWorkflowReview();
         PortalMissingFieldsSummary = "Package readiness has not been checked.";
         PackageReadinessStatus = "Not checked";
         PackageReadinessVersion = "Not available";
@@ -424,8 +456,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RefreshDiscoveryReview(_tenantDiscovery);
         DiscoveryOutputPath = "Not saved";
         PortalSyncStatus = "Discovery created locally. Not synced.";
+        RefreshDiscoverySyncReadiness();
         PackageReadinessStatus = "Discovery changed; check readiness";
+        PackageReadinessStatusBrush = "#FFB84D";
+        PackageReadinessSummary = "Discovery has changed. Sync discovery to the portal, then check package readiness.";
         PortalMissingFieldsSummary = "Discovery is ready to sync. Check package readiness after portal sync.";
+        PortalMissingFields.Clear();
         FooterStatus = "Tenant discovery created. Review, save a redacted copy, or sync it to the configured onboarding API.";
         AiTitle = "Discovery snapshot ready";
         AiSummary = "The installer has created an install-readiness payload shaped for portal onboarding. This snapshot can be saved locally or synced to the configured onboarding API.";
@@ -442,10 +478,24 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        if (HasBlockingDiscoveryFindings(_tenantDiscovery))
+        {
+            RefreshDiscoverySyncReadiness();
+            FooterStatus = "Discovery has blocking findings. Resolve blockers before syncing to the portal.";
+            return;
+        }
+
         var submission = await _onboardingApiClient.SubmitDiscoveryAsync(_bootstrapSession, _tenantDiscovery);
         PortalSyncStatus = $"{submission.Status}: {submission.PortalRecordUrl}";
+        PortalSyncReceipt.SessionId = submission.SessionId;
+        PortalSyncReceipt.DiscoveryId = submission.DiscoveryId;
+        PortalSyncReceipt.SyncStatus = submission.Status;
+        PortalSyncReceipt.CorrelationId = submission.CorrelationId;
+        PortalSyncReceipt.PortalRecordUrl = submission.PortalRecordUrl;
+        PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
         FooterStatus = $"Discovery synced through {_onboardingApiClient.ConnectionLabel}.";
         await RefreshOnboardingPortalStatusAsync("Discovery synced. Package readiness refreshed.");
+        await SavePortalSyncReceiptAsync();
     }
 
     private async Task SaveDiscoveryAsync()
@@ -492,6 +542,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PortalMissingFieldsSummary = _onboardingPortalStatus.MissingFields.Count == 0
             ? "No required onboarding fields are missing."
             : string.Join("; ", _onboardingPortalStatus.MissingFields.Select(field => $"{field.Label} ({field.FieldKey})"));
+        RefreshPortalReadinessReview(_onboardingPortalStatus);
         PortalSyncStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.PortalRecordUrl}";
         OnboardingStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.Message}";
 
@@ -499,6 +550,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PortalStatusOutputPath = await _onboardingApiClient.SaveStatusAsync(_onboardingPortalStatus, outputRoot);
         FooterStatus = $"{footerStatus} {_packageReadiness.Message}";
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        await SavePortalSyncReceiptAsync();
     }
 
     private bool CanDownloadGeneratedPackage()
@@ -539,8 +591,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         await LoadPackageAsync(download.PackagePath);
         PackageDownloadPath = download.PackagePath;
         PackageReadinessStatus = "Downloaded";
+        PackageReadinessStatusBrush = "#42D8A0";
+        PackageReadinessSummary = "Generated package has been downloaded and loaded into the installer.";
         PackageReadinessVersion = download.PackageVersion;
+        PortalSyncReceipt.PackageReadinessStatus = PackageReadinessStatus;
         FooterStatus = $"Generated install package downloaded and loaded: {download.PackagePath}";
+        await SavePortalSyncReceiptAsync();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
@@ -599,7 +655,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (_bootstrapSession is not null)
         {
             PackageReadinessStatus = "Package changed; check readiness";
+            PackageReadinessStatusBrush = "#FFB84D";
+            PackageReadinessSummary = "Loaded package changed. Check package readiness again before download.";
             PortalMissingFieldsSummary = "Loaded package can be used as readiness context. Check package readiness again.";
+            PortalMissingFields.Clear();
         }
         FooterStatus = IsRemovalMode
             ? "Customer package loaded. Sign in so the app can inventory the existing deployment."
@@ -907,6 +966,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PackageDownloadPath = "Not downloaded";
         PortalStatusOutputPath = "Not saved";
         ClearDiscoveryReview();
+        ClearPortalWorkflowReview();
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -922,6 +982,132 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private bool CanSyncDiscovery()
+    {
+        return _bootstrapSession is not null &&
+            _tenantDiscovery is not null &&
+            !HasBlockingDiscoveryFindings(_tenantDiscovery);
+    }
+
+    private void ClearPortalWorkflowReview()
+    {
+        DiscoverySyncReadinessSummary = "Create discovery before syncing onboarding data to the portal.";
+        DiscoverySyncStatusBrush = "#8290AA";
+        PackageReadinessStatusBrush = "#8290AA";
+        PackageReadinessSummary = "Package readiness has not been checked.";
+        PortalMissingFields.Clear();
+        PortalSyncReceipt.Reset();
+    }
+
+    private void RefreshDiscoverySyncReadiness()
+    {
+        if (_tenantDiscovery is null)
+        {
+            DiscoverySyncReadinessSummary = "Create discovery before syncing onboarding data to the portal.";
+            DiscoverySyncStatusBrush = "#8290AA";
+            SyncDiscoveryCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        var blockedFindings = _tenantDiscovery.Findings.Where(IsBlockedFinding).ToList();
+        if (blockedFindings.Count > 0)
+        {
+            DiscoverySyncReadinessSummary = $"{blockedFindings.Count} blocking discovery finding{(blockedFindings.Count == 1 ? "" : "s")} must be resolved before portal sync.";
+            DiscoverySyncStatusBrush = "#FF5C7A";
+            SyncDiscoveryCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        var warningCount = _tenantDiscovery.Findings.Count(IsWarningFinding);
+        if (warningCount > 0)
+        {
+            DiscoverySyncReadinessSummary = $"{warningCount} warning{(warningCount == 1 ? "" : "s")} found. Discovery can sync, but review warnings before package generation.";
+            DiscoverySyncStatusBrush = "#FFB84D";
+            SyncDiscoveryCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        DiscoverySyncReadinessSummary = "Discovery is ready to sync to the portal.";
+        DiscoverySyncStatusBrush = "#42D8A0";
+        SyncDiscoveryCommand.RaiseCanExecuteChanged();
+    }
+
+    private void RefreshPortalReadinessReview(OnboardingPortalStatus status)
+    {
+        PortalMissingFields.Clear();
+        foreach (var field in status.MissingFields)
+        {
+            PortalMissingFields.Add(new MissingFieldViewModel(field));
+        }
+
+        if (PortalMissingFields.Count == 0)
+        {
+            PortalMissingFieldsSummary = "No required onboarding fields are missing.";
+        }
+
+        PackageReadinessStatusBrush = status.PackageReadiness.Status switch
+        {
+            "Ready" => "#42D8A0",
+            "Downloaded" => "#42D8A0",
+            "NeedsCustomerInput" => "#FFB84D",
+            "NotReady" => "#FFB84D",
+            "Failed" => "#FF5C7A",
+            _ => "#8290AA"
+        };
+        PackageReadinessSummary = string.IsNullOrWhiteSpace(status.PackageReadiness.Message)
+            ? status.Message
+            : status.PackageReadiness.Message;
+
+        PortalSyncReceipt.SessionId = status.SessionId;
+        PortalSyncReceipt.PackageReadinessStatus = status.PackageReadiness.Status;
+        PortalSyncReceipt.PortalRecordUrl = status.PortalRecordUrl;
+        if (!string.IsNullOrWhiteSpace(status.CorrelationId))
+        {
+            PortalSyncReceipt.CorrelationId = status.CorrelationId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_tenantDiscovery?.DiscoveryId))
+        {
+            PortalSyncReceipt.DiscoveryId = _tenantDiscovery.DiscoveryId;
+        }
+    }
+
+    private async Task SavePortalSyncReceiptAsync()
+    {
+        if (_bootstrapSession is null || _tenantDiscovery is null)
+        {
+            return;
+        }
+
+        var directory = Path.Combine(GetWorkspaceRoot(), "support-bundle", "onboarding", _bootstrapSession.SessionId);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "portal-sync-receipt.json");
+        var receipt = new
+        {
+            contractVersion = "0.1",
+            sessionId = PortalSyncReceipt.SessionId,
+            discoveryId = PortalSyncReceipt.DiscoveryId,
+            syncStatus = PortalSyncReceipt.SyncStatus,
+            portalCorrelationId = PortalSyncReceipt.CorrelationId,
+            portalRecordUrl = PortalSyncReceipt.PortalRecordUrl,
+            packageReadinessStatus = PortalSyncReceipt.PackageReadinessStatus,
+            portalStatusOutputPath = PortalStatusOutputPath,
+            packageDownloadPath = PackageDownloadPath,
+            savedAt = DateTimeOffset.UtcNow
+        };
+        var json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+        await File.WriteAllTextAsync(path, json);
+        PortalSyncReceipt.ReceiptOutputPath = path;
+    }
+
+    private static bool HasBlockingDiscoveryFindings(TenantDiscoveryResult discovery)
+    {
+        return discovery.Findings.Any(IsBlockedFinding);
     }
 
     private void ClearDiscoveryReview()
