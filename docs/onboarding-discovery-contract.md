@@ -84,7 +84,67 @@ POST /api/onboarding/installer/status
 GET  /api/onboarding/installer/{sessionId}/install-package
 ```
 
-The first desktop build uses `MockOnboardingApiClient`, which does not make network calls. It lets the app prove the UI, model, redaction, and local persistence flow before the portal API exists.
+The desktop app defaults to `Mock` mode, which does not make network calls. It lets the app prove the UI, model, redaction, and local persistence flow before the portal API exists.
+
+Portal mode is configured with `onboarding-api.json` in the repo/package root, `config/onboarding-api.json`, or beside the app executable. A sample is available at `samples/onboarding-api.portal.example.json`.
+
+Supported environment overrides:
+
+- `PM365_ONBOARDING_MODE`: `Mock` or `Portal`.
+- `PM365_ONBOARDING_API_BASE_URL`: default API base URL if the bootstrap session does not supply one.
+- `PM365_ONBOARDING_CONNECT_ENDPOINT_PATH`: connect endpoint path.
+- `PM365_ONBOARDING_DISCOVERY_ENDPOINT_PATH`: discovery sync endpoint path.
+- `PM365_ONBOARDING_STATUS_ENDPOINT_PATH`: package-readiness endpoint path.
+- `PM365_ONBOARDING_PACKAGE_ENDPOINT_TEMPLATE`: package download endpoint template. Use `{sessionId}` as the token.
+- `PM365_ONBOARDING_API_KEY_ENV`: name of the environment variable that contains the bearer token.
+- `PM365_ONBOARDING_TIMEOUT_SECONDS`: HTTP timeout.
+- `PM365_ONBOARDING_FALLBACK_TO_MOCK`: whether portal API failures should fall back to local mock behavior.
+
+When portal mode is enabled, the installer attaches these headers:
+
+- `Authorization: Bearer <token>` when the configured API key environment variable has a value.
+- `X-PM365-Onboarding-Session`: onboarding session ID.
+- `X-PM365-Onboarding-Code`: one-time onboarding code from the bootstrap session.
+
+The bootstrap session `apiBaseUrl` takes precedence over `PM365_ONBOARDING_API_BASE_URL`, so the portal can generate customer/session-specific API routing.
+
+### Connect Request
+
+`POST /api/onboarding/installer/connect`
+
+```json
+{
+  "contractVersion": "0.1",
+  "sessionId": "onb_contoso_sandbox_001",
+  "oneTimeCode": "PM365-CONTOSO-DEMO",
+  "requestedBy": "admin@contoso.com",
+  "customerName": "Contoso Intranet"
+}
+```
+
+Response: `OnboardingSessionConnection`.
+
+### Discovery Submit Request
+
+`POST /api/onboarding/installer/discovery`
+
+```json
+{
+  "contractVersion": "0.1",
+  "sessionId": "onb_contoso_sandbox_001",
+  "oneTimeCode": "PM365-CONTOSO-DEMO",
+  "discovery": {
+    "contractVersion": "0.1",
+    "discoveryId": "disc_contoso_sandbox_001",
+    "onboardingSessionId": "onb_contoso_sandbox_001",
+    "dataPolicy": "InstallReadinessOnly"
+  }
+}
+```
+
+Response: `OnboardingDiscoverySubmission`.
+
+The `discovery` object is the full `TenantDiscoveryResult` payload. It must remain install-readiness metadata only.
 
 ### Onboarding Status / Package Readiness
 
@@ -101,6 +161,35 @@ Important fields:
 - `packageReadiness.packageVersion`: generated package contract/version identifier.
 - `packageReadiness.packageDownloadUrl`: API endpoint the installer can use to retrieve the generated package.
 - `correlationId`: server-side trace ID for audit/support.
+
+Request:
+
+```json
+{
+  "contractVersion": "0.1",
+  "sessionId": "onb_contoso_sandbox_001",
+  "oneTimeCode": "PM365-CONTOSO-DEMO",
+  "discovery": {
+    "contractVersion": "0.1",
+    "discoveryId": "disc_contoso_sandbox_001",
+    "dataPolicy": "InstallReadinessOnly"
+  },
+  "loadedPackage": {
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "tenantName": "Contoso Intranet",
+    "azureSubscriptionId": "11111111-1111-1111-1111-111111111111",
+    "azureLocation": "eastus",
+    "resourceGroupName": "rg-pagemaker365-contoso-prod",
+    "sharePointSiteUrl": "https://contoso.sharepoint.com/sites/intranet",
+    "sharePointTenantHostname": "contoso.sharepoint.com",
+    "primaryContact": "admin@contoso.com",
+    "environmentId": "",
+    "packageHash": ""
+  }
+}
+```
+
+The installer sends only a sanitized `loadedPackage` context for readiness checks. It must not send raw secrets, full customer package content, or generated credentials.
 
 Example response:
 
@@ -138,6 +227,12 @@ to:
 
 `support-bundle/onboarding/{sessionId}/generated-package/{sessionId}.customer.install.json`
 
+In portal mode, status snapshots are written locally to:
+
+`support-bundle/onboarding/{sessionId}/portal-status.json`
+
+Generated packages are downloaded from `packageReadiness.packageDownloadUrl` when present, otherwise from the configured package endpoint template.
+
 ## Security Rules
 
 - Discovery is read-only.
@@ -159,12 +254,14 @@ Implemented in this repo:
 - Redacted local discovery JSON export.
 - Mock package-readiness status.
 - Mock generated package download and load into the installer.
+- Portal API client scaffold for connect, discovery sync, package readiness, and package download.
+- Onboarding API configuration and environment override support.
 
 Not implemented yet:
 
 - Real Azure subscription enumeration.
 - Real Graph tenant/domain discovery.
 - Real SharePoint site/library discovery.
-- Production PageMaker365 API integration.
+- Live PageMaker365 portal API endpoint implementation and validation.
 - Portal-side onboarding form population.
-- Signed final install package download from the production portal API.
+- Signed final install package generation and signature validation.

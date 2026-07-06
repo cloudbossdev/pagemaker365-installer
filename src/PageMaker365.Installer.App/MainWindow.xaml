@@ -245,7 +245,7 @@
                                 <Button Content="Connect Session" Command="{Binding ConnectOnboardingCommand}" Margin="8,0,0,8" />
                                 <Button Content="Create Discovery" Command="{Binding RunDiscoveryCommand}" Margin="0,0,8,0" />
                                 <Button Content="Save Redacted JSON" Command="{Binding SaveDiscoveryCommand}" Margin="4,0,4,0" />
-                                <Button Content="Mock Sync To Portal" Command="{Binding SyncDiscoveryCommand}" Margin="8,0,8,0" />
+                                <Button Content="Sync To Portal" Command="{Binding SyncDiscoveryCommand}" Margin="8,0,8,0" />
                                 <Button Content="Check Readiness" Command="{Binding CheckPackageReadinessCommand}" Margin="4,0,4,0" />
                                 <Button Content="Download Package" Command="{Binding DownloadGeneratedPackageCommand}" Margin="8,0,0,0" />
                             </UniformGrid>
@@ -274,7 +274,7 @@
                                     <TextBlock Text="{Binding PortalMissingFieldsSummary}" FontSize="14" TextWrapping="Wrap" LineHeight="19" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="9,0,0,0">
-                                    <TextBlock Text="Mock Status Output" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="Status Output" Foreground="{StaticResource PmMuted}" />
                                     <TextBlock Text="{Binding PortalStatusOutputPath}" FontSize="14" TextWrapping="Wrap" LineHeight="19" Margin="0,4,0,12" />
                                     <TextBlock Text="Package Download" Foreground="{StaticResource PmMuted}" />
                                     <TextBlock Text="{Binding PackageDownloadPath}" FontSize="14" TextWrapping="Wrap" LineHeight="19" Margin="0,4,0,0" />

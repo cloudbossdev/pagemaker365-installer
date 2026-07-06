@@ -16,7 +16,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly InstallerEngine _engine;
     private readonly SupportBundleService _supportBundleService;
     private readonly TenantDiscoveryService _tenantDiscoveryService;
-    private readonly MockOnboardingApiClient _onboardingApiClient = new();
+    private readonly IOnboardingApiClient _onboardingApiClient;
     private CustomerInstallConfig? _config;
     private InstallerSession? _session;
     private OnboardingBootstrapSession? _bootstrapSession;
@@ -60,6 +60,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _engine = new InstallerEngine(new StructuredLogger(_redactionService));
         _supportBundleService = new SupportBundleService(_redactionService);
         _tenantDiscoveryService = new TenantDiscoveryService(_redactionService);
+        _onboardingApiClient = new OnboardingApiClient(new OnboardingApiOptionsService().Load(GetWorkspaceRoot()));
 
         Steps = [];
 
@@ -362,7 +363,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             CustomerName = session.CustomerName;
         }
 
-        FooterStatus = "Onboarding bootstrap loaded. Connect the session or run mock discovery.";
+        FooterStatus = $"Onboarding bootstrap loaded. Client: {_onboardingApiClient.ConnectionLabel}.";
         ConnectOnboardingCommand.RaiseCanExecuteChanged();
         RunDiscoveryCommand.RaiseCanExecuteChanged();
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
@@ -382,7 +383,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var connection = await _onboardingApiClient.ConnectAsync(_bootstrapSession);
         OnboardingStatus = $"{connection.Status}: {connection.Message}";
         PortalSyncStatus = $"Connected with correlation {connection.CorrelationId}.";
-        FooterStatus = "Mock onboarding API session connected. No network request was made.";
+        FooterStatus = $"{_onboardingApiClient.ConnectionLabel} session connected.";
     }
 
     private Task RunDiscoveryAsync()
@@ -401,9 +402,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PortalSyncStatus = "Discovery created locally. Not synced.";
         PackageReadinessStatus = "Discovery changed; check readiness";
         PortalMissingFieldsSummary = "Discovery is ready to sync. Check package readiness after portal sync.";
-        FooterStatus = "Mock tenant discovery created. Review, save a redacted copy, or sync to the mock portal client.";
+        FooterStatus = "Tenant discovery created. Review, save a redacted copy, or sync it to the configured onboarding API.";
         AiTitle = "Discovery snapshot ready";
-        AiSummary = "The installer has created an install-readiness payload shaped for portal onboarding. This build uses mock discovery derived from the bootstrap session and loaded package.";
+        AiSummary = "The installer has created an install-readiness payload shaped for portal onboarding. This snapshot can be saved locally or synced to the configured onboarding API.";
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
@@ -420,7 +421,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         var submission = await _onboardingApiClient.SubmitDiscoveryAsync(_bootstrapSession, _tenantDiscovery);
         PortalSyncStatus = $"{submission.Status}: {submission.PortalRecordUrl}";
-        FooterStatus = "Discovery synced to the mock PageMaker365 API client. No network request was made.";
+        FooterStatus = $"Discovery synced through {_onboardingApiClient.ConnectionLabel}.";
         await RefreshOnboardingPortalStatusAsync("Discovery synced. Package readiness refreshed.");
     }
 
@@ -472,7 +473,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnboardingStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.Message}";
 
         var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
-        PortalStatusOutputPath = await _onboardingApiClient.SaveMockStatusAsync(_onboardingPortalStatus, outputRoot);
+        PortalStatusOutputPath = await _onboardingApiClient.SaveStatusAsync(_onboardingPortalStatus, outputRoot);
         FooterStatus = $"{footerStatus} {_packageReadiness.Message}";
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }

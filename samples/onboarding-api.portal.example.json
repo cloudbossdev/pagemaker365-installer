@@ -1,0 +1,11 @@
+{
+  "mode": "Portal",
+  "apiBaseUrl": "https://api.pagemaker365.com",
+  "connectEndpointPath": "/api/onboarding/installer/connect",
+  "discoveryEndpointPath": "/api/onboarding/installer/discovery",
+  "statusEndpointPath": "/api/onboarding/installer/status",
+  "packageEndpointPathTemplate": "/api/onboarding/installer/{sessionId}/install-package",
+  "apiKeyEnvironmentVariable": "PM365_ONBOARDING_API_KEY",
+  "timeoutSeconds": 30,
+  "fallbackToMockOnFailure": true
+}

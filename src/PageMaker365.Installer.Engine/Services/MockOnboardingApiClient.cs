@@ -3,12 +3,14 @@ using PageMaker365.Installer.Engine.Models;
 
 namespace PageMaker365.Installer.Engine.Services;
 
-public sealed class MockOnboardingApiClient
+public sealed class MockOnboardingApiClient : IOnboardingApiClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
     };
+
+    public string ConnectionLabel => "Local mock onboarding API";
 
     public Task<OnboardingSessionConnection> ConnectAsync(
         OnboardingBootstrapSession session,
@@ -85,7 +87,7 @@ public sealed class MockOnboardingApiClient
         });
     }
 
-    public async Task<string> SaveMockStatusAsync(
+    public async Task<string> SaveStatusAsync(
         OnboardingPortalStatus status,
         string outputRoot,
         CancellationToken cancellationToken = default)
@@ -96,6 +98,14 @@ public sealed class MockOnboardingApiClient
         var json = JsonSerializer.Serialize(status, JsonOptions);
         await File.WriteAllTextAsync(path, json, cancellationToken);
         return path;
+    }
+
+    public Task<string> SaveMockStatusAsync(
+        OnboardingPortalStatus status,
+        string outputRoot,
+        CancellationToken cancellationToken = default)
+    {
+        return SaveStatusAsync(status, outputRoot, cancellationToken);
     }
 
     public async Task<OnboardingPackageDownloadResult> DownloadPackageAsync(
