@@ -65,6 +65,7 @@ public sealed class GraphDiscoveryService
             }
         }
 
+        discovery.Customer.DefaultDomain = Coalesce(graph.DefaultDomain, discovery.Customer.DefaultDomain);
         AddVerifiedDomain(discovery, graph.DefaultDomain);
         foreach (var domain in graph.VerifiedDomains)
         {
@@ -88,6 +89,10 @@ public sealed class GraphDiscoveryService
             }
         }
 
+        discovery.Entra.AccountId = Coalesce(graph.AccountId, discovery.Entra.AccountId);
+        discovery.Entra.Scopes = graph.Scopes.Count > 0
+            ? graph.Scopes.ToList()
+            : discovery.Entra.Scopes;
         discovery.Entra.AppRegistrationMode = Coalesce(graph.AppRegistrationMode, discovery.Entra.AppRegistrationMode);
         discovery.Entra.ConsentStatus = Coalesce(graph.ConsentStatus, discovery.Entra.ConsentStatus);
         discovery.Entra.PermissionMode = Coalesce(graph.EntraPermissionMode, discovery.Entra.PermissionMode);

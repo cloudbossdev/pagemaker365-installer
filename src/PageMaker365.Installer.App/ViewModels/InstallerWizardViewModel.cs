@@ -2551,11 +2551,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         AddDiscoveryValue("Discovery", "Data Policy", discovery.DataPolicy);
         AddDiscoveryValue("Customer", "Tenant Name", discovery.Customer.TenantName);
         AddDiscoveryValue("Customer", "Tenant ID", discovery.Customer.TenantId);
+        AddDiscoveryValue("Customer", "Default Domain", discovery.Customer.DefaultDomain);
         AddDiscoveryValue("Customer", "Verified Domains", JoinValues(discovery.Customer.VerifiedDomains));
+        AddDiscoveryValue("Azure", "Signed-In Account", discovery.Azure.AccountId);
         AddDiscoveryValue("Azure", "Azure Tenant", discovery.Azure.TenantId);
         AddDiscoveryValue("Azure", "Subscription ID", discovery.Azure.SelectedSubscriptionId);
         AddDiscoveryValue("Azure", "Subscription Name", discovery.Azure.SelectedSubscriptionName);
+        AddDiscoveryValue("Azure", "Subscription State", discovery.Azure.SelectedSubscriptionState);
         AddDiscoveryValue("Azure", "Resource Group", discovery.Azure.TargetResourceGroupName);
+        AddDiscoveryValue("Azure", "Resource Group Exists", discovery.Azure.ResourceGroupExists ? "Yes" : "No");
         AddDiscoveryValue("Azure", "Location", discovery.Azure.RecommendedLocation);
         AddDiscoveryValue("SharePoint", "Tenant Hostname", discovery.SharePoint.TenantHostname);
         AddDiscoveryValue("SharePoint", "Site URL", discovery.SharePoint.SiteUrl);
@@ -2563,6 +2567,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         AddDiscoveryValue("SharePoint", "Site Name", discovery.SharePoint.SiteDisplayName);
         AddDiscoveryValue("SharePoint", "Default Library", discovery.SharePoint.DefaultDocumentLibrary);
         AddDiscoveryValue("SharePoint", "Library Drive ID", discovery.SharePoint.DefaultDocumentLibraryId);
+        AddDiscoveryValue("Entra", "Signed-In Account", discovery.Entra.AccountId);
+        AddDiscoveryValue("Entra", "Graph Scopes", JoinValues(discovery.Entra.Scopes));
         AddDiscoveryValue("Entra", "App Registration", discovery.Entra.AppRegistrationMode);
         AddDiscoveryValue("Entra", "Consent Status", discovery.Entra.ConsentStatus);
         AddDiscoveryValue("Entra", "Permission Mode", discovery.Entra.PermissionMode);

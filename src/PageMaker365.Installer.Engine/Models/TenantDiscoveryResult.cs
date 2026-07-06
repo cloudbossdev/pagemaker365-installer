@@ -20,16 +20,20 @@ public sealed class TenantDiscoveryCustomer
     public string TenantName { get; set; } = "";
     public string TenantId { get; set; } = "";
     public string PrimaryContact { get; set; } = "";
+    public string DefaultDomain { get; set; } = "";
     public List<string> VerifiedDomains { get; set; } = [];
 }
 
 public sealed class TenantDiscoveryAzure
 {
+    public string AccountId { get; set; } = "";
     public string TenantId { get; set; } = "";
     public string SelectedSubscriptionId { get; set; } = "";
     public string SelectedSubscriptionName { get; set; } = "";
+    public string SelectedSubscriptionState { get; set; } = "";
     public string RecommendedLocation { get; set; } = "";
     public string TargetResourceGroupName { get; set; } = "";
+    public bool ResourceGroupExists { get; set; }
     public List<AzureSubscriptionDiscovery> AccessibleSubscriptions { get; set; } = [];
 }
 
@@ -55,6 +59,8 @@ public sealed class TenantDiscoverySharePoint
 
 public sealed class TenantDiscoveryEntra
 {
+    public string AccountId { get; set; } = "";
+    public List<string> Scopes { get; set; } = [];
     public string AppRegistrationMode { get; set; } = "";
     public string ConsentStatus { get; set; } = "Unknown";
     public string PermissionMode { get; set; } = "";

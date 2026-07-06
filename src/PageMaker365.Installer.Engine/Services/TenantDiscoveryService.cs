@@ -89,8 +89,9 @@ public sealed class TenantDiscoveryService
                 TenantId = Coalesce(installConfig?.Azure.TenantId, installConfig?.Customer.TenantId, session.ExpectedTenantId),
                 SelectedSubscriptionId = installConfig?.Azure.SubscriptionId ?? "",
                 SelectedSubscriptionName = string.IsNullOrWhiteSpace(installConfig?.Azure.SubscriptionId)
-                    ? ""
-                    : $"Subscription {installConfig.Azure.SubscriptionId[..Math.Min(8, installConfig.Azure.SubscriptionId.Length)]}",
+                ? ""
+                : $"Subscription {installConfig.Azure.SubscriptionId[..Math.Min(8, installConfig.Azure.SubscriptionId.Length)]}",
+                SelectedSubscriptionState = string.IsNullOrWhiteSpace(installConfig?.Azure.SubscriptionId) ? "" : "Unknown",
                 RecommendedLocation = installConfig?.Azure.Location ?? "",
                 TargetResourceGroupName = installConfig?.Azure.ResourceGroupName ?? ""
             },

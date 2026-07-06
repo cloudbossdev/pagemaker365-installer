@@ -66,15 +66,19 @@ public sealed partial class RedactionService
                 TenantName = discovery.Customer.TenantName,
                 TenantId = Mask(discovery.Customer.TenantId),
                 PrimaryContact = discovery.Customer.PrimaryContact,
+                DefaultDomain = discovery.Customer.DefaultDomain,
                 VerifiedDomains = discovery.Customer.VerifiedDomains.ToList()
             },
             Azure =
             {
+                AccountId = Mask(discovery.Azure.AccountId),
                 TenantId = Mask(discovery.Azure.TenantId),
                 SelectedSubscriptionId = Mask(discovery.Azure.SelectedSubscriptionId),
                 SelectedSubscriptionName = discovery.Azure.SelectedSubscriptionName,
+                SelectedSubscriptionState = discovery.Azure.SelectedSubscriptionState,
                 RecommendedLocation = discovery.Azure.RecommendedLocation,
                 TargetResourceGroupName = discovery.Azure.TargetResourceGroupName,
+                ResourceGroupExists = discovery.Azure.ResourceGroupExists,
                 AccessibleSubscriptions = discovery.Azure.AccessibleSubscriptions
                     .Select(subscription => new AzureSubscriptionDiscovery
                     {
@@ -106,6 +110,8 @@ public sealed partial class RedactionService
             },
             Entra =
             {
+                AccountId = Mask(discovery.Entra.AccountId),
+                Scopes = discovery.Entra.Scopes.ToList(),
                 AppRegistrationMode = discovery.Entra.AppRegistrationMode,
                 ConsentStatus = discovery.Entra.ConsentStatus,
                 PermissionMode = discovery.Entra.PermissionMode,

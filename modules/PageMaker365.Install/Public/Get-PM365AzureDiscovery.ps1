@@ -2,7 +2,9 @@ function Get-PM365AzureDiscovery {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string] $ConfigPath
+        [string] $ConfigPath,
+
+        [string] $MockContextPath = $env:PM365_AZURE_DISCOVERY_MOCK_PATH
     )
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
@@ -32,6 +34,113 @@ function Get-PM365AzureDiscovery {
         resourceGroupExists = $false
         accessibleSubscriptions = @()
         findings = @()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($MockContextPath)) {
+        if (-not (Test-Path -LiteralPath $MockContextPath)) {
+            $findings += [ordered]@{
+                severity = 'Warning'
+                code = 'AzureMockContextMissing'
+                summary = 'Azure mock discovery context was not found.'
+                details = $MockContextPath
+            }
+
+            $result.tenantId = $expectedTenantId
+            $result.selectedSubscriptionId = $expectedSubscriptionId
+            $result.selectedSubscriptionName = if ($expectedSubscriptionId) { "Subscription $($expectedSubscriptionId.Substring(0, [Math]::Min(8, $expectedSubscriptionId.Length)))" } else { '' }
+            $result.accessibleSubscriptions = if ($expectedSubscriptionId) {
+                @([ordered]@{
+                    subscriptionId = $expectedSubscriptionId
+                    displayName = $result.selectedSubscriptionName
+                    state = 'Unknown'
+                })
+            } else {
+                @()
+            }
+            $result.findings = $findings
+            return [pscustomobject]$result
+        }
+
+        $mock = Get-Content -LiteralPath $MockContextPath -Raw | ConvertFrom-Json
+        $result.accountId = [string]$mock.accountId
+        $result.tenantId = if ($mock.tenantId) { [string]$mock.tenantId } else { $expectedTenantId }
+        $result.selectedSubscriptionId = if ($mock.selectedSubscriptionId) { [string]$mock.selectedSubscriptionId } else { $expectedSubscriptionId }
+        $result.selectedSubscriptionName = [string]$mock.selectedSubscriptionName
+        $result.selectedSubscriptionState = [string]$mock.selectedSubscriptionState
+        $result.recommendedLocation = if ($mock.recommendedLocation) { [string]$mock.recommendedLocation } else { $recommendedLocation }
+        $result.targetResourceGroupName = if ($mock.targetResourceGroupName) { [string]$mock.targetResourceGroupName } else { $targetResourceGroupName }
+        $result.resourceGroupExists = [bool]$mock.resourceGroupExists
+
+        $mockSubscriptionsSource = @()
+        if ($mock.PSObject.Properties.Name -contains 'accessibleSubscriptions') {
+            $mockSubscriptionsSource = @($mock.accessibleSubscriptions)
+        } elseif ($mock.PSObject.Properties.Name -contains 'subscriptions') {
+            $mockSubscriptionsSource = @($mock.subscriptions)
+        }
+
+        $accessibleSubscriptions = @($mockSubscriptionsSource | Where-Object { $_ } | ForEach-Object {
+            [ordered]@{
+                subscriptionId = [string]$_.subscriptionId
+                displayName = if ($_.displayName) { [string]$_.displayName } else { [string]$_.name }
+                state = [string]$_.state
+            }
+        })
+
+        if ($result.selectedSubscriptionId -and [string]::IsNullOrWhiteSpace($result.selectedSubscriptionName)) {
+            $selectedSubscription = @($accessibleSubscriptions | Where-Object { $_.subscriptionId -eq $result.selectedSubscriptionId } | Select-Object -First 1)
+            if ($selectedSubscription) {
+                $result.selectedSubscriptionName = [string]$selectedSubscription.displayName
+                $result.selectedSubscriptionState = [string]$selectedSubscription.state
+            }
+        }
+
+        if ($accessibleSubscriptions.Count -eq 0 -and $result.selectedSubscriptionId) {
+            $accessibleSubscriptions = @([ordered]@{
+                subscriptionId = $result.selectedSubscriptionId
+                displayName = if ($result.selectedSubscriptionName) { $result.selectedSubscriptionName } else { "Subscription $($result.selectedSubscriptionId.Substring(0, [Math]::Min(8, $result.selectedSubscriptionId.Length)))" }
+                state = if ($result.selectedSubscriptionState) { $result.selectedSubscriptionState } else { 'Unknown' }
+            })
+        }
+
+        if ($expectedTenantId -and $result.tenantId -and ($expectedTenantId -ne $result.tenantId)) {
+            $findings += [ordered]@{
+                severity = 'Failed'
+                code = 'AzureTenantMismatch'
+                summary = 'The signed-in Azure tenant does not match the customer package.'
+                details = "Expected tenant $expectedTenantId but current context is $($result.tenantId)."
+            }
+        }
+
+        if ($expectedSubscriptionId -and $result.selectedSubscriptionId -and ($expectedSubscriptionId -ne $result.selectedSubscriptionId)) {
+            $findings += [ordered]@{
+                severity = 'Failed'
+                code = 'AzureSubscriptionMismatch'
+                summary = 'The selected Azure subscription does not match the customer package.'
+                details = "Expected subscription $expectedSubscriptionId but current context is $($result.selectedSubscriptionId)."
+            }
+        }
+
+        if (-not $result.resourceGroupExists -and $result.targetResourceGroupName) {
+            $findings += [ordered]@{
+                severity = 'Warning'
+                code = 'AzureResourceGroupMissing'
+                summary = 'Target resource group does not exist yet.'
+                details = 'The deployment step can create it if the signed-in account has permission.'
+            }
+        }
+
+        if ($findings.Count -eq 0) {
+            $findings += [ordered]@{
+                severity = 'Info'
+                code = 'AzureDiscoveryReady'
+                summary = 'Azure discovery completed.'
+                details = 'Azure tenant, subscription, and resource group metadata were collected from a test discovery context.'
+            }
+        }
+
+        $result.accessibleSubscriptions = $accessibleSubscriptions
+        $result.findings = $findings
+        return [pscustomobject]$result
     }
 
     $azAccounts = Get-Module -ListAvailable -Name Az.Accounts | Select-Object -First 1

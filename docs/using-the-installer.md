@@ -34,6 +34,21 @@ The installer should not require the customer to run raw PowerShell commands dur
 | 7. Validate | Run smoke tests after deployment. | Validation evidence is written to `support-bundle\validate\deployment-validation.json`. |
 | 8. Finish | Generate the final install evidence package. | A final report, manifest, and zip package are written under `support-bundle\final\`. |
 
+## Read-Only Tenant Discovery
+
+The installer can enrich the package with read-only Azure, Microsoft Graph, Entra, and SharePoint metadata after the user signs in.
+
+Discovery is intended to answer setup-readiness questions:
+
+- Which Azure account, tenant, subscription, subscription state, location, and target resource group are active.
+- Whether the target Azure resource group already exists.
+- Which Microsoft Graph account and scopes are active.
+- Which tenant domains are verified, and which one Graph reports as the default domain.
+- Whether the configured SharePoint site and document library resolve through Microsoft Graph.
+- Whether the signed-in Microsoft 365 account appears able to approve app consent.
+
+Discovery writes an `InstallReadinessOnly` payload. It should not collect document content, mailbox content, user files, raw secrets, tokens, or customer business data. The payload can be sent to the PageMaker365 control plane to prefill onboarding fields and help generate the final customer install package.
+
 ## Resuming A Session
 
 The desktop app remembers the most recent active installer session on the local workstation. If the user closes the app, reboots, or pauses during deployment, the next launch restores the latest active session and returns the UI to the saved workflow step.

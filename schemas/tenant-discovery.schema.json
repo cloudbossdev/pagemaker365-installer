@@ -47,6 +47,7 @@
         "tenantName": { "type": "string" },
         "tenantId": { "type": "string" },
         "primaryContact": { "type": "string" },
+        "defaultDomain": { "type": "string" },
         "verifiedDomains": {
           "type": "array",
           "items": { "type": "string" }
@@ -56,11 +57,14 @@
     "azure": {
       "type": "object",
       "properties": {
+        "accountId": { "type": "string" },
         "tenantId": { "type": "string" },
         "selectedSubscriptionId": { "type": "string" },
         "selectedSubscriptionName": { "type": "string" },
+        "selectedSubscriptionState": { "type": "string" },
         "recommendedLocation": { "type": "string" },
         "targetResourceGroupName": { "type": "string" },
+        "resourceGroupExists": { "type": "boolean" },
         "accessibleSubscriptions": {
           "type": "array",
           "items": {
@@ -103,6 +107,11 @@
     "entra": {
       "type": "object",
       "properties": {
+        "accountId": { "type": "string" },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "appRegistrationMode": { "type": "string" },
         "consentStatus": { "type": "string" },
         "permissionMode": { "type": "string" },

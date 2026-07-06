@@ -106,6 +106,12 @@ Get-PM365AzureDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out
 Write-Host 'Running Graph discovery...'
 Get-PM365GraphDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 16 | Out-Null
 
+Write-Host 'Testing discovery command contracts...'
+& (Join-Path $repoRoot 'scripts\test-discovery.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Discovery command contract tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Running preflight...'
 Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
 

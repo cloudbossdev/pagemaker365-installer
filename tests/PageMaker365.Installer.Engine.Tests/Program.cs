@@ -362,11 +362,14 @@ internal static class Program
         discovery.Azure.AccessibleSubscriptions.Clear();
         var azure = new AzureDiscoveryResult
         {
+            AccountId = "azure-admin@example.test",
             TenantId = "tenant-live",
             SelectedSubscriptionId = "sub-live",
             SelectedSubscriptionName = "Live Subscription",
+            SelectedSubscriptionState = "Enabled",
             RecommendedLocation = "westus3",
             TargetResourceGroupName = "rg-live",
+            ResourceGroupExists = true,
             AccessibleSubscriptions =
             {
                 new AzureSubscriptionDiscovery
@@ -391,10 +394,13 @@ internal static class Program
         AzureDiscoveryService.ApplyToDiscovery(discovery, azure);
 
         AssertEx.Equal("tenant-live", discovery.Azure.TenantId);
+        AssertEx.Equal("azure-admin@example.test", discovery.Azure.AccountId);
         AssertEx.Equal("sub-live", discovery.Azure.SelectedSubscriptionId);
         AssertEx.Equal("Live Subscription", discovery.Azure.SelectedSubscriptionName);
+        AssertEx.Equal("Enabled", discovery.Azure.SelectedSubscriptionState);
         AssertEx.Equal("westus3", discovery.Azure.RecommendedLocation);
         AssertEx.Equal("rg-live", discovery.Azure.TargetResourceGroupName);
+        AssertEx.True(discovery.Azure.ResourceGroupExists);
         AssertEx.Equal(1, discovery.Azure.AccessibleSubscriptions.Count);
         AssertEx.Equal("AzureDiscoveryReady", discovery.Findings.Last().Code);
         AssertEx.StringContains(discovery.Source, "AzurePowerShell");
@@ -432,7 +438,9 @@ internal static class Program
         discovery.SharePoint.SiteResolved = false;
         var graph = new GraphDiscoveryResult
         {
+            AccountId = "graph-admin@example.test",
             TenantId = "tenant-live",
+            Scopes = ["Directory.Read.All", "Sites.Read.All"],
             DefaultDomain = "example.com",
             VerifiedDomains = ["example.com", "example.sharepoint.com"],
             TenantHostname = "example.sharepoint.com",
@@ -472,6 +480,7 @@ internal static class Program
 
         GraphDiscoveryService.ApplyToDiscovery(discovery, graph);
 
+        AssertEx.Equal("example.com", discovery.Customer.DefaultDomain);
         AssertEx.Contains(discovery.Customer.VerifiedDomains, "example.com");
         AssertEx.Contains(discovery.Customer.VerifiedDomains, "example.sharepoint.com");
         AssertEx.Equal("example.sharepoint.com", discovery.SharePoint.TenantHostname);
@@ -481,6 +490,8 @@ internal static class Program
         AssertEx.Equal("drive-live", discovery.SharePoint.DefaultDocumentLibraryId);
         AssertEx.True(discovery.SharePoint.SiteResolved);
         AssertEx.Equal(1, discovery.SharePoint.AvailableDocumentLibraries.Count);
+        AssertEx.Equal("graph-admin@example.test", discovery.Entra.AccountId);
+        AssertEx.Contains(discovery.Entra.Scopes, "Directory.Read.All");
         AssertEx.Equal("AdminRoleReady", discovery.Entra.ConsentStatus);
         AssertEx.Equal("Sites.Selected", discovery.Entra.RequiredApplicationPermissions[0]);
         AssertEx.Equal("GraphDiscoveryReady", discovery.Findings.Last().Code);
@@ -536,11 +547,14 @@ internal static class Program
             },
             Azure =
             {
+                AccountId = "azure-admin@example.test",
                 TenantId = "tenant-001",
                 SelectedSubscriptionId = "sub-001",
                 SelectedSubscriptionName = "Example Subscription",
+                SelectedSubscriptionState = "Enabled",
                 RecommendedLocation = "eastus",
-                TargetResourceGroupName = "rg-pm365-example"
+                TargetResourceGroupName = "rg-pm365-example",
+                ResourceGroupExists = true
             },
             SharePoint =
             {

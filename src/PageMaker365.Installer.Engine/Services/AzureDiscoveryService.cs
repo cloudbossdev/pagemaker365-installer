@@ -60,10 +60,13 @@ public sealed class AzureDiscoveryService
             }
         }
 
+        discovery.Azure.AccountId = Coalesce(azure.AccountId, discovery.Azure.AccountId);
         discovery.Azure.SelectedSubscriptionId = Coalesce(azure.SelectedSubscriptionId, discovery.Azure.SelectedSubscriptionId);
         discovery.Azure.SelectedSubscriptionName = Coalesce(azure.SelectedSubscriptionName, discovery.Azure.SelectedSubscriptionName);
+        discovery.Azure.SelectedSubscriptionState = Coalesce(azure.SelectedSubscriptionState, discovery.Azure.SelectedSubscriptionState);
         discovery.Azure.RecommendedLocation = Coalesce(azure.RecommendedLocation, discovery.Azure.RecommendedLocation);
         discovery.Azure.TargetResourceGroupName = Coalesce(azure.TargetResourceGroupName, discovery.Azure.TargetResourceGroupName);
+        discovery.Azure.ResourceGroupExists = azure.ResourceGroupExists;
 
         discovery.Azure.AccessibleSubscriptions.Clear();
         foreach (var subscription in azure.AccessibleSubscriptions)

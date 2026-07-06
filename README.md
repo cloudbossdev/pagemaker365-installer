@@ -31,6 +31,8 @@ Implemented:
 - Mock PageMaker365 onboarding API client.
 - Mock tenant discovery payload generation.
 - Redacted local tenant discovery export.
+- Read-only Azure, Microsoft Graph, and SharePoint discovery commands.
+- Discovery command contract tests with mockable Azure and Graph contexts.
 - Local active-session resume state.
 - PowerShell-backed local prerequisite checks.
 - Azure context validation.
@@ -59,7 +61,6 @@ Not implemented yet:
 - Real app configuration.
 - Live AI call.
 - Production PageMaker365 API sync.
-- Real Azure, Graph, and SharePoint discovery.
 - Installer packaging/signing.
 
 ## Repository Layout
@@ -166,4 +167,4 @@ See `docs/using-the-installer.md` for the detailed step-by-step guide and eviden
 
 ## Next Development Step
 
-Replace mock onboarding/discovery with read-only Azure, Microsoft Graph, and SharePoint discovery commands, then wire the production PageMaker365 API endpoints documented in `docs/onboarding-discovery-contract.md`.
+Wire the production PageMaker365 API endpoints documented in `docs/onboarding-discovery-contract.md`, then align the control-plane deployment export with `schemas/customer-install.schema.json`.

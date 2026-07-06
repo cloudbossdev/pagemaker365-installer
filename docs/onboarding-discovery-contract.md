@@ -57,7 +57,7 @@ The tenant discovery payload is the installer-to-portal result. It should contai
 Allowed examples:
 
 - Tenant ID and tenant display name.
-- Verified domains needed for install readiness.
+- Verified domains and default tenant domain needed for install readiness.
 - Azure subscription IDs and target resource group names.
 - Recommended Azure location.
 - SharePoint tenant hostname, target site URL, site ID, and default library.
@@ -110,7 +110,7 @@ Collected fields:
 - Signed-in Microsoft Graph account ID.
 - Signed-in Graph tenant ID.
 - Granted Graph scopes in the current session.
-- Verified tenant domains when readable.
+- Verified tenant domains and default tenant domain when readable.
 - SharePoint tenant hostname.
 - Target SharePoint site URL, site ID, and display name.
 - Whether the target SharePoint site resolved through Graph.
