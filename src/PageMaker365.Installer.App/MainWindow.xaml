@@ -1046,31 +1046,109 @@
 
                 <StackPanel Visibility="{Binding IsFinishStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="Finish" FontSize="34" FontWeight="Bold" />
-                    <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="Generate the final install report, support bundle, and deployment evidence for PageMaker365 records."
-                                   Foreground="{StaticResource PmMuted}"
-                                   FontSize="16"
-                                   TextWrapping="Wrap"
-                                   Margin="0,8,0,24" />
-                    </StackPanel>
-                    <StackPanel Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="Generate the final removal report, support bundle, and cleanup evidence for PageMaker365 and customer records."
-                                   Foreground="{StaticResource PmMuted}"
-                                   FontSize="16"
-                                   TextWrapping="Wrap"
-                                   Margin="0,8,0,24" />
-                    </StackPanel>
-                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
-                        <StackPanel>
-                            <TextBlock Text="Session Evidence" FontSize="22" FontWeight="Bold" />
-                            <TextBlock Text="The support bundle is redacted and includes the session, check results, logs, and markdown report."
-                                       Foreground="{StaticResource PmMuted}"
-                                       TextWrapping="Wrap"
-                                       Margin="0,6,0,16" />
-                            <Button Content="Create Support Bundle" Command="{Binding CreateSupportBundleCommand}" HorizontalAlignment="Left" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
+                     <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                         <TextBlock Text="Generate the final install report, support bundle, and deployment evidence for PageMaker365 records."
+                                    Foreground="{StaticResource PmMuted}"
+                                    FontSize="16"
+                                    TextWrapping="Wrap"
+                                    Margin="0,8,0,24" />
+                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                             <StackPanel>
+                                 <DockPanel LastChildFill="True">
+                                     <Button DockPanel.Dock="Right"
+                                             Content="Create Final Evidence"
+                                             Command="{Binding CreateFinalEvidenceCommand}"
+                                             MinWidth="190"
+                                             Margin="18,0,0,0" />
+                                     <StackPanel>
+                                         <TextBlock Text="Final Evidence" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                         <TextBlock Text="{Binding FinishSummary}"
+                                                    Foreground="{StaticResource PmMuted}"
+                                                    TextWrapping="Wrap"
+                                                    LineHeight="20"
+                                                    Margin="0,8,0,0" />
+                                     </StackPanel>
+                                 </DockPanel>
+                                 <UniformGrid x:Name="FinalEvidenceStatusGrid" Columns="4" Margin="0,18,0,0">
+                                     <Border x:Name="FinalPreviewStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,8,0">
+                                         <StackPanel>
+                                             <TextBlock Text="Preview" Foreground="{StaticResource PmMuted}" />
+                                             <TextBlock Text="{Binding PreviewStatus}" Foreground="{Binding PreviewStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                                         </StackPanel>
+                                     </Border>
+                                     <Border x:Name="FinalInstallStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="4,0,4,0">
+                                         <StackPanel>
+                                             <TextBlock Text="Install" Foreground="{StaticResource PmMuted}" />
+                                             <TextBlock Text="{Binding DeploymentStatus}" Foreground="{Binding DeploymentStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                                         </StackPanel>
+                                     </Border>
+                                     <Border x:Name="FinalValidationStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="4,0,4,0">
+                                         <StackPanel>
+                                             <TextBlock Text="Validation" Foreground="{StaticResource PmMuted}" />
+                                             <TextBlock Text="{Binding ValidationStatus}" Foreground="{Binding ValidationStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                                         </StackPanel>
+                                     </Border>
+                                     <Border x:Name="FinalStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="8,0,0,0">
+                                         <StackPanel>
+                                             <TextBlock Text="Final" Foreground="{StaticResource PmMuted}" />
+                                             <TextBlock Text="{Binding FinishStatus}" Foreground="{Binding FinishStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                                         </StackPanel>
+                                     </Border>
+                                 </UniformGrid>
+                             </StackPanel>
+                         </Border>
+                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
+                             <StackPanel>
+                                 <TextBlock Text="Evidence Outputs" FontSize="22" FontWeight="Bold" />
+                                 <TextBlock Text="{Binding FinalEvidenceTargetSummary}"
+                                            Foreground="{StaticResource PmMuted}"
+                                            TextWrapping="Wrap"
+                                            Margin="0,6,0,0" />
+                                 <TextBlock Text="{Binding FinalEvidenceTargetDetails}"
+                                            Foreground="{StaticResource PmMuted}"
+                                            TextWrapping="Wrap"
+                                            Margin="0,4,0,16" />
+                                 <Grid>
+                                     <Grid.ColumnDefinitions>
+                                         <ColumnDefinition Width="150" />
+                                         <ColumnDefinition Width="*" />
+                                     </Grid.ColumnDefinitions>
+                                     <Grid.RowDefinitions>
+                                         <RowDefinition Height="Auto" />
+                                         <RowDefinition Height="Auto" />
+                                         <RowDefinition Height="Auto" />
+                                         <RowDefinition Height="Auto" />
+                                     </Grid.RowDefinitions>
+                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Report" Foreground="{StaticResource PmMuted}" Margin="0,0,12,8" />
+                                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding FinalReportPath}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Manifest" Foreground="{StaticResource PmMuted}" Margin="0,0,12,8" />
+                                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding FinalManifestPath}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Evidence Zip" Foreground="{StaticResource PmMuted}" Margin="0,0,12,8" />
+                                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FinalBundlePath}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Folder" Foreground="{StaticResource PmMuted}" Margin="0,0,12,0" />
+                                     <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding FinalEvidenceDirectory}" TextWrapping="Wrap" />
+                                 </Grid>
+                             </StackPanel>
+                         </Border>
+                     </StackPanel>
+                     <StackPanel Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                         <TextBlock Text="Generate the final removal report, support bundle, and cleanup evidence for PageMaker365 and customer records."
+                                    Foreground="{StaticResource PmMuted}"
+                                    FontSize="16"
+                                    TextWrapping="Wrap"
+                                    Margin="0,8,0,24" />
+                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
+                             <StackPanel>
+                                 <TextBlock Text="Session Evidence" FontSize="22" FontWeight="Bold" />
+                                 <TextBlock Text="The support bundle is redacted and includes the session, check results, logs, and markdown report."
+                                            Foreground="{StaticResource PmMuted}"
+                                            TextWrapping="Wrap"
+                                            Margin="0,6,0,16" />
+                                 <Button Content="Create Support Bundle" Command="{Binding CreateSupportBundleCommand}" HorizontalAlignment="Left" />
+                             </StackPanel>
+                         </Border>
+                     </StackPanel>
+                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
 

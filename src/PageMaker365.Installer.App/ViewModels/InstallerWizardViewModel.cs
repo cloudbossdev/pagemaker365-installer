@@ -16,6 +16,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly RedactionService _redactionService = new();
     private readonly InstallerEngine _engine;
     private readonly SupportBundleService _supportBundleService;
+    private readonly FinalEvidenceService _finalEvidenceService = new();
     private readonly TenantDiscoveryService _tenantDiscoveryService;
     private readonly IOnboardingApiClient _onboardingApiClient;
     private CustomerInstallConfig? _config;
@@ -59,6 +60,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _validationStatusBrush = "#8290AA";
     private string _validationSummary = "Complete install before running validation.";
     private string _validationOutputPath = "Not saved";
+    private string _finishStatus = "Waiting for validation";
+    private string _finishStatusBrush = "#8290AA";
+    private string _finishSummary = "Complete validation before generating final evidence.";
+    private string _finalReportPath = "Not created";
+    private string _finalManifestPath = "Not created";
+    private string _finalBundlePath = "Not created";
+    private string _finalEvidenceDirectory = "Not created";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -106,6 +114,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunPreviewCommand = new RelayCommand(RunPreviewAsync, CanRunPreview);
         RunInstallCommand = new RelayCommand(RunInstallAsync, CanRunInstall);
         RunValidationCommand = new RelayCommand(RunValidationAsync, CanRunValidation);
+        CreateFinalEvidenceCommand = new RelayCommand(CreateFinalEvidenceAsync, CanCreateFinalEvidence);
         ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null);
         GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null);
         CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null);
@@ -147,6 +156,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand RunPreviewCommand { get; }
     public RelayCommand RunInstallCommand { get; }
     public RelayCommand RunValidationCommand { get; }
+    public RelayCommand CreateFinalEvidenceCommand { get; }
     public RelayCommand ExplainIssueCommand { get; }
     public RelayCommand GenerateAdminMessageCommand { get; }
     public RelayCommand CreateSupportBundleCommand { get; }
@@ -397,6 +407,56 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string ValidationTargetDetails => _config is null
         ? "Complete install before running validation."
         : $"Install evidence: {DeploymentOutputPath}";
+
+    public string FinishStatus
+    {
+        get => _finishStatus;
+        set => SetProperty(ref _finishStatus, value);
+    }
+
+    public string FinishStatusBrush
+    {
+        get => _finishStatusBrush;
+        set => SetProperty(ref _finishStatusBrush, value);
+    }
+
+    public string FinishSummary
+    {
+        get => _finishSummary;
+        set => SetProperty(ref _finishSummary, value);
+    }
+
+    public string FinalReportPath
+    {
+        get => _finalReportPath;
+        set => SetProperty(ref _finalReportPath, value);
+    }
+
+    public string FinalManifestPath
+    {
+        get => _finalManifestPath;
+        set => SetProperty(ref _finalManifestPath, value);
+    }
+
+    public string FinalBundlePath
+    {
+        get => _finalBundlePath;
+        set => SetProperty(ref _finalBundlePath, value);
+    }
+
+    public string FinalEvidenceDirectory
+    {
+        get => _finalEvidenceDirectory;
+        set => SetProperty(ref _finalEvidenceDirectory, value);
+    }
+
+    public string FinalEvidenceTargetSummary => _config is null
+        ? "No customer package loaded."
+        : $"{_config.Customer.TenantName} | {_config.Azure.ResourceGroupName}";
+
+    public string FinalEvidenceTargetDetails => _config is null
+        ? "Complete validation before generating final evidence."
+        : $"Validation evidence: {ValidationOutputPath}";
 
     public string AiTitle
     {
@@ -818,12 +878,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnPropertyChanged(nameof(DeploymentTargetDetails));
         OnPropertyChanged(nameof(ValidationTargetSummary));
         OnPropertyChanged(nameof(ValidationTargetDetails));
+        OnPropertyChanged(nameof(FinalEvidenceTargetSummary));
+        OnPropertyChanged(nameof(FinalEvidenceTargetDetails));
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
         RunInstallCommand.RaiseCanExecuteChanged();
         RunValidationCommand.RaiseCanExecuteChanged();
+        CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
@@ -1031,6 +1094,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunPreviewCommand?.RaiseCanExecuteChanged();
         RunInstallCommand?.RaiseCanExecuteChanged();
         RunValidationCommand?.RaiseCanExecuteChanged();
+        CreateFinalEvidenceCommand?.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsWelcomeStep));
         OnPropertyChanged(nameof(IsPackageStep));
         OnPropertyChanged(nameof(IsSignInStep));
@@ -1098,6 +1162,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ClearPreviewReview();
         ClearDeploymentReview();
         ClearValidationReview();
+        ClearFinalEvidenceReview();
         CanContinue = false;
         RefreshStepNavigation();
     }
@@ -1130,6 +1195,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ClearPreviewReview();
         ClearDeploymentReview();
         ClearValidationReview();
+        ClearFinalEvidenceReview();
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -1145,6 +1211,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunPreviewCommand.RaiseCanExecuteChanged();
         RunInstallCommand.RaiseCanExecuteChanged();
         RunValidationCommand.RaiseCanExecuteChanged();
+        CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
@@ -1612,6 +1679,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         ValidationOutputPath = await SaveValidationEvidenceAsync(validationResults, validationStatus);
+        RefreshFinalEvidenceReadiness();
         FooterStatus = validationStatus switch
         {
             InstallStatus.Passed => "Validation completed. Continue to finish.",
@@ -1625,6 +1693,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             : "Validation evidence was saved. Continue to Finish to generate final customer evidence.";
 
         RunValidationCommand.RaiseCanExecuteChanged();
+        CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
@@ -1707,6 +1776,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         _lastValidationStatus = InstallStatus.NotStarted;
         ValidationResults.Clear();
+        ClearFinalEvidenceReview();
         RefreshValidationReadiness();
     }
 
@@ -1728,7 +1798,107 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ValidationOutputPath = "Not saved";
         OnPropertyChanged(nameof(ValidationTargetSummary));
         OnPropertyChanged(nameof(ValidationTargetDetails));
+        OnPropertyChanged(nameof(FinalEvidenceTargetSummary));
+        OnPropertyChanged(nameof(FinalEvidenceTargetDetails));
         RunValidationCommand?.RaiseCanExecuteChanged();
+    }
+
+    private bool CanCreateFinalEvidence()
+    {
+        return IsSetupMode &&
+            _config is not null &&
+            File.Exists(PackagePath) &&
+            _currentStepNumber >= 8 &&
+            _lastValidationStatus is InstallStatus.Passed or InstallStatus.Warning;
+    }
+
+    private async Task CreateFinalEvidenceAsync()
+    {
+        if (_config is null)
+        {
+            FooterStatus = "Load a customer package before generating final evidence.";
+            return;
+        }
+
+        if (_lastValidationStatus is not (InstallStatus.Passed or InstallStatus.Warning))
+        {
+            FooterStatus = "Complete validation before generating final evidence.";
+            return;
+        }
+
+        FinishStatus = "Generating";
+        FinishStatusBrush = "#19D8E9";
+        FinishSummary = "Creating final report, manifest, and evidence zip.";
+        FooterStatus = "Generating final install evidence package.";
+        SetCurrentStep(8);
+        SetStepStatus(8, "Running", "#19D8E9");
+
+        var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
+        var result = await _finalEvidenceService.CreateAsync(
+            _config,
+            new FinalEvidenceRequest
+            {
+                OutputRoot = outputRoot,
+                InstallerVersion = InstallerVersion,
+                PackagePath = PackagePath,
+                PreviewStatus = _lastPreviewStatus.ToString(),
+                PreviewEvidencePath = PreviewOutputPath,
+                DeploymentStatus = _lastDeploymentStatus.ToString(),
+                DeploymentEvidencePath = DeploymentOutputPath,
+                ValidationStatus = _lastValidationStatus.ToString(),
+                ValidationEvidencePath = ValidationOutputPath,
+                FinalStatus = GetFinalStatusLabel()
+            });
+
+        FinalEvidenceDirectory = result.EvidenceDirectory;
+        FinalReportPath = result.ReportPath;
+        FinalManifestPath = result.ManifestPath;
+        FinalBundlePath = result.BundlePath;
+        FinishStatus = "Complete";
+        FinishStatusBrush = "#42D8A0";
+        FinishSummary = "Final install evidence package is ready for PageMaker365 records and customer handoff.";
+        SetStepStatus(8, "Complete", "#42D8A0");
+        FooterStatus = $"Final evidence package created: {FinalBundlePath}";
+        AiTitle = "Install workflow complete";
+        AiSummary = "The final report, manifest, and evidence package are ready. Retain the package in customer records and complete the handoff steps.";
+
+        CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
+        CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private string GetFinalStatusLabel()
+    {
+        return _lastValidationStatus == InstallStatus.Warning ||
+            _lastDeploymentStatus == InstallStatus.Warning ||
+            _lastPreviewStatus == InstallStatus.Warning
+                ? "CompletedWithWarnings"
+                : "Completed";
+    }
+
+    private void ClearFinalEvidenceReview()
+    {
+        FinishStatus = "Waiting for validation";
+        FinishStatusBrush = "#8290AA";
+        FinishSummary = "Complete validation before generating final evidence.";
+        FinalReportPath = "Not created";
+        FinalManifestPath = "Not created";
+        FinalBundlePath = "Not created";
+        FinalEvidenceDirectory = "Not created";
+        RefreshFinalEvidenceReadiness();
+    }
+
+    private void RefreshFinalEvidenceReadiness()
+    {
+        if (_lastValidationStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            FinishStatus = "Ready to package";
+            FinishStatusBrush = "#FFB84D";
+            FinishSummary = "Generate the final report, manifest, and evidence zip for customer records.";
+        }
+
+        OnPropertyChanged(nameof(FinalEvidenceTargetSummary));
+        OnPropertyChanged(nameof(FinalEvidenceTargetDetails));
+        CreateFinalEvidenceCommand?.RaiseCanExecuteChanged();
     }
 
     private bool CanSyncDiscovery()
