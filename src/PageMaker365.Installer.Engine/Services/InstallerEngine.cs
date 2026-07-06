@@ -105,6 +105,23 @@ public sealed class InstallerEngine
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<InstallerStepResult>> RunWhatIfAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Deployment Preview",
+            "Invoke-PM365WhatIf",
+            progress,
+            cancellationToken);
+    }
+
     private async Task<IReadOnlyList<InstallerStepResult>> RunPowerShellModuleCommandAsync(
         InstallerSession session,
         string workspaceRoot,
@@ -297,6 +314,7 @@ public sealed class InstallerEngine
             "SharePointSiteUrlReady" or "SharePointSiteUrlInvalid" => "SharePoint Site URL",
             "SharePointSiteResolved" or "SharePointSiteResolveFailed" => "SharePoint Site",
             "SharePointLibraryReady" or "SharePointLibraryNotFound" or "SharePointLibraryNotConfigured" => "SharePoint Library",
+            "AzureWhatIfReady" or "AzureWhatIfFailed" => "Azure What-If",
             _ when string.IsNullOrWhiteSpace(code) => "PowerShell Check",
             _ => code
         };

@@ -644,12 +644,91 @@
                                    FontSize="16"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,24" />
-                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
-                            <TextBlock Text="Preview execution is scaffolded in PowerShell and ready for sandbox tenant testing. The next build should add the desktop button and formatted what-if results here."
-                                       Foreground="{StaticResource PmMuted}"
-                                       TextWrapping="Wrap"
-                                       LineHeight="20" />
+                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                            <StackPanel>
+                                <TextBlock Text="Azure What-If" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                <TextBlock Text="{Binding PreviewSummary}"
+                                           Foreground="{StaticResource PmMuted}"
+                                           TextWrapping="Wrap"
+                                           LineHeight="20"
+                                           Margin="0,8,0,18" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Preview Status" Foreground="{StaticResource PmMuted}" />
+                                        <TextBlock Text="{Binding PreviewStatus}"
+                                                   Foreground="{Binding PreviewStatusBrush}"
+                                                   FontSize="22"
+                                                   FontWeight="Bold"
+                                                   Margin="0,3,0,0" />
+                                        <TextBlock Text="Evidence Output" Foreground="{StaticResource PmMuted}" Margin="0,16,0,0" />
+                                        <TextBlock Text="{Binding PreviewOutputPath}"
+                                                   Foreground="White"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,3,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Content="Run Deployment Preview"
+                                            Command="{Binding RunPreviewCommand}"
+                                            VerticalAlignment="Top"
+                                            Margin="18,0,0,0"
+                                            MinWidth="190" />
+                                </Grid>
+                            </StackPanel>
                         </Border>
+                        <ItemsControl ItemsSource="{Binding PreviewResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource PmPanel}"
+                                            BorderBrush="{StaticResource PmLine}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="18"
+                                            Margin="0,0,0,12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Background="{Binding StatusBrush}" CornerRadius="6" Margin="0,2,0,2" />
+                                            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                                                <DockPanel LastChildFill="True">
+                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="14,0,0,0">
+                                                        <Border BorderBrush="{Binding StatusBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="5"
+                                                                Padding="8,4"
+                                                                Margin="0,0,8,0">
+                                                            <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}" FontSize="12" FontWeight="SemiBold" />
+                                                        </Border>
+                                                        <Border Background="#101B33" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="5" Padding="8,4">
+                                                            <TextBlock Text="{Binding RetrySafeLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" FontWeight="SemiBold" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="Bold" />
+                                                        <TextBlock Text="{Binding Code}" Foreground="{StaticResource PmCyan}" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,0" />
+                                                    </StackPanel>
+                                                </DockPanel>
+                                                <TextBlock Text="{Binding Summary}"
+                                                           Foreground="White"
+                                                           TextWrapping="Wrap"
+                                                           LineHeight="20"
+                                                           Margin="0,12,0,0" />
+                                                <TextBlock Text="{Binding Details}"
+                                                           Foreground="{StaticResource PmMuted}"
+                                                           TextWrapping="Wrap"
+                                                           LineHeight="19"
+                                                           Margin="0,8,0,0" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                     <StackPanel Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Removal Preview" FontSize="34" FontWeight="Bold" />

@@ -47,6 +47,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _discoverySyncStatusBrush = "#8290AA";
     private string _packageReadinessStatusBrush = "#8290AA";
     private string _packageReadinessSummary = "Package readiness has not been checked.";
+    private string _previewStatus = "Not run";
+    private string _previewStatusBrush = "#8290AA";
+    private string _previewSummary = "Run deployment preview to see Azure what-if results before install.";
+    private string _previewOutputPath = "Not saved";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -86,6 +90,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ConnectAzureCommand = new RelayCommand(ConnectAzureAsync, () => _config is not null);
         ConnectGraphCommand = new RelayCommand(ConnectGraphAsync, () => _config is not null);
         RunPreflightCommand = new RelayCommand(RunPreflightAsync, () => _config is not null);
+        RunPreviewCommand = new RelayCommand(RunPreviewAsync, CanRunPreview);
         ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null);
         GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null);
         CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null);
@@ -100,6 +105,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string InstallerVersion => "Alpha scaffold 0.1";
     public ObservableCollection<StepViewModel> Steps { get; }
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
+    public ObservableCollection<PreviewResultViewModel> PreviewResults { get; } = [];
     public ObservableCollection<DiscoveryReadinessCardViewModel> DiscoveryReadinessCards { get; } = [];
     public ObservableCollection<DiscoveryValueViewModel> DiscoveryValues { get; } = [];
     public ObservableCollection<DiscoveryFindingViewModel> DiscoveryFindings { get; } = [];
@@ -121,6 +127,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand ConnectAzureCommand { get; }
     public RelayCommand ConnectGraphCommand { get; }
     public RelayCommand RunPreflightCommand { get; }
+    public RelayCommand RunPreviewCommand { get; }
     public RelayCommand ExplainIssueCommand { get; }
     public RelayCommand GenerateAdminMessageCommand { get; }
     public RelayCommand CreateSupportBundleCommand { get; }
@@ -254,6 +261,30 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _packageReadinessSummary;
         set => SetProperty(ref _packageReadinessSummary, value);
+    }
+
+    public string PreviewStatus
+    {
+        get => _previewStatus;
+        set => SetProperty(ref _previewStatus, value);
+    }
+
+    public string PreviewStatusBrush
+    {
+        get => _previewStatusBrush;
+        set => SetProperty(ref _previewStatusBrush, value);
+    }
+
+    public string PreviewSummary
+    {
+        get => _previewSummary;
+        set => SetProperty(ref _previewSummary, value);
+    }
+
+    public string PreviewOutputPath
+    {
+        get => _previewOutputPath;
+        set => SetProperty(ref _previewOutputPath, value);
     }
 
     public string AiTitle
@@ -668,9 +699,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SetStepStatus(4, "Ready", "#19D8E9");
         UnlockThroughStep(4);
         SetCurrentStep(3);
+        ClearPreviewReview();
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
+        RunPreviewCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
@@ -731,6 +764,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        RunPreviewCommand.RaiseCanExecuteChanged();
     }
 
     private async Task RunPowerShellActionAsync(
@@ -874,6 +908,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         BackCommand?.RaiseCanExecuteChanged();
         NextCommand?.RaiseCanExecuteChanged();
         GoToStepCommand?.RaiseCanExecuteChanged();
+        RunPreviewCommand?.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsWelcomeStep));
         OnPropertyChanged(nameof(IsPackageStep));
         OnPropertyChanged(nameof(IsSignInStep));
@@ -938,6 +973,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _currentStepNumber = 1;
         _maxAccessibleStepNumber = 2;
         CheckResults.Clear();
+        ClearPreviewReview();
         CanContinue = false;
         RefreshStepNavigation();
     }
@@ -967,6 +1003,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PortalStatusOutputPath = "Not saved";
         ClearDiscoveryReview();
         ClearPortalWorkflowReview();
+        ClearPreviewReview();
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -979,9 +1016,163 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
+        RunPreviewCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private bool CanRunPreview()
+    {
+        return _config is not null &&
+            File.Exists(PackagePath) &&
+            _currentStepNumber >= 5;
+    }
+
+    private async Task RunPreviewAsync()
+    {
+        if (_config is null)
+        {
+            FooterStatus = "Load a customer package before running deployment preview.";
+            return;
+        }
+
+        if (!File.Exists(PackagePath))
+        {
+            FooterStatus = "Deployment preview requires a customer package file. Load a package from disk first.";
+            return;
+        }
+
+        PreviewResults.Clear();
+        PreviewStatus = "Running";
+        PreviewStatusBrush = "#19D8E9";
+        PreviewSummary = "Running Azure what-if. No resources will be deployed.";
+        PreviewOutputPath = "Not saved";
+        FooterStatus = "Running Azure what-if deployment preview.";
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Deployment preview running";
+        SetCurrentStep(5);
+        SetStepStatus(5, "Running", "#19D8E9");
+
+        var previewResults = new List<InstallerStepResult>();
+        var progress = new Progress<InstallerStepResult>(result =>
+        {
+            previewResults.Add(result);
+            PreviewResults.Add(new PreviewResultViewModel(result));
+        });
+
+        await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
+
+        var previewStatus = GetPreviewStatus(previewResults);
+        PreviewStatus = previewStatus.ToString();
+        PreviewStatusBrush = BrushForStatus(previewStatus);
+        PreviewSummary = previewStatus switch
+        {
+            InstallStatus.Passed => "Deployment preview completed. Review the what-if output before continuing to install.",
+            InstallStatus.Warning => "Deployment preview completed with warnings. Review the warnings before continuing.",
+            InstallStatus.Failed => "Deployment preview found a blocker. Resolve it before continuing to install.",
+            _ => "Deployment preview did not return a final status."
+        };
+        SessionStatus = _session.Status.ToString();
+        SetStepStatus(5, previewStatus == InstallStatus.Failed ? "Blocked" : "Complete", PreviewStatusBrush);
+        if (previewStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            UnlockThroughStep(6);
+        }
+
+        PreviewOutputPath = await SavePreviewEvidenceAsync(previewResults, previewStatus);
+        FooterStatus = previewStatus == InstallStatus.Failed
+            ? "Deployment preview failed. Review the preview details and retry."
+            : "Deployment preview completed. Continue to install after reviewing the results.";
+        AiTitle = previewStatus == InstallStatus.Failed ? "Preview blocker detected" : "Preview ready";
+        AiSummary = previewStatus == InstallStatus.Failed
+            ? "Azure what-if reported a blocking issue. Review the preview details, fix the prerequisite, then rerun preview."
+            : "Azure what-if completed without deploying resources. Review the preview evidence before continuing.";
+
+        RunPreviewCommand.RaiseCanExecuteChanged();
+        ExplainIssueCommand.RaiseCanExecuteChanged();
+        GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+        CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task<string> SavePreviewEvidenceAsync(
+        IReadOnlyList<InstallerStepResult> previewResults,
+        InstallStatus previewStatus)
+    {
+        if (_session is null)
+        {
+            return "Not saved";
+        }
+
+        var directory = Path.Combine(GetWorkspaceRoot(), "support-bundle", "preview");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deployment-preview.json");
+        var receipt = new
+        {
+            contractVersion = "0.1",
+            sessionId = _session.SessionId,
+            packagePath = PackagePath,
+            previewStatus = previewStatus.ToString(),
+            previewedAt = DateTimeOffset.UtcNow,
+            results = previewResults.Select(result => new
+            {
+                result.StepName,
+                result.Code,
+                status = result.Status.ToString(),
+                result.Summary,
+                result.Details,
+                result.RetrySafe,
+                result.RequiresApproval
+            }).ToList()
+        };
+        var json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+        await File.WriteAllTextAsync(path, json);
+        return path;
+    }
+
+    private static InstallStatus GetPreviewStatus(IReadOnlyList<InstallerStepResult> results)
+    {
+        if (results.Count == 0)
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Failed))
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Warning))
+        {
+            return InstallStatus.Warning;
+        }
+
+        return InstallStatus.Passed;
+    }
+
+    private static string BrushForStatus(InstallStatus status)
+    {
+        return status switch
+        {
+            InstallStatus.Passed => "#42D8A0",
+            InstallStatus.Warning => "#FFB84D",
+            InstallStatus.Failed => "#FF5C7A",
+            InstallStatus.Running => "#19D8E9",
+            _ => "#8290AA"
+        };
+    }
+
+    private void ClearPreviewReview()
+    {
+        PreviewStatus = "Not run";
+        PreviewStatusBrush = "#8290AA";
+        PreviewSummary = "Run deployment preview to see Azure what-if results before install.";
+        PreviewOutputPath = "Not saved";
+        PreviewResults.Clear();
     }
 
     private bool CanSyncDiscovery()
