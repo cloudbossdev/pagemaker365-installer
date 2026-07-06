@@ -16,6 +16,13 @@ public partial class MainWindow : Window
         DataContext = new InstallerWizardViewModel();
         Loaded += (_, _) => UpdateShellLayout();
         SizeChanged += OnWindowSizeChanged;
+        Closing += (_, _) =>
+        {
+            if (DataContext is InstallerWizardViewModel viewModel)
+            {
+                viewModel.SaveCurrentState();
+            }
+        };
     }
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)

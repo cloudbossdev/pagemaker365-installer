@@ -179,7 +179,7 @@
                     <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,6,0,12">
                         <StackPanel>
                             <TextBlock Text="Standard Setup Path" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                            <TextBlock Text="The installer is designed to move a customer deployment from prepared package to signed evidence without requiring users to work from PowerShell."
+                            <TextBlock Text="The installer is designed to move a customer deployment from prepared package to signed evidence without requiring users to work from PowerShell. Active sessions are remembered locally so users can reopen the app and continue where they left off."
                                        Foreground="{StaticResource PmMuted}"
                                        TextWrapping="Wrap"
                                        LineHeight="20"

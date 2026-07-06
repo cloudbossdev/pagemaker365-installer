@@ -19,6 +19,8 @@ internal static class Program
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
+            ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
+            ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
             ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
             ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery),
             ("GraphDiscoveryService returns package fallback when module is missing", GraphDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
@@ -241,6 +243,88 @@ internal static class Program
             AssertEx.Equal(
                 "https://override.example.test/file/connect",
                 options.ConnectEndpoint(new OnboardingBootstrapSession()).ToString());
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task InstallerStateStoreSavesAndLoadsActiveState()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var store = new InstallerStateStore(workspaceRoot);
+            var path = store.Save(new PersistedInstallerState
+            {
+                StateId = "state-active-001",
+                WorkflowMode = "Setup",
+                CurrentStepNumber = 5,
+                MaxAccessibleStepNumber = 6,
+                PackagePath = "contoso.customer.install.json",
+                LastPreviewStatus = InstallStatus.Passed,
+                Steps =
+                {
+                    new PersistedInstallerStepState
+                    {
+                        Number = 5,
+                        Name = "Preview",
+                        StatusLabel = "Complete",
+                        StatusBrush = "#42D8A0"
+                    }
+                },
+                PreviewResults =
+                {
+                    InstallerStepResult.Passed("Azure What-If", "WhatIfSucceeded", "Preview succeeded.")
+                }
+            });
+
+            var loaded = store.LoadMostRecentActive();
+
+            AssertEx.True(File.Exists(path), path);
+            AssertEx.True(loaded is not null, "Expected active state to load.");
+            AssertEx.Equal("state-active-001", loaded!.StateId);
+            AssertEx.Equal(5, loaded.CurrentStepNumber);
+            AssertEx.Equal(InstallStatus.Passed, loaded.LastPreviewStatus);
+            AssertEx.Equal("Azure What-If", loaded.PreviewResults[0].StepName);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task InstallerStateStoreIgnoresCompletedStateForResume()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var store = new InstallerStateStore(workspaceRoot);
+            store.Save(new PersistedInstallerState
+            {
+                StateId = "state-active-001",
+                WorkflowMode = "Setup",
+                CurrentStepNumber = 7,
+                MaxAccessibleStepNumber = 8
+            });
+            store.Save(new PersistedInstallerState
+            {
+                StateId = "state-complete-001",
+                WorkflowMode = "Setup",
+                CurrentStepNumber = 8,
+                MaxAccessibleStepNumber = 8,
+                IsCompleted = true
+            });
+
+            var loaded = store.LoadMostRecentActive();
+
+            AssertEx.True(loaded is not null, "Expected active state to load.");
+            AssertEx.Equal("state-active-001", loaded!.StateId);
         }
         finally
         {

@@ -18,6 +18,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly SupportBundleService _supportBundleService;
     private readonly FinalEvidenceService _finalEvidenceService = new();
     private readonly TenantDiscoveryService _tenantDiscoveryService;
+    private readonly InstallerStateStore _stateStore = new();
     private readonly IOnboardingApiClient _onboardingApiClient;
     private CustomerInstallConfig? _config;
     private InstallerSession? _session;
@@ -26,6 +27,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private OnboardingPortalStatus? _onboardingPortalStatus;
     private OnboardingPackageReadiness? _packageReadiness;
     private AssistantWorkspaceWindow? _assistantWindow;
+    private string _stateId = InstallerStateStore.CreateStateId();
+    private DateTimeOffset _stateCreatedAt = DateTimeOffset.UtcNow;
+    private string _bootstrapSourcePath = "";
+    private bool _stateCompleted;
+    private bool _isRestoringState;
 
     private string _packagePath = "No customer package loaded.";
     private string _customerName = "Load a customer package";
@@ -124,6 +130,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         GoToStepCommand = new RelayCommand(GoToStepAsync, CanGoToStep);
         GoHomeCommand = new RelayCommand(GoHomeAsync);
         ConfigureSetupWorkflow();
+        RestoreMostRecentState();
     }
 
     public string InstallerVersion => "Alpha scaffold 0.1";
@@ -165,6 +172,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand NextCommand { get; }
     public RelayCommand GoToStepCommand { get; }
     public RelayCommand GoHomeCommand { get; }
+
+    public void SaveCurrentState()
+    {
+        SaveWizardState();
+    }
 
     public string PackagePath
     {
@@ -537,15 +549,23 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private Task SelectSetupModeAsync()
     {
+        _stateId = InstallerStateStore.CreateStateId();
+        _stateCreatedAt = DateTimeOffset.UtcNow;
+        _stateCompleted = false;
         ConfigureSetupWorkflow();
         FooterStatus = "Setup workflow selected. Continue to load the customer install package.";
+        SaveWizardState();
         return Task.CompletedTask;
     }
 
     private Task SelectRemovalModeAsync()
     {
+        _stateId = InstallerStateStore.CreateStateId();
+        _stateCreatedAt = DateTimeOffset.UtcNow;
+        _stateCompleted = false;
         ConfigureRemovalWorkflow();
         FooterStatus = "Removal workflow selected. Continue to discover or load the existing PageMaker365 deployment.";
+        SaveWizardState();
         return Task.CompletedTask;
     }
 
@@ -554,7 +574,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var path = FindSampleBootstrapPath();
         if (path is null)
         {
+            _bootstrapSourcePath = "";
             LoadBootstrapSession(OnboardingSessionService.CreateFallbackSession(), "Built-in demo onboarding session");
+            SaveWizardState();
             return;
         }
 
@@ -586,10 +608,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         LoadBootstrapSession(session, path);
+        _bootstrapSourcePath = path;
         if (validation.Warnings.Count > 0)
         {
             FooterStatus = string.Join(" ", validation.Warnings);
         }
+
+        SaveWizardState();
     }
 
     private void LoadBootstrapSession(OnboardingBootstrapSession session, string source)
@@ -637,6 +662,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnboardingStatus = $"{connection.Status}: {connection.Message}";
         PortalSyncStatus = $"Connected with correlation {connection.CorrelationId}.";
         FooterStatus = $"{_onboardingApiClient.ConnectionLabel} session connected.";
+        SaveWizardState();
     }
 
     private async Task RunDiscoveryAsync()
@@ -670,6 +696,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private async Task SyncDiscoveryAsync()
@@ -698,6 +725,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = $"Discovery synced through {_onboardingApiClient.ConnectionLabel}.";
         await RefreshOnboardingPortalStatusAsync("Discovery synced. Package readiness refreshed.");
         await SavePortalSyncReceiptAsync();
+        SaveWizardState();
     }
 
     private async Task SaveDiscoveryAsync()
@@ -712,6 +740,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var path = await _tenantDiscoveryService.SaveRedactedAsync(_tenantDiscovery, outputRoot);
         DiscoveryOutputPath = path;
         FooterStatus = $"Redacted tenant discovery saved: {path}";
+        SaveWizardState();
     }
 
     private async Task CheckPackageReadinessAsync()
@@ -753,6 +782,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = $"{footerStatus} {_packageReadiness.Message}";
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
         await SavePortalSyncReceiptAsync();
+        SaveWizardState();
     }
 
     private bool CanDownloadGeneratedPackage()
@@ -800,6 +830,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = $"Generated install package downloaded and loaded: {download.PackagePath}";
         await SavePortalSyncReceiptAsync();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private async Task LoadSamplePackageAsync()
@@ -808,6 +839,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (path is null)
         {
             LoadConfig(CreateFallbackConfig(), "Built-in demo package");
+            SaveWizardState();
             return;
         }
 
@@ -843,6 +875,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             FooterStatus = string.Join(" ", validation.Warnings);
         }
+
+        SaveWizardState();
     }
 
     private void LoadConfig(CustomerInstallConfig config, string path)
@@ -948,6 +982,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private async Task RunPowerShellActionAsync(
@@ -995,6 +1030,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private Task GoBackAsync()
@@ -1002,6 +1038,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (_currentStepNumber > 1)
         {
             SetCurrentStep(_currentStepNumber - 1);
+            SaveWizardState();
         }
 
         return Task.CompletedTask;
@@ -1012,6 +1049,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (_currentStepNumber < _maxAccessibleStepNumber)
         {
             SetCurrentStep(_currentStepNumber + 1);
+            SaveWizardState();
         }
 
         return Task.CompletedTask;
@@ -1022,6 +1060,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (TryGetStepNumber(parameter, out var stepNumber) && stepNumber <= _maxAccessibleStepNumber)
         {
             SetCurrentStep(stepNumber);
+            SaveWizardState();
         }
 
         return Task.CompletedTask;
@@ -1031,6 +1070,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         SetCurrentStep(1);
         FooterStatus = "Choose setup or removal, then continue through the guided workflow.";
+        SaveWizardState();
         return Task.CompletedTask;
     }
 
@@ -1217,6 +1257,425 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
     }
 
+    private void RestoreMostRecentState()
+    {
+        var state = _stateStore.LoadMostRecentActive();
+        if (state is null)
+        {
+            return;
+        }
+
+        _isRestoringState = true;
+        try
+        {
+            ApplyPersistedState(state);
+        }
+        finally
+        {
+            _isRestoringState = false;
+        }
+    }
+
+    private void ApplyPersistedState(PersistedInstallerState state)
+    {
+        if (state.WorkflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase))
+        {
+            ConfigureRemovalWorkflow();
+        }
+        else
+        {
+            ConfigureSetupWorkflow();
+        }
+
+        _stateId = string.IsNullOrWhiteSpace(state.StateId) ? InstallerStateStore.CreateStateId() : state.StateId;
+        _stateCreatedAt = state.CreatedAt == default ? state.SavedAt : state.CreatedAt;
+        _stateCompleted = state.IsCompleted;
+        _bootstrapSourcePath = state.BootstrapSourcePath;
+        _config = state.Config ?? TryLoadConfig(state.PackagePath);
+        _session = state.InstallerSession;
+        _bootstrapSession = TryLoadBootstrapSession(_bootstrapSourcePath);
+        _tenantDiscovery = state.TenantDiscovery;
+        _onboardingPortalStatus = state.OnboardingPortalStatus;
+        _packageReadiness = state.PackageReadiness ?? state.OnboardingPortalStatus?.PackageReadiness;
+
+        if (_tenantDiscovery is not null)
+        {
+            RefreshDiscoveryReview(_tenantDiscovery);
+        }
+
+        if (_onboardingPortalStatus is not null)
+        {
+            RefreshPortalReadinessReview(_onboardingPortalStatus);
+        }
+
+        PackagePath = SavedOrDefault(state.PackagePath, PackagePath);
+        CustomerName = SavedOrDefault(state.CustomerName, CustomerName);
+        AzureSubscription = SavedOrDefault(state.AzureSubscription, AzureSubscription);
+        SharePointSite = SavedOrDefault(state.SharePointSite, SharePointSite);
+        OnboardingSessionId = SavedOrDefault(state.OnboardingSessionId, OnboardingSessionId);
+        OnboardingStatus = SavedOrDefault(state.OnboardingStatus, OnboardingStatus);
+        OnboardingApiBaseUrl = SavedOrDefault(state.OnboardingApiBaseUrl, OnboardingApiBaseUrl);
+        DiscoverySummary = SavedOrDefault(state.DiscoverySummary, DiscoverySummary);
+        DiscoveryOutputPath = SavedOrDefault(state.DiscoveryOutputPath, DiscoveryOutputPath);
+        PortalSyncStatus = SavedOrDefault(state.PortalSyncStatus, PortalSyncStatus);
+        PortalMissingFieldsSummary = SavedOrDefault(state.PortalMissingFieldsSummary, PortalMissingFieldsSummary);
+        PackageReadinessStatus = SavedOrDefault(state.PackageReadinessStatus, PackageReadinessStatus);
+        PackageReadinessVersion = SavedOrDefault(state.PackageReadinessVersion, PackageReadinessVersion);
+        PackageDownloadPath = SavedOrDefault(state.PackageDownloadPath, PackageDownloadPath);
+        PortalStatusOutputPath = SavedOrDefault(state.PortalStatusOutputPath, PortalStatusOutputPath);
+        DiscoveryReviewSummary = SavedOrDefault(state.DiscoveryReviewSummary, DiscoveryReviewSummary);
+        DiscoveredLibrariesSummary = SavedOrDefault(state.DiscoveredLibrariesSummary, DiscoveredLibrariesSummary);
+        DiscoverySyncReadinessSummary = SavedOrDefault(state.DiscoverySyncReadinessSummary, DiscoverySyncReadinessSummary);
+        DiscoverySyncStatusBrush = SavedOrDefault(state.DiscoverySyncStatusBrush, DiscoverySyncStatusBrush);
+        PackageReadinessStatusBrush = SavedOrDefault(state.PackageReadinessStatusBrush, PackageReadinessStatusBrush);
+        PackageReadinessSummary = SavedOrDefault(state.PackageReadinessSummary, PackageReadinessSummary);
+
+        ApplyPortalSyncReceipt(state.PortalSyncReceipt);
+        RebuildResultCollections(state);
+
+        _lastPreviewStatus = state.LastPreviewStatus;
+        _lastDeploymentStatus = state.LastDeploymentStatus;
+        _lastValidationStatus = state.LastValidationStatus;
+        PreviewStatus = SavedOrDefault(state.PreviewStatus, PreviewStatus);
+        PreviewStatusBrush = SavedOrDefault(state.PreviewStatusBrush, PreviewStatusBrush);
+        PreviewSummary = SavedOrDefault(state.PreviewSummary, PreviewSummary);
+        PreviewOutputPath = SavedOrDefault(state.PreviewOutputPath, PreviewOutputPath);
+        DeploymentStatus = SavedOrDefault(state.DeploymentStatus, DeploymentStatus);
+        DeploymentStatusBrush = SavedOrDefault(state.DeploymentStatusBrush, DeploymentStatusBrush);
+        DeploymentSummary = SavedOrDefault(state.DeploymentSummary, DeploymentSummary);
+        DeploymentOutputPath = SavedOrDefault(state.DeploymentOutputPath, DeploymentOutputPath);
+        ValidationStatus = SavedOrDefault(state.ValidationStatus, ValidationStatus);
+        ValidationStatusBrush = SavedOrDefault(state.ValidationStatusBrush, ValidationStatusBrush);
+        ValidationSummary = SavedOrDefault(state.ValidationSummary, ValidationSummary);
+        ValidationOutputPath = SavedOrDefault(state.ValidationOutputPath, ValidationOutputPath);
+        FinishStatus = SavedOrDefault(state.FinishStatus, FinishStatus);
+        FinishStatusBrush = SavedOrDefault(state.FinishStatusBrush, FinishStatusBrush);
+        FinishSummary = SavedOrDefault(state.FinishSummary, FinishSummary);
+        FinalReportPath = SavedOrDefault(state.FinalReportPath, FinalReportPath);
+        FinalManifestPath = SavedOrDefault(state.FinalManifestPath, FinalManifestPath);
+        FinalBundlePath = SavedOrDefault(state.FinalBundlePath, FinalBundlePath);
+        FinalEvidenceDirectory = SavedOrDefault(state.FinalEvidenceDirectory, FinalEvidenceDirectory);
+        AiTitle = SavedOrDefault(state.AiTitle, AiTitle);
+        AiSummary = SavedOrDefault(state.AiSummary, AiSummary);
+        SessionId = SavedOrDefault(state.SessionId, SessionId);
+        SessionStatus = SavedOrDefault(state.SessionStatus, SessionStatus);
+
+        DeploymentApprovalConfirmed = false;
+        DeploymentConfirmationText = "";
+
+        _maxAccessibleStepNumber = Math.Clamp(Math.Max(state.MaxAccessibleStepNumber, 2), 1, Steps.Count);
+        _currentStepNumber = Math.Clamp(state.CurrentStepNumber, 1, _maxAccessibleStepNumber);
+        RefreshStepNavigation();
+        ApplyPersistedStepStates(state.Steps);
+        RefreshStateDependentCommands();
+
+        FooterStatus = $"Resumed previous {WorkflowModeLabel()} session saved {state.SavedAt.LocalDateTime:g}. {state.FooterStatus}";
+    }
+
+    private void SaveWizardState(bool markCompleted = false)
+    {
+        if (_stateCompleted && !markCompleted)
+        {
+            return;
+        }
+
+        if (_isRestoringState || !ShouldPersistState())
+        {
+            return;
+        }
+
+        _stateStore.Save(CreatePersistedState(markCompleted));
+        if (markCompleted)
+        {
+            _stateCompleted = true;
+        }
+    }
+
+    private bool ShouldPersistState()
+    {
+        return _config is not null ||
+            _bootstrapSession is not null ||
+            _tenantDiscovery is not null ||
+            _session is not null ||
+            _currentStepNumber > 1 ||
+            _workflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) ||
+            !PackagePath.Equals("No customer package loaded.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private PersistedInstallerState CreatePersistedState(bool markCompleted)
+    {
+        return new PersistedInstallerState
+        {
+            StateId = _stateId,
+            CreatedAt = _stateCreatedAt,
+            CompletedAt = markCompleted || _stateCompleted ? DateTimeOffset.UtcNow : null,
+            IsCompleted = markCompleted || _stateCompleted,
+            WorkflowMode = _workflowMode,
+            CurrentStepNumber = _currentStepNumber,
+            MaxAccessibleStepNumber = _maxAccessibleStepNumber,
+            Steps = Steps.Select(step => new PersistedInstallerStepState
+            {
+                Number = step.Number,
+                Name = step.Name,
+                StatusLabel = step.StatusLabel,
+                StatusBrush = step.StatusBrush
+            }).ToList(),
+            PackagePath = PackagePath,
+            Config = _config,
+            InstallerSession = _session,
+            BootstrapSourcePath = _bootstrapSourcePath,
+            CustomerName = CustomerName,
+            AzureSubscription = AzureSubscription,
+            SharePointSite = SharePointSite,
+            OnboardingSessionId = OnboardingSessionId,
+            OnboardingStatus = OnboardingStatus,
+            OnboardingApiBaseUrl = OnboardingApiBaseUrl,
+            TenantDiscovery = _tenantDiscovery,
+            OnboardingPortalStatus = _onboardingPortalStatus,
+            PackageReadiness = _packageReadiness,
+            DiscoverySummary = DiscoverySummary,
+            DiscoveryOutputPath = DiscoveryOutputPath,
+            PortalSyncStatus = PortalSyncStatus,
+            PortalMissingFieldsSummary = PortalMissingFieldsSummary,
+            PackageReadinessStatus = PackageReadinessStatus,
+            PackageReadinessVersion = PackageReadinessVersion,
+            PackageDownloadPath = PackageDownloadPath,
+            PortalStatusOutputPath = PortalStatusOutputPath,
+            DiscoveryReviewSummary = DiscoveryReviewSummary,
+            DiscoveredLibrariesSummary = DiscoveredLibrariesSummary,
+            DiscoverySyncReadinessSummary = DiscoverySyncReadinessSummary,
+            DiscoverySyncStatusBrush = DiscoverySyncStatusBrush,
+            PackageReadinessStatusBrush = PackageReadinessStatusBrush,
+            PackageReadinessSummary = PackageReadinessSummary,
+            PortalSyncReceipt = new PersistedPortalSyncReceipt
+            {
+                SessionId = PortalSyncReceipt.SessionId,
+                DiscoveryId = PortalSyncReceipt.DiscoveryId,
+                SyncStatus = PortalSyncReceipt.SyncStatus,
+                CorrelationId = PortalSyncReceipt.CorrelationId,
+                PackageReadinessStatus = PortalSyncReceipt.PackageReadinessStatus,
+                PortalRecordUrl = PortalSyncReceipt.PortalRecordUrl,
+                ReceiptOutputPath = PortalSyncReceipt.ReceiptOutputPath,
+                SyncedAt = PortalSyncReceipt.SyncedAt
+            },
+            CheckResults = CheckResults.Select(ToStepResult).ToList(),
+            PreviewResults = PreviewResults.Select(ToStepResult).ToList(),
+            DeploymentResults = DeploymentResults.Select(ToStepResult).ToList(),
+            ValidationResults = ValidationResults.Select(ToStepResult).ToList(),
+            LastPreviewStatus = _lastPreviewStatus,
+            LastDeploymentStatus = _lastDeploymentStatus,
+            LastValidationStatus = _lastValidationStatus,
+            PreviewStatus = PreviewStatus,
+            PreviewStatusBrush = PreviewStatusBrush,
+            PreviewSummary = PreviewSummary,
+            PreviewOutputPath = PreviewOutputPath,
+            DeploymentStatus = DeploymentStatus,
+            DeploymentStatusBrush = DeploymentStatusBrush,
+            DeploymentSummary = DeploymentSummary,
+            DeploymentOutputPath = DeploymentOutputPath,
+            ValidationStatus = ValidationStatus,
+            ValidationStatusBrush = ValidationStatusBrush,
+            ValidationSummary = ValidationSummary,
+            ValidationOutputPath = ValidationOutputPath,
+            FinishStatus = FinishStatus,
+            FinishStatusBrush = FinishStatusBrush,
+            FinishSummary = FinishSummary,
+            FinalReportPath = FinalReportPath,
+            FinalManifestPath = FinalManifestPath,
+            FinalBundlePath = FinalBundlePath,
+            FinalEvidenceDirectory = FinalEvidenceDirectory,
+            AiTitle = AiTitle,
+            AiSummary = AiSummary,
+            SessionId = SessionId,
+            SessionStatus = SessionStatus,
+            FooterStatus = FooterStatus
+        };
+    }
+
+    private void ApplyPortalSyncReceipt(PersistedPortalSyncReceipt receipt)
+    {
+        PortalSyncReceipt.SessionId = receipt.SessionId;
+        PortalSyncReceipt.DiscoveryId = receipt.DiscoveryId;
+        PortalSyncReceipt.SyncStatus = receipt.SyncStatus;
+        PortalSyncReceipt.CorrelationId = receipt.CorrelationId;
+        PortalSyncReceipt.PackageReadinessStatus = receipt.PackageReadinessStatus;
+        PortalSyncReceipt.PortalRecordUrl = receipt.PortalRecordUrl;
+        PortalSyncReceipt.ReceiptOutputPath = receipt.ReceiptOutputPath;
+        PortalSyncReceipt.SyncedAt = receipt.SyncedAt;
+    }
+
+    private void RebuildResultCollections(PersistedInstallerState state)
+    {
+        CheckResults.Clear();
+        foreach (var result in state.CheckResults)
+        {
+            CheckResults.Add(new CheckResultViewModel(result));
+        }
+
+        PreviewResults.Clear();
+        foreach (var result in state.PreviewResults)
+        {
+            PreviewResults.Add(new PreviewResultViewModel(result));
+        }
+
+        DeploymentResults.Clear();
+        foreach (var result in state.DeploymentResults)
+        {
+            DeploymentResults.Add(new DeploymentResultViewModel(result));
+        }
+
+        ValidationResults.Clear();
+        foreach (var result in state.ValidationResults)
+        {
+            ValidationResults.Add(new ValidationResultViewModel(result));
+        }
+    }
+
+    private void ApplyPersistedStepStates(IEnumerable<PersistedInstallerStepState> steps)
+    {
+        foreach (var persisted in steps)
+        {
+            var step = Steps.FirstOrDefault(item => item.Number == persisted.Number);
+            if (step is null)
+            {
+                continue;
+            }
+
+            step.StatusLabel = SavedOrDefault(persisted.StatusLabel, step.StatusLabel);
+            step.StatusBrush = SavedOrDefault(persisted.StatusBrush, step.StatusBrush);
+        }
+    }
+
+    private void RefreshStateDependentCommands()
+    {
+        OnPropertyChanged(nameof(DeploymentConfirmationTarget));
+        OnPropertyChanged(nameof(DeploymentConfirmationPrompt));
+        OnPropertyChanged(nameof(DeploymentTargetSummary));
+        OnPropertyChanged(nameof(DeploymentTargetDetails));
+        OnPropertyChanged(nameof(ValidationTargetSummary));
+        OnPropertyChanged(nameof(ValidationTargetDetails));
+        OnPropertyChanged(nameof(FinalEvidenceTargetSummary));
+        OnPropertyChanged(nameof(FinalEvidenceTargetDetails));
+        ConnectOnboardingCommand.RaiseCanExecuteChanged();
+        RunDiscoveryCommand.RaiseCanExecuteChanged();
+        SyncDiscoveryCommand.RaiseCanExecuteChanged();
+        SaveDiscoveryCommand.RaiseCanExecuteChanged();
+        CheckPackageReadinessCommand.RaiseCanExecuteChanged();
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        ConnectAzureCommand.RaiseCanExecuteChanged();
+        ConnectGraphCommand.RaiseCanExecuteChanged();
+        RunPreflightCommand.RaiseCanExecuteChanged();
+        RunPreviewCommand.RaiseCanExecuteChanged();
+        RunInstallCommand.RaiseCanExecuteChanged();
+        RunValidationCommand.RaiseCanExecuteChanged();
+        CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
+        ExplainIssueCommand.RaiseCanExecuteChanged();
+        GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+        CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private CustomerInstallConfig? TryLoadConfig(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return _configService.LoadAsync(path).GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private OnboardingBootstrapSession? TryLoadBootstrapSession(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return _onboardingSessionService.LoadBootstrapAsync(path).GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private string WorkflowModeLabel()
+    {
+        return _workflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) ? "removal" : "setup";
+    }
+
+    private static string SavedOrDefault(string value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value;
+    }
+
+    private static InstallerStepResult ToStepResult(CheckResultViewModel result)
+    {
+        return new InstallerStepResult
+        {
+            StepName = result.Name,
+            Status = ParseInstallStatus(result.StatusLabel),
+            Summary = result.Summary,
+            RetrySafe = true
+        };
+    }
+
+    private static InstallerStepResult ToStepResult(PreviewResultViewModel result)
+    {
+        return new InstallerStepResult
+        {
+            StepName = result.Name,
+            Code = result.Code,
+            Status = ParseInstallStatus(result.StatusLabel),
+            Summary = result.Summary,
+            Details = result.Details,
+            RetrySafe = result.RetrySafeLabel.Equals("Retry safe", StringComparison.OrdinalIgnoreCase)
+        };
+    }
+
+    private static InstallerStepResult ToStepResult(DeploymentResultViewModel result)
+    {
+        return new InstallerStepResult
+        {
+            StepName = result.Name,
+            Code = result.Code,
+            Status = ParseInstallStatus(result.StatusLabel),
+            Summary = result.Summary,
+            Details = result.Details,
+            RetrySafe = result.RetrySafeLabel.Equals("Retry safe", StringComparison.OrdinalIgnoreCase),
+            RequiresApproval = result.ApprovalLabel.Equals("Approval required", StringComparison.OrdinalIgnoreCase)
+        };
+    }
+
+    private static InstallerStepResult ToStepResult(ValidationResultViewModel result)
+    {
+        return new InstallerStepResult
+        {
+            StepName = result.Name,
+            Code = result.Code,
+            Status = ParseInstallStatus(result.StatusLabel),
+            Summary = result.Summary,
+            Details = result.Details,
+            RetrySafe = result.RetrySafeLabel.Equals("Retry safe", StringComparison.OrdinalIgnoreCase)
+        };
+    }
+
+    private static InstallStatus ParseInstallStatus(string value)
+    {
+        return Enum.TryParse<InstallStatus>(value, ignoreCase: true, out var status)
+            ? status
+            : InstallStatus.NotStarted;
+    }
+
     private bool CanRunPreview()
     {
         return _config is not null &&
@@ -1294,6 +1753,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private async Task<string> SavePreviewEvidenceAsync(
@@ -1477,6 +1937,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private async Task<string> SaveDeploymentEvidenceAsync(
@@ -1864,6 +2325,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        SaveWizardState(markCompleted: true);
     }
 
     private string GetFinalStatusLabel()

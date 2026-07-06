@@ -31,6 +31,7 @@ Implemented:
 - Mock PageMaker365 onboarding API client.
 - Mock tenant discovery payload generation.
 - Redacted local tenant discovery export.
+- Local active-session resume state.
 - PowerShell-backed local prerequisite checks.
 - Azure context validation.
 - Azure RBAC validation scaffold.

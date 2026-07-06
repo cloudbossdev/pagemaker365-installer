@@ -34,6 +34,22 @@ The installer should not require the customer to run raw PowerShell commands dur
 | 7. Validate | Run smoke tests after deployment. | Validation evidence is written to `support-bundle\validate\deployment-validation.json`. |
 | 8. Finish | Generate the final install evidence package. | A final report, manifest, and zip package are written under `support-bundle\final\`. |
 
+## Resuming A Session
+
+The desktop app remembers the most recent active installer session on the local workstation. If the user closes the app, reboots, or pauses during deployment, the next launch restores the latest active session and returns the UI to the saved workflow step.
+
+Resume state is written under the user's local application data folder:
+
+```text
+%LocalAppData%\PageMaker365\Installer\sessions\
+```
+
+The saved state includes workflow mode, current step, accessible steps, loaded package metadata, onboarding status, discovery summaries, check results, evidence paths, assistant status, and final handoff paths.
+
+The saved state should not include raw secrets or authentication tokens. Azure and Microsoft Graph sign-in may need to be repeated after reopening the app. The install approval checkbox and typed resource-group confirmation are also not restored, so an approved deployment cannot reopen already armed for execution.
+
+Completed sessions are retained for evidence, but they are not auto-resumed after final evidence has been generated.
+
 ## Assistant Workspace
 
 The AI deployment assistant is intended to help users understand issues, not to run privileged actions on its own.
