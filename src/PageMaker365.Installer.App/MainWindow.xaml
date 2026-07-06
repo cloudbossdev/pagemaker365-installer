@@ -923,12 +923,110 @@
                                    FontSize="16"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,24" />
-                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
-                            <TextBlock Text="Validation will check API health, frontend load, SharePoint access, Key Vault references, license validation, entitlement sync, and telemetry."
-                                       Foreground="{StaticResource PmMuted}"
-                                       TextWrapping="Wrap"
-                                       LineHeight="20" />
+                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                            <StackPanel>
+                                <TextBlock Text="Validation Target" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                <TextBlock Text="{Binding ValidationTargetSummary}"
+                                           FontSize="19"
+                                           FontWeight="Bold"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding ValidationTargetDetails}"
+                                           Foreground="{StaticResource PmMuted}"
+                                           TextWrapping="Wrap"
+                                           LineHeight="20"
+                                           Margin="0,6,0,0" />
+                            </StackPanel>
                         </Border>
+                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                            <StackPanel>
+                                <DockPanel LastChildFill="True">
+                                    <Button DockPanel.Dock="Right"
+                                            Content="Run Validation"
+                                            Command="{Binding RunValidationCommand}"
+                                            MinWidth="160"
+                                            Margin="18,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="Smoke Tests" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding ValidationSummary}"
+                                                   Foreground="{StaticResource PmMuted}"
+                                                   TextWrapping="Wrap"
+                                                   LineHeight="20"
+                                                   Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <UniformGrid x:Name="ValidationStatusGrid" Columns="3" Margin="0,18,0,0">
+                                    <Border x:Name="ValidationInstallStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,8,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Install Status" Foreground="{StaticResource PmMuted}" />
+                                            <TextBlock Text="{Binding DeploymentStatus}" Foreground="{Binding DeploymentStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="ValidationStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="4,0,4,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Validation Status" Foreground="{StaticResource PmMuted}" />
+                                            <TextBlock Text="{Binding ValidationStatus}" Foreground="{Binding ValidationStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="ValidationEvidenceOutputCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="8,0,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Evidence Output" Foreground="{StaticResource PmMuted}" />
+                                            <TextBlock Text="{Binding ValidationOutputPath}" TextWrapping="Wrap" FontSize="13" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                        <ItemsControl ItemsSource="{Binding ValidationResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource PmPanel}"
+                                            BorderBrush="{StaticResource PmLine}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Padding="18"
+                                            Margin="0,0,0,12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Background="{Binding StatusBrush}" CornerRadius="6" Margin="0,2,0,2" />
+                                            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                                                <DockPanel LastChildFill="True">
+                                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="14,0,0,0">
+                                                        <Border BorderBrush="{Binding StatusBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="5"
+                                                                Padding="8,4"
+                                                                Margin="0,0,8,0">
+                                                            <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}" FontSize="12" FontWeight="SemiBold" />
+                                                        </Border>
+                                                        <Border Background="#101B33" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="5" Padding="8,4">
+                                                            <TextBlock Text="{Binding RetrySafeLabel}" Foreground="{StaticResource PmMuted}" FontSize="12" FontWeight="SemiBold" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Name}" FontSize="18" FontWeight="Bold" />
+                                                        <TextBlock Text="{Binding Code}" Foreground="{StaticResource PmCyan}" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,0" />
+                                                    </StackPanel>
+                                                </DockPanel>
+                                                <TextBlock Text="{Binding Summary}"
+                                                           Foreground="White"
+                                                           TextWrapping="Wrap"
+                                                           LineHeight="20"
+                                                           Margin="0,12,0,0" />
+                                                <TextBlock Text="{Binding Details}"
+                                                           Foreground="{StaticResource PmMuted}"
+                                                           TextWrapping="Wrap"
+                                                           LineHeight="19"
+                                                           Margin="0,8,0,0" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                     <StackPanel Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Validate Cleanup" FontSize="34" FontWeight="Bold" />

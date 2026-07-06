@@ -55,6 +55,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _deploymentStatusBrush = "#8290AA";
     private string _deploymentSummary = "Complete deployment preview before running install.";
     private string _deploymentOutputPath = "Not saved";
+    private string _validationStatus = "Waiting for install";
+    private string _validationStatusBrush = "#8290AA";
+    private string _validationSummary = "Complete install before running validation.";
+    private string _validationOutputPath = "Not saved";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -68,6 +72,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private int _maxAccessibleStepNumber = 2;
     private InstallStatus _lastPreviewStatus = InstallStatus.NotStarted;
     private InstallStatus _lastDeploymentStatus = InstallStatus.NotStarted;
+    private InstallStatus _lastValidationStatus = InstallStatus.NotStarted;
     private bool _deploymentApprovalConfirmed;
     private bool _canContinue;
     private bool _canGoBack;
@@ -100,6 +105,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunPreflightCommand = new RelayCommand(RunPreflightAsync, () => _config is not null);
         RunPreviewCommand = new RelayCommand(RunPreviewAsync, CanRunPreview);
         RunInstallCommand = new RelayCommand(RunInstallAsync, CanRunInstall);
+        RunValidationCommand = new RelayCommand(RunValidationAsync, CanRunValidation);
         ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null);
         GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null);
         CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null);
@@ -116,6 +122,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
     public ObservableCollection<PreviewResultViewModel> PreviewResults { get; } = [];
     public ObservableCollection<DeploymentResultViewModel> DeploymentResults { get; } = [];
+    public ObservableCollection<ValidationResultViewModel> ValidationResults { get; } = [];
     public ObservableCollection<DiscoveryReadinessCardViewModel> DiscoveryReadinessCards { get; } = [];
     public ObservableCollection<DiscoveryValueViewModel> DiscoveryValues { get; } = [];
     public ObservableCollection<DiscoveryFindingViewModel> DiscoveryFindings { get; } = [];
@@ -139,6 +146,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand RunPreflightCommand { get; }
     public RelayCommand RunPreviewCommand { get; }
     public RelayCommand RunInstallCommand { get; }
+    public RelayCommand RunValidationCommand { get; }
     public RelayCommand ExplainIssueCommand { get; }
     public RelayCommand GenerateAdminMessageCommand { get; }
     public RelayCommand CreateSupportBundleCommand { get; }
@@ -357,6 +365,38 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string DeploymentTargetDetails => _config is null
         ? "Load the customer package and complete deployment preview before installing."
         : $"SharePoint site: {_config.SharePoint.SiteUrl}";
+
+    public string ValidationStatus
+    {
+        get => _validationStatus;
+        set => SetProperty(ref _validationStatus, value);
+    }
+
+    public string ValidationStatusBrush
+    {
+        get => _validationStatusBrush;
+        set => SetProperty(ref _validationStatusBrush, value);
+    }
+
+    public string ValidationSummary
+    {
+        get => _validationSummary;
+        set => SetProperty(ref _validationSummary, value);
+    }
+
+    public string ValidationOutputPath
+    {
+        get => _validationOutputPath;
+        set => SetProperty(ref _validationOutputPath, value);
+    }
+
+    public string ValidationTargetSummary => _config is null
+        ? "No validation target loaded."
+        : $"{_config.Customer.TenantName} | {_config.SharePoint.SiteUrl}";
+
+    public string ValidationTargetDetails => _config is null
+        ? "Complete install before running validation."
+        : $"Install evidence: {DeploymentOutputPath}";
 
     public string AiTitle
     {
@@ -776,11 +816,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnPropertyChanged(nameof(DeploymentConfirmationPrompt));
         OnPropertyChanged(nameof(DeploymentTargetSummary));
         OnPropertyChanged(nameof(DeploymentTargetDetails));
+        OnPropertyChanged(nameof(ValidationTargetSummary));
+        OnPropertyChanged(nameof(ValidationTargetDetails));
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
         RunInstallCommand.RaiseCanExecuteChanged();
+        RunValidationCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
@@ -987,6 +1030,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         GoToStepCommand?.RaiseCanExecuteChanged();
         RunPreviewCommand?.RaiseCanExecuteChanged();
         RunInstallCommand?.RaiseCanExecuteChanged();
+        RunValidationCommand?.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsWelcomeStep));
         OnPropertyChanged(nameof(IsPackageStep));
         OnPropertyChanged(nameof(IsSignInStep));
@@ -1053,6 +1097,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         CheckResults.Clear();
         ClearPreviewReview();
         ClearDeploymentReview();
+        ClearValidationReview();
         CanContinue = false;
         RefreshStepNavigation();
     }
@@ -1084,6 +1129,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ClearPortalWorkflowReview();
         ClearPreviewReview();
         ClearDeploymentReview();
+        ClearValidationReview();
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -1098,6 +1144,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunPreflightCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
         RunInstallCommand.RaiseCanExecuteChanged();
+        RunValidationCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
@@ -1296,6 +1343,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         DeploymentResults.Clear();
+        ClearValidationReview();
         DeploymentStatus = "Running";
         DeploymentStatusBrush = "#19D8E9";
         DeploymentSummary = "Running approved Azure deployment.";
@@ -1341,8 +1389,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             UnlockThroughStep(7);
         }
+        RefreshValidationReadiness();
 
         DeploymentOutputPath = await SaveDeploymentEvidenceAsync(deploymentResults, deploymentStatus);
+        OnPropertyChanged(nameof(ValidationTargetDetails));
         FooterStatus = deploymentStatus switch
         {
             InstallStatus.Passed => "Install completed. Continue to validation.",
@@ -1356,6 +1406,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             : "Deployment evidence was saved. Run validation next to confirm API health, SharePoint access, and telemetry.";
 
         RunInstallCommand.RaiseCanExecuteChanged();
+        RunValidationCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
@@ -1455,6 +1506,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentResults.Clear();
         DeploymentApprovalConfirmed = false;
         DeploymentConfirmationText = "";
+        ClearValidationReview();
         RefreshDeploymentReadiness();
     }
 
@@ -1478,7 +1530,205 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnPropertyChanged(nameof(DeploymentConfirmationPrompt));
         OnPropertyChanged(nameof(DeploymentTargetSummary));
         OnPropertyChanged(nameof(DeploymentTargetDetails));
+        OnPropertyChanged(nameof(ValidationTargetSummary));
+        OnPropertyChanged(nameof(ValidationTargetDetails));
         RunInstallCommand?.RaiseCanExecuteChanged();
+    }
+
+    private bool CanRunValidation()
+    {
+        return IsSetupMode &&
+            _config is not null &&
+            File.Exists(PackagePath) &&
+            _currentStepNumber >= 7 &&
+            _lastDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning;
+    }
+
+    private async Task RunValidationAsync()
+    {
+        if (_config is null)
+        {
+            FooterStatus = "Load a customer package before running validation.";
+            return;
+        }
+
+        if (_lastDeploymentStatus is not (InstallStatus.Passed or InstallStatus.Warning))
+        {
+            FooterStatus = "Complete install before running validation.";
+            return;
+        }
+
+        if (!File.Exists(PackagePath))
+        {
+            FooterStatus = "Validation requires a customer package file. Load a package from disk first.";
+            return;
+        }
+
+        ValidationResults.Clear();
+        ValidationStatus = "Running";
+        ValidationStatusBrush = "#19D8E9";
+        ValidationSummary = "Running smoke tests against the deployed environment.";
+        ValidationOutputPath = "Not saved";
+        FooterStatus = "Running deployment validation.";
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Validation running";
+        SetCurrentStep(7);
+        SetStepStatus(7, "Running", "#19D8E9");
+
+        var validationResults = new List<InstallerStepResult>();
+        var progress = new Progress<InstallerStepResult>(result =>
+        {
+            validationResults.Add(result);
+            ValidationResults.Add(new ValidationResultViewModel(result));
+        });
+
+        await _engine.RunValidationAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
+
+        var validationStatus = GetPhaseStatus(validationResults);
+        _lastValidationStatus = validationStatus;
+        ValidationStatus = validationStatus.ToString();
+        ValidationStatusBrush = BrushForStatus(validationStatus);
+        ValidationSummary = validationStatus switch
+        {
+            InstallStatus.Passed => "Validation completed. Continue to finish and generate final evidence.",
+            InstallStatus.Warning => "Validation completed with warnings. Review the warnings before finishing.",
+            InstallStatus.Skipped => "Validation was skipped. Review the smoke-test output and rerun when ready.",
+            InstallStatus.Failed => "Validation failed. Resolve the blocker before finishing.",
+            _ => "Validation did not return a final status."
+        };
+        SessionStatus = _session.Status.ToString();
+        var validationStepStatus = validationStatus switch
+        {
+            InstallStatus.Failed => "Blocked",
+            InstallStatus.Passed or InstallStatus.Warning => "Complete",
+            InstallStatus.Skipped => "Skipped",
+            _ => validationStatus.ToString()
+        };
+        SetStepStatus(7, validationStepStatus, ValidationStatusBrush);
+        if (validationStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            UnlockThroughStep(8);
+        }
+
+        ValidationOutputPath = await SaveValidationEvidenceAsync(validationResults, validationStatus);
+        FooterStatus = validationStatus switch
+        {
+            InstallStatus.Passed => "Validation completed. Continue to finish.",
+            InstallStatus.Warning => "Validation completed with warnings. Review evidence, then continue to finish.",
+            InstallStatus.Skipped => "Validation was skipped. Rerun validation when ready.",
+            _ => "Validation failed. Review validation results and support evidence."
+        };
+        AiTitle = validationStatus == InstallStatus.Failed ? "Validation blocker detected" : "Validation evidence ready";
+        AiSummary = validationStatus == InstallStatus.Failed
+            ? "Smoke tests reported a blocking issue. Review validation details, fix the environment, then rerun validation."
+            : "Validation evidence was saved. Continue to Finish to generate final customer evidence.";
+
+        RunValidationCommand.RaiseCanExecuteChanged();
+        ExplainIssueCommand.RaiseCanExecuteChanged();
+        GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+        CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task<string> SaveValidationEvidenceAsync(
+        IReadOnlyList<InstallerStepResult> validationResults,
+        InstallStatus validationStatus)
+    {
+        if (_session is null)
+        {
+            return "Not saved";
+        }
+
+        var directory = Path.Combine(GetWorkspaceRoot(), "support-bundle", "validate");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deployment-validation.json");
+        var receipt = new
+        {
+            contractVersion = "0.1",
+            sessionId = _session.SessionId,
+            packagePath = PackagePath,
+            validationStatus = validationStatus.ToString(),
+            validatedAt = DateTimeOffset.UtcNow,
+            deploymentStatus = _lastDeploymentStatus.ToString(),
+            deploymentEvidencePath = DeploymentOutputPath,
+            target = new
+            {
+                customerName = _config?.Customer.TenantName,
+                subscriptionId = _config?.Azure.SubscriptionId,
+                resourceGroupName = _config?.Azure.ResourceGroupName,
+                sharePointSiteUrl = _config?.SharePoint.SiteUrl,
+                appDomain = _config?.App.CustomDomain
+            },
+            results = validationResults.Select(result => new
+            {
+                result.StepName,
+                result.Code,
+                status = result.Status.ToString(),
+                result.Summary,
+                result.Details,
+                result.RetrySafe,
+                result.RequiresApproval
+            }).ToList()
+        };
+        var json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+        await File.WriteAllTextAsync(path, json);
+        return path;
+    }
+
+    private static InstallStatus GetPhaseStatus(IReadOnlyList<InstallerStepResult> results)
+    {
+        if (results.Count == 0)
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Failed))
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Warning))
+        {
+            return InstallStatus.Warning;
+        }
+
+        if (results.All(result => result.Status == InstallStatus.Skipped))
+        {
+            return InstallStatus.Skipped;
+        }
+
+        return InstallStatus.Passed;
+    }
+
+    private void ClearValidationReview()
+    {
+        _lastValidationStatus = InstallStatus.NotStarted;
+        ValidationResults.Clear();
+        RefreshValidationReadiness();
+    }
+
+    private void RefreshValidationReadiness()
+    {
+        if (_lastDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            ValidationStatus = "Ready to validate";
+            ValidationStatusBrush = "#FFB84D";
+            ValidationSummary = "Run smoke tests to confirm the deployed app and SharePoint access are ready.";
+        }
+        else
+        {
+            ValidationStatus = "Waiting for install";
+            ValidationStatusBrush = "#8290AA";
+            ValidationSummary = "Complete install before running validation.";
+        }
+
+        ValidationOutputPath = "Not saved";
+        OnPropertyChanged(nameof(ValidationTargetSummary));
+        OnPropertyChanged(nameof(ValidationTargetDetails));
+        RunValidationCommand?.RaiseCanExecuteChanged();
     }
 
     private bool CanSyncDiscovery()

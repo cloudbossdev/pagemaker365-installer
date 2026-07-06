@@ -52,9 +52,13 @@ public partial class MainWindow : Window
         CompactGuidanceActions.Columns = ActualWidth > 0 && ActualWidth < 820 ? 1 : 3;
         RemovalPreviewGrid.Columns = compact ? 1 : 3;
         DeploymentApprovalGrid.Columns = compact ? 1 : 3;
+        ValidationStatusGrid.Columns = compact ? 1 : 3;
         PreviewStatusCard.Margin = compact ? new Thickness(0, 0, 0, 10) : new Thickness(0, 0, 8, 0);
         InstallStatusCard.Margin = compact ? new Thickness(0, 0, 0, 10) : new Thickness(4, 0, 4, 0);
         EvidenceOutputCard.Margin = compact ? new Thickness(0) : new Thickness(8, 0, 0, 0);
+        ValidationInstallStatusCard.Margin = compact ? new Thickness(0, 0, 0, 10) : new Thickness(0, 0, 8, 0);
+        ValidationStatusCard.Margin = compact ? new Thickness(0, 0, 0, 10) : new Thickness(4, 0, 4, 0);
+        ValidationEvidenceOutputCard.Margin = compact ? new Thickness(0) : new Thickness(8, 0, 0, 0);
 
         FooterStatusText.MaxWidth = compact ? Math.Max(260, ActualWidth - 340) : double.PositiveInfinity;
     }

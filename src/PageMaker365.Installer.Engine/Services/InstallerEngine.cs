@@ -142,6 +142,23 @@ public sealed class InstallerEngine
             "-Confirm:$false");
     }
 
+    public async Task<IReadOnlyList<InstallerStepResult>> RunValidationAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Validate",
+            "Test-PM365SmokeTests",
+            progress,
+            cancellationToken);
+    }
+
     private async Task<IReadOnlyList<InstallerStepResult>> RunPowerShellModuleCommandAsync(
         InstallerSession session,
         string workspaceRoot,
@@ -339,6 +356,8 @@ public sealed class InstallerEngine
             "AzureWhatIfReady" or "AzureWhatIfFailed" => "Azure What-If",
             "AzureDeploymentReady" or "AzureDeploymentFailed" => "Azure Deployment",
             "DeploymentSkipped" => "Deployment Approval",
+            "AppUrlMissing" => "Application URL",
+            "AppHealthReady" or "AppHealthFailed" => "Application Health",
             _ when string.IsNullOrWhiteSpace(code) => "PowerShell Check",
             _ => code
         };
