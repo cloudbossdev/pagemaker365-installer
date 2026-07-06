@@ -31,9 +31,12 @@
     "tenantHostname": "contoso.sharepoint.com",
     "siteUrl": "https://contoso.sharepoint.com/sites/intranet",
     "siteId": "",
+    "siteDisplayName": "",
     "defaultDocumentLibrary": "Documents",
+    "defaultDocumentLibraryId": "",
     "permissionMode": "SitesSelected",
-    "siteResolved": true
+    "siteResolved": true,
+    "availableDocumentLibraries": []
   },
   "entra": {
     "appRegistrationMode": "Create",
@@ -51,9 +54,9 @@
   "findings": [
     {
       "severity": "Info",
-      "code": "DiscoveryMockOnly",
-      "summary": "Discovery is currently mocked from bootstrap and install package values.",
-      "details": "The next implementation step is to replace these values with read-only Azure, Graph, and SharePoint queries."
+      "code": "DiscoveryPackageFallback",
+      "summary": "Discovery starts from bootstrap and install package values.",
+      "details": "Live read-only providers can enrich these fields when the required sign-ins and modules are available."
     }
   ]
 }

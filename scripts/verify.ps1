@@ -90,6 +90,7 @@ Write-Host 'Checking exported commands...'
     'Connect-PM365Azure',
     'Connect-PM365Graph',
     'Get-PM365AzureDiscovery',
+    'Get-PM365GraphDiscovery',
     'Start-PM365Preflight',
     'Test-PM365DeploymentContract',
     'Invoke-PM365WhatIf',
@@ -101,6 +102,9 @@ Write-Host 'Checking exported commands...'
 
 Write-Host 'Running Azure discovery...'
 Get-PM365AzureDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
+
+Write-Host 'Running Graph discovery...'
+Get-PM365GraphDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 16 | Out-Null
 
 Write-Host 'Running preflight...'
 Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null

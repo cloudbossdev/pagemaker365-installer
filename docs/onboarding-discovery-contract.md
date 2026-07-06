@@ -2,7 +2,7 @@
 
 Status: draft for first implementation.
 
-Last updated: 2026-07-05.
+Last updated: 2026-07-06.
 
 ## Purpose
 
@@ -100,6 +100,38 @@ Failure behavior:
 - If Azure is not signed in, discovery keeps bootstrap/package Azure values and adds `AzureNotSignedIn`.
 - If the signed-in tenant or subscription differs from the generated package, discovery adds failed findings but still returns the metadata it can read.
 - The installer must not use Azure discovery to deploy, mutate, create, delete, or grant permissions.
+
+### Graph And SharePoint Discovery
+
+The second live discovery provider is Graph discovery. It is read-only and runs through the `Get-PM365GraphDiscovery` PowerShell command.
+
+Collected fields:
+
+- Signed-in Microsoft Graph account ID.
+- Signed-in Graph tenant ID.
+- Granted Graph scopes in the current session.
+- Verified tenant domains when readable.
+- SharePoint tenant hostname.
+- Target SharePoint site URL, site ID, and display name.
+- Whether the target SharePoint site resolved through Graph.
+- Default document library name and drive ID when discoverable.
+- Available SharePoint document libraries for the target site.
+- Entra app registration mode, permission mode, required permissions, and admin consent readiness.
+- Tenant mismatch, missing scope, site resolution, library, and admin role findings.
+
+Required local tooling:
+
+- PowerShell 7.
+- `Microsoft.Graph.Authentication` for Graph sign-in, Graph context, and `Invoke-MgGraphRequest`.
+
+Failure behavior:
+
+- If Microsoft Graph PowerShell is missing, discovery keeps package Graph/SharePoint values and adds `GraphAuthenticationMissing`.
+- If Graph is not signed in, discovery keeps package Graph/SharePoint values and adds `GraphNotSignedIn`.
+- If the signed-in Graph tenant differs from the generated package, discovery adds `GraphTenantMismatch`.
+- If SharePoint discovery is disabled by the bootstrap policy, Graph discovery still runs tenant and Entra checks but returns package SharePoint values.
+- If the SharePoint site or library cannot be resolved, discovery adds findings but still returns the metadata it can read.
+- The installer must not use Graph discovery to create app registrations, grant consent, modify SharePoint, read documents, read mailbox content, or export user profiles.
 
 ## API Shape
 
@@ -285,12 +317,11 @@ Implemented in this repo:
 - Portal API client scaffold for connect, discovery sync, package readiness, and package download.
 - Onboarding API configuration and environment override support.
 - Read-only Azure discovery command and engine integration.
-- Onboarding API and Azure discovery contract harness.
+- Read-only Graph and SharePoint discovery command and engine integration.
+- Onboarding API, Azure discovery, and Graph discovery contract harness.
 
 Not implemented yet:
 
-- Real Graph tenant/domain discovery.
-- Real SharePoint site/library discovery.
 - Live PageMaker365 portal API endpoint implementation and validation.
 - Portal-side onboarding form population.
 - Signed final install package generation and signature validation.

@@ -45,9 +45,12 @@ public sealed class TenantDiscoverySharePoint
     public string TenantHostname { get; set; } = "";
     public string SiteUrl { get; set; } = "";
     public string SiteId { get; set; } = "";
+    public string SiteDisplayName { get; set; } = "";
     public string DefaultDocumentLibrary { get; set; } = "";
+    public string DefaultDocumentLibraryId { get; set; } = "";
     public string PermissionMode { get; set; } = "";
     public bool SiteResolved { get; set; }
+    public List<SharePointDocumentLibraryDiscovery> AvailableDocumentLibraries { get; set; } = [];
 }
 
 public sealed class TenantDiscoveryEntra

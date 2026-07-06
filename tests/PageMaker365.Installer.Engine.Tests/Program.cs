@@ -20,7 +20,9 @@ internal static class Program
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
-            ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery)
+            ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery),
+            ("GraphDiscoveryService returns package fallback when module is missing", GraphDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
+            ("GraphDiscoveryService maps Graph result into tenant discovery", GraphDiscoveryServiceMapsGraphResultIntoTenantDiscovery)
         };
 
         var failed = 0;
@@ -315,6 +317,93 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static async Task GraphDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var result = await new GraphDiscoveryService().DiscoverAsync(
+                workspaceRoot,
+                CreateConfig(),
+                allowSharePointDiscovery: true);
+
+            AssertEx.Equal("GraphDiscoveryFallback", result.Source);
+            AssertEx.Equal("tenant-001", result.TenantId);
+            AssertEx.Equal("https://example.sharepoint.com/sites/intranet", result.SiteUrl);
+            AssertEx.Equal("example.sharepoint.com", result.TenantHostname);
+            AssertEx.Equal("Documents", result.DefaultDocumentLibrary);
+            AssertEx.Equal("SitesSelected", result.PermissionMode);
+            AssertEx.Equal("GraphDiscoveryModuleMissing", result.Findings[0].Code);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static Task GraphDiscoveryServiceMapsGraphResultIntoTenantDiscovery()
+    {
+        var discovery = CreateDiscovery();
+        discovery.Customer.VerifiedDomains.Clear();
+        discovery.SharePoint.SiteResolved = false;
+        var graph = new GraphDiscoveryResult
+        {
+            TenantId = "tenant-live",
+            DefaultDomain = "example.com",
+            VerifiedDomains = ["example.com", "example.sharepoint.com"],
+            TenantHostname = "example.sharepoint.com",
+            SiteUrl = "https://example.sharepoint.com/sites/intranet",
+            SiteId = "example.sharepoint.com,site-collection,site-id",
+            SiteDisplayName = "Intranet",
+            SiteResolved = true,
+            DefaultDocumentLibrary = "Documents",
+            DefaultDocumentLibraryId = "drive-live",
+            PermissionMode = "SitesSelected",
+            AvailableDocumentLibraries =
+            {
+                new SharePointDocumentLibraryDiscovery
+                {
+                    DriveId = "drive-live",
+                    Name = "Documents",
+                    WebUrl = "https://example.sharepoint.com/sites/intranet/Shared%20Documents",
+                    DriveType = "documentLibrary"
+                }
+            },
+            AppRegistrationMode = "Create",
+            ConsentStatus = "AdminRoleReady",
+            EntraPermissionMode = "SitesSelected",
+            RequiredApplicationPermissions = ["Sites.Selected"],
+            RequiredDelegatedScopes = ["openid", "profile", "email"],
+            Findings =
+            {
+                new DiscoveryFinding
+                {
+                    Severity = "Info",
+                    Code = "GraphDiscoveryReady",
+                    Summary = "Graph discovery completed.",
+                    Details = "Read-only metadata collected."
+                }
+            }
+        };
+
+        GraphDiscoveryService.ApplyToDiscovery(discovery, graph);
+
+        AssertEx.Contains(discovery.Customer.VerifiedDomains, "example.com");
+        AssertEx.Contains(discovery.Customer.VerifiedDomains, "example.sharepoint.com");
+        AssertEx.Equal("example.sharepoint.com", discovery.SharePoint.TenantHostname);
+        AssertEx.Equal("example.sharepoint.com,site-collection,site-id", discovery.SharePoint.SiteId);
+        AssertEx.Equal("Intranet", discovery.SharePoint.SiteDisplayName);
+        AssertEx.Equal("Documents", discovery.SharePoint.DefaultDocumentLibrary);
+        AssertEx.Equal("drive-live", discovery.SharePoint.DefaultDocumentLibraryId);
+        AssertEx.True(discovery.SharePoint.SiteResolved);
+        AssertEx.Equal(1, discovery.SharePoint.AvailableDocumentLibraries.Count);
+        AssertEx.Equal("AdminRoleReady", discovery.Entra.ConsentStatus);
+        AssertEx.Equal("Sites.Selected", discovery.Entra.RequiredApplicationPermissions[0]);
+        AssertEx.Equal("GraphDiscoveryReady", discovery.Findings.Last().Code);
+        AssertEx.StringContains(discovery.Source, "GraphPowerShell");
+        return Task.CompletedTask;
+    }
+
     private static OnboardingApiClient CreatePortalClient(
         RecordingHttpMessageHandler handler,
         bool fallbackToMock = false,
@@ -399,7 +488,16 @@ internal static class Program
             },
             SharePoint =
             {
-                SiteUrl = "https://example.sharepoint.com/sites/intranet"
+                SiteUrl = "https://example.sharepoint.com/sites/intranet",
+                DefaultDocumentLibrary = "Documents",
+                PermissionMode = "SitesSelected"
+            },
+            Entra =
+            {
+                AppRegistrationMode = "Create",
+                PermissionMode = "SitesSelected",
+                RequiredApplicationPermissions = ["Sites.Selected"],
+                RequiredDelegatedScopes = ["openid", "profile", "email"]
             },
             ControlPlane =
             {

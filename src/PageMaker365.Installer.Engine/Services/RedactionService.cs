@@ -89,9 +89,20 @@ public sealed partial class RedactionService
                 TenantHostname = discovery.SharePoint.TenantHostname,
                 SiteUrl = discovery.SharePoint.SiteUrl,
                 SiteId = Mask(discovery.SharePoint.SiteId),
+                SiteDisplayName = discovery.SharePoint.SiteDisplayName,
                 DefaultDocumentLibrary = discovery.SharePoint.DefaultDocumentLibrary,
+                DefaultDocumentLibraryId = Mask(discovery.SharePoint.DefaultDocumentLibraryId),
                 PermissionMode = discovery.SharePoint.PermissionMode,
-                SiteResolved = discovery.SharePoint.SiteResolved
+                SiteResolved = discovery.SharePoint.SiteResolved,
+                AvailableDocumentLibraries = discovery.SharePoint.AvailableDocumentLibraries
+                    .Select(library => new SharePointDocumentLibraryDiscovery
+                    {
+                        DriveId = Mask(library.DriveId),
+                        Name = library.Name,
+                        WebUrl = library.WebUrl,
+                        DriveType = library.DriveType
+                    })
+                    .ToList()
             },
             Entra =
             {

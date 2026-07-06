@@ -7,6 +7,7 @@ public sealed class TenantDiscoveryService
 {
     private readonly RedactionService _redactionService;
     private readonly AzureDiscoveryService _azureDiscoveryService;
+    private readonly GraphDiscoveryService _graphDiscoveryService;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -14,10 +15,14 @@ public sealed class TenantDiscoveryService
         WriteIndented = true
     };
 
-    public TenantDiscoveryService(RedactionService redactionService, AzureDiscoveryService? azureDiscoveryService = null)
+    public TenantDiscoveryService(
+        RedactionService redactionService,
+        AzureDiscoveryService? azureDiscoveryService = null,
+        GraphDiscoveryService? graphDiscoveryService = null)
     {
         _redactionService = redactionService;
         _azureDiscoveryService = azureDiscoveryService ?? new AzureDiscoveryService();
+        _graphDiscoveryService = graphDiscoveryService ?? new GraphDiscoveryService();
     }
 
     public async Task<TenantDiscoveryResult> CreateDiscoveryAsync(
@@ -36,11 +41,31 @@ public sealed class TenantDiscoveryService
                 Summary = "Azure discovery is disabled for this onboarding session.",
                 Details = "The discovery payload is using bootstrap and package values for Azure fields."
             });
+        }
+        else
+        {
+            var azure = await _azureDiscoveryService.DiscoverAsync(workspaceRoot, installConfig, cancellationToken);
+            AzureDiscoveryService.ApplyToDiscovery(discovery, azure);
+        }
+
+        if (!session.DiscoveryPolicy.AllowGraphDiscovery)
+        {
+            discovery.Findings.Add(new DiscoveryFinding
+            {
+                Severity = "Info",
+                Code = "GraphDiscoveryDisabled",
+                Summary = "Graph discovery is disabled for this onboarding session.",
+                Details = "The discovery payload is using bootstrap and package values for Graph, Entra, and SharePoint fields."
+            });
             return discovery;
         }
 
-        var azure = await _azureDiscoveryService.DiscoverAsync(workspaceRoot, installConfig, cancellationToken);
-        AzureDiscoveryService.ApplyToDiscovery(discovery, azure);
+        var graph = await _graphDiscoveryService.DiscoverAsync(
+            workspaceRoot,
+            installConfig,
+            session.DiscoveryPolicy.AllowSharePointDiscovery,
+            cancellationToken);
+        GraphDiscoveryService.ApplyToDiscovery(discovery, graph);
         return discovery;
     }
 

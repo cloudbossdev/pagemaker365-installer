@@ -81,9 +81,23 @@
         "tenantHostname": { "type": "string" },
         "siteUrl": { "type": "string" },
         "siteId": { "type": "string" },
+        "siteDisplayName": { "type": "string" },
         "defaultDocumentLibrary": { "type": "string" },
+        "defaultDocumentLibraryId": { "type": "string" },
         "permissionMode": { "type": "string" },
-        "siteResolved": { "type": "boolean" }
+        "siteResolved": { "type": "boolean" },
+        "availableDocumentLibraries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "driveId": { "type": "string" },
+              "name": { "type": "string" },
+              "webUrl": { "type": "string" },
+              "driveType": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "entra": {
@@ -110,7 +124,7 @@
         "properties": {
           "severity": {
             "type": "string",
-            "enum": ["Info", "Warning", "Blocked"]
+            "enum": ["Info", "Warning", "Failed", "Blocked", "Skipped"]
           },
           "code": { "type": "string" },
           "summary": { "type": "string" },
