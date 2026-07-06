@@ -254,6 +254,125 @@
 
                     <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
                         <StackPanel>
+                            <TextBlock Text="Discovery Review" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding DiscoveryReviewSummary}"
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="20"
+                                       Margin="0,8,0,16" />
+
+                            <ItemsControl ItemsSource="{Binding DiscoveryReadinessCards}" Margin="0,0,0,12">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="168"
+                                                MinHeight="120"
+                                                Background="{StaticResource PmPanelStrong}"
+                                                BorderBrush="{Binding StatusBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="14"
+                                                Margin="0,0,10,10">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,8,0,0" />
+                                                <TextBlock Text="{Binding Summary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="18" Margin="0,8,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="Discovered Values" FontSize="20" FontWeight="Bold" Margin="0,4,0,10" />
+                            <ItemsControl ItemsSource="{Binding DiscoveryValues}" Margin="0,0,0,18">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource PmPanelStrong}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,8">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="155" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Section}" Foreground="{StaticResource PmCyan}" FontWeight="Bold" TextWrapping="Wrap" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Label}" Foreground="{StaticResource PmMuted}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="10,0,10,0" />
+                                                <TextBlock Grid.Column="2" Text="{Binding Value}" TextWrapping="Wrap" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="Findings" FontSize="20" FontWeight="Bold" Margin="0,0,0,10" />
+                            <ItemsControl ItemsSource="{Binding DiscoveryFindings}" Margin="0,0,0,18">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource PmPanelStrong}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,10">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="18" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="110" />
+                                                </Grid.ColumnDefinitions>
+                                                <Ellipse Width="10" Height="10" Fill="{Binding StatusBrush}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Code}" FontWeight="Bold" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Summary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="18" Margin="0,4,0,0" />
+                                                    <TextBlock Text="{Binding Details}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="18" Margin="0,4,0,0" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{Binding Severity}" Foreground="{Binding StatusBrush}" FontWeight="Bold" HorizontalAlignment="Right" TextWrapping="Wrap" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="SharePoint Libraries" FontSize="20" FontWeight="Bold" Margin="0,0,0,6" />
+                            <TextBlock Text="{Binding DiscoveredLibrariesSummary}"
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="20"
+                                       Margin="0,0,0,10" />
+                            <ItemsControl ItemsSource="{Binding DiscoveredLibraries}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource PmPanelStrong}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="160" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="Library" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Margin="12,0,12,0">
+                                                        <TextBlock Text="Type" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                                        <TextBlock Text="{Binding DriveType}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2">
+                                                        <TextBlock Text="Drive ID" Foreground="{StaticResource PmMuted}" FontSize="12" />
+                                                        <TextBlock Text="{Binding DriveId}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <TextBlock Text="URL" Foreground="{StaticResource PmMuted}" FontSize="12" Margin="0,10,0,0" />
+                                                <TextBlock Text="{Binding WebUrl}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                        <StackPanel>
                             <TextBlock Text="Portal Package Readiness" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                             <TextBlock Text="Use this status to confirm whether the portal has enough onboarding data to generate the install package."
                                        Foreground="{StaticResource PmMuted}"

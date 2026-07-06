@@ -40,6 +40,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _packageReadinessVersion = "Not available";
     private string _packageDownloadPath = "Not downloaded";
     private string _portalStatusOutputPath = "Not saved";
+    private string _discoveryReviewSummary = "Create discovery to populate Azure, Microsoft Graph, SharePoint, and Entra readiness.";
+    private string _discoveredLibrariesSummary = "No SharePoint document libraries discovered yet.";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -93,6 +95,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string InstallerVersion => "Alpha scaffold 0.1";
     public ObservableCollection<StepViewModel> Steps { get; }
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
+    public ObservableCollection<DiscoveryReadinessCardViewModel> DiscoveryReadinessCards { get; } = [];
+    public ObservableCollection<DiscoveryValueViewModel> DiscoveryValues { get; } = [];
+    public ObservableCollection<DiscoveryFindingViewModel> DiscoveryFindings { get; } = [];
+    public ObservableCollection<SharePointLibraryViewModel> DiscoveredLibraries { get; } = [];
     public RelayCommand SelectSetupModeCommand { get; }
     public RelayCommand SelectRemovalModeCommand { get; }
     public RelayCommand LoadSampleBootstrapCommand { get; }
@@ -205,6 +211,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _portalStatusOutputPath;
         set => SetProperty(ref _portalStatusOutputPath, value);
+    }
+
+    public string DiscoveryReviewSummary
+    {
+        get => _discoveryReviewSummary;
+        set => SetProperty(ref _discoveryReviewSummary, value);
+    }
+
+    public string DiscoveredLibrariesSummary
+    {
+        get => _discoveredLibrariesSummary;
+        set => SetProperty(ref _discoveredLibrariesSummary, value);
     }
 
     public string AiTitle
@@ -353,6 +371,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PortalSyncStatus = "Not synced";
         DiscoverySummary = "No discovery snapshot created.";
         DiscoveryOutputPath = "Not saved";
+        ClearDiscoveryReview();
         PortalMissingFieldsSummary = "Package readiness has not been checked.";
         PackageReadinessStatus = "Not checked";
         PackageReadinessVersion = "Not available";
@@ -402,6 +421,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _onboardingPortalStatus = null;
         _packageReadiness = null;
         DiscoverySummary = $"{_tenantDiscovery.Customer.TenantName}; tenant {_tenantDiscovery.Customer.TenantId}; SharePoint {_tenantDiscovery.SharePoint.SiteUrl}; subscription {_tenantDiscovery.Azure.SelectedSubscriptionId}";
+        RefreshDiscoveryReview(_tenantDiscovery);
         DiscoveryOutputPath = "Not saved";
         PortalSyncStatus = "Discovery created locally. Not synced.";
         PackageReadinessStatus = "Discovery changed; check readiness";
@@ -886,6 +906,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PackageReadinessVersion = "Not available";
         PackageDownloadPath = "Not downloaded";
         PortalStatusOutputPath = "Not saved";
+        ClearDiscoveryReview();
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -901,6 +922,216 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ClearDiscoveryReview()
+    {
+        DiscoveryReviewSummary = "Create discovery to populate Azure, Microsoft Graph, SharePoint, and Entra readiness.";
+        DiscoveredLibrariesSummary = "No SharePoint document libraries discovered yet.";
+
+        DiscoveryReadinessCards.Clear();
+        DiscoveryReadinessCards.Add(new DiscoveryReadinessCardViewModel("Azure", "Not checked", "Run discovery to inspect Azure tenant and subscription readiness.", "#8290AA"));
+        DiscoveryReadinessCards.Add(new DiscoveryReadinessCardViewModel("Microsoft Graph", "Not checked", "Run discovery after Graph sign-in to inspect tenant and scope readiness.", "#8290AA"));
+        DiscoveryReadinessCards.Add(new DiscoveryReadinessCardViewModel("SharePoint", "Not checked", "Run discovery to resolve the target site and document library.", "#8290AA"));
+        DiscoveryReadinessCards.Add(new DiscoveryReadinessCardViewModel("Entra", "Not checked", "Run discovery to inspect consent and administrator readiness.", "#8290AA"));
+
+        DiscoveryValues.Clear();
+        DiscoveryValues.Add(new DiscoveryValueViewModel("Discovery", "Status", "Not checked"));
+
+        DiscoveryFindings.Clear();
+        DiscoveryFindings.Add(new DiscoveryFindingViewModel(new DiscoveryFinding
+        {
+            Severity = "Info",
+            Code = "DiscoveryNotStarted",
+            Summary = "No discovery snapshot has been created.",
+            Details = "Load an onboarding bootstrap session, then create discovery to review install-readiness values."
+        }));
+
+        DiscoveredLibraries.Clear();
+    }
+
+    private void RefreshDiscoveryReview(TenantDiscoveryResult discovery)
+    {
+        DiscoveryReviewSummary = $"Discovery source: {discovery.Source}. Created {discovery.DiscoveredAt:u}.";
+
+        DiscoveryReadinessCards.Clear();
+        DiscoveryReadinessCards.Add(BuildReadinessCard(
+            "Azure",
+            discovery.Findings.Where(IsAzureFinding),
+            discovery.Source.Contains("AzurePowerShell", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(discovery.Azure.SelectedSubscriptionId),
+            $"Subscription {ValueOrPlaceholder(discovery.Azure.SelectedSubscriptionName, discovery.Azure.SelectedSubscriptionId)}; resource group {ValueOrPlaceholder(discovery.Azure.TargetResourceGroupName)}.",
+            "No Azure subscription has been confirmed yet."));
+        DiscoveryReadinessCards.Add(BuildReadinessCard(
+            "Microsoft Graph",
+            discovery.Findings.Where(IsGraphFinding),
+            discovery.Source.Contains("Graph", StringComparison.OrdinalIgnoreCase),
+            "Graph discovery ran and returned tenant metadata.",
+            "Graph discovery has not run yet."));
+        DiscoveryReadinessCards.Add(BuildReadinessCard(
+            "SharePoint",
+            discovery.Findings.Where(IsSharePointFinding),
+            discovery.Source.Contains("Graph", StringComparison.OrdinalIgnoreCase) && discovery.SharePoint.SiteResolved,
+            $"Resolved {ValueOrPlaceholder(discovery.SharePoint.SiteDisplayName, discovery.SharePoint.SiteUrl)}.",
+            "The target SharePoint site has not been resolved yet."));
+        DiscoveryReadinessCards.Add(BuildReadinessCard(
+            "Entra",
+            discovery.Findings.Where(IsEntraFinding),
+            discovery.Entra.ConsentStatus.Equals("AdminRoleReady", StringComparison.OrdinalIgnoreCase),
+            "An administrator-capable Graph account was detected.",
+            $"Consent status is {ValueOrPlaceholder(discovery.Entra.ConsentStatus)}."));
+
+        DiscoveryValues.Clear();
+        AddDiscoveryValue("Discovery", "Source", discovery.Source);
+        AddDiscoveryValue("Discovery", "Data Policy", discovery.DataPolicy);
+        AddDiscoveryValue("Customer", "Tenant Name", discovery.Customer.TenantName);
+        AddDiscoveryValue("Customer", "Tenant ID", discovery.Customer.TenantId);
+        AddDiscoveryValue("Customer", "Verified Domains", JoinValues(discovery.Customer.VerifiedDomains));
+        AddDiscoveryValue("Azure", "Azure Tenant", discovery.Azure.TenantId);
+        AddDiscoveryValue("Azure", "Subscription ID", discovery.Azure.SelectedSubscriptionId);
+        AddDiscoveryValue("Azure", "Subscription Name", discovery.Azure.SelectedSubscriptionName);
+        AddDiscoveryValue("Azure", "Resource Group", discovery.Azure.TargetResourceGroupName);
+        AddDiscoveryValue("Azure", "Location", discovery.Azure.RecommendedLocation);
+        AddDiscoveryValue("SharePoint", "Tenant Hostname", discovery.SharePoint.TenantHostname);
+        AddDiscoveryValue("SharePoint", "Site URL", discovery.SharePoint.SiteUrl);
+        AddDiscoveryValue("SharePoint", "Site ID", discovery.SharePoint.SiteId);
+        AddDiscoveryValue("SharePoint", "Site Name", discovery.SharePoint.SiteDisplayName);
+        AddDiscoveryValue("SharePoint", "Default Library", discovery.SharePoint.DefaultDocumentLibrary);
+        AddDiscoveryValue("SharePoint", "Library Drive ID", discovery.SharePoint.DefaultDocumentLibraryId);
+        AddDiscoveryValue("Entra", "App Registration", discovery.Entra.AppRegistrationMode);
+        AddDiscoveryValue("Entra", "Consent Status", discovery.Entra.ConsentStatus);
+        AddDiscoveryValue("Entra", "Permission Mode", discovery.Entra.PermissionMode);
+        AddDiscoveryValue("Entra", "Application Permissions", JoinValues(discovery.Entra.RequiredApplicationPermissions));
+        AddDiscoveryValue("Entra", "Delegated Scopes", JoinValues(discovery.Entra.RequiredDelegatedScopes));
+
+        DiscoveryFindings.Clear();
+        foreach (var finding in discovery.Findings
+            .OrderBy(GetFindingRank)
+            .ThenBy(finding => finding.Code, StringComparer.OrdinalIgnoreCase))
+        {
+            DiscoveryFindings.Add(new DiscoveryFindingViewModel(finding));
+        }
+
+        if (DiscoveryFindings.Count == 0)
+        {
+            DiscoveryFindings.Add(new DiscoveryFindingViewModel(new DiscoveryFinding
+            {
+                Severity = "Info",
+                Code = "DiscoveryNoFindings",
+                Summary = "No discovery findings were reported.",
+                Details = "The discovery provider did not return warnings or blockers."
+            }));
+        }
+
+        DiscoveredLibraries.Clear();
+        foreach (var library in discovery.SharePoint.AvailableDocumentLibraries)
+        {
+            DiscoveredLibraries.Add(new SharePointLibraryViewModel(library));
+        }
+
+        DiscoveredLibrariesSummary = DiscoveredLibraries.Count == 0
+            ? "No SharePoint document libraries discovered yet."
+            : $"{DiscoveredLibraries.Count} SharePoint document librar{(DiscoveredLibraries.Count == 1 ? "y" : "ies")} discovered for the target site.";
+    }
+
+    private void AddDiscoveryValue(string section, string label, string value)
+    {
+        DiscoveryValues.Add(new DiscoveryValueViewModel(section, label, value));
+    }
+
+    private static DiscoveryReadinessCardViewModel BuildReadinessCard(
+        string name,
+        IEnumerable<DiscoveryFinding> findings,
+        bool ready,
+        string readySummary,
+        string notCheckedSummary)
+    {
+        var categoryFindings = findings.ToList();
+        var blocked = categoryFindings.FirstOrDefault(IsBlockedFinding);
+        if (blocked is not null)
+        {
+            return new DiscoveryReadinessCardViewModel(name, "Blocked", blocked.Summary, "#FF5C7A");
+        }
+
+        var warning = categoryFindings.FirstOrDefault(IsWarningFinding);
+        if (warning is not null)
+        {
+            return new DiscoveryReadinessCardViewModel(name, "Warning", warning.Summary, "#FFB84D");
+        }
+
+        return ready
+            ? new DiscoveryReadinessCardViewModel(name, "Ready", readySummary, "#42D8A0")
+            : new DiscoveryReadinessCardViewModel(name, "Not checked", notCheckedSummary, "#8290AA");
+    }
+
+    private static bool IsAzureFinding(DiscoveryFinding finding)
+    {
+        return StartsWithAny(finding.Code, "Azure", "Az");
+    }
+
+    private static bool IsGraphFinding(DiscoveryFinding finding)
+    {
+        return StartsWithAny(finding.Code, "Graph");
+    }
+
+    private static bool IsSharePointFinding(DiscoveryFinding finding)
+    {
+        return StartsWithAny(finding.Code, "SharePoint");
+    }
+
+    private static bool IsEntraFinding(DiscoveryFinding finding)
+    {
+        return StartsWithAny(finding.Code, "Entra") ||
+            finding.Code.Contains("Consent", StringComparison.OrdinalIgnoreCase) ||
+            finding.Code.Contains("AdminRole", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool StartsWithAny(string value, params string[] prefixes)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+            prefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsBlockedFinding(DiscoveryFinding finding)
+    {
+        return finding.Severity.Equals("Failed", StringComparison.OrdinalIgnoreCase) ||
+            finding.Severity.Equals("Blocked", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsWarningFinding(DiscoveryFinding finding)
+    {
+        return finding.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetFindingRank(DiscoveryFinding finding)
+    {
+        if (IsBlockedFinding(finding))
+        {
+            return 0;
+        }
+
+        if (IsWarningFinding(finding))
+        {
+            return 1;
+        }
+
+        if (finding.Severity.Equals("Skipped", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private static string JoinValues(IEnumerable<string> values)
+    {
+        var cleanValues = values.Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+        return cleanValues.Count == 0 ? "Not discovered" : string.Join(", ", cleanValues);
+    }
+
+    private static string ValueOrPlaceholder(params string[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "Not discovered";
     }
 
     private void RefreshStepStatusForNavigation(StepViewModel step)
