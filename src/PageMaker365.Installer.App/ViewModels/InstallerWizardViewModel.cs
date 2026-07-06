@@ -51,6 +51,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _previewStatusBrush = "#8290AA";
     private string _previewSummary = "Run deployment preview to see Azure what-if results before install.";
     private string _previewOutputPath = "Not saved";
+    private string _deploymentStatus = "Waiting for preview";
+    private string _deploymentStatusBrush = "#8290AA";
+    private string _deploymentSummary = "Complete deployment preview before running install.";
+    private string _deploymentOutputPath = "Not saved";
     private string _aiTitle = "Ready to help";
     private string _aiSummary = "Run preflight checks to identify permission, Azure, or SharePoint issues before deployment.";
     private string _sessionId = "No active session";
@@ -62,9 +66,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _workflowMode = "Setup";
     private int _currentStepNumber = 1;
     private int _maxAccessibleStepNumber = 2;
+    private InstallStatus _lastPreviewStatus = InstallStatus.NotStarted;
+    private InstallStatus _lastDeploymentStatus = InstallStatus.NotStarted;
+    private bool _deploymentApprovalConfirmed;
     private bool _canContinue;
     private bool _canGoBack;
     private bool _canGoNext;
+    private string _deploymentConfirmationText = "";
 
     public InstallerWizardViewModel()
     {
@@ -91,6 +99,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ConnectGraphCommand = new RelayCommand(ConnectGraphAsync, () => _config is not null);
         RunPreflightCommand = new RelayCommand(RunPreflightAsync, () => _config is not null);
         RunPreviewCommand = new RelayCommand(RunPreviewAsync, CanRunPreview);
+        RunInstallCommand = new RelayCommand(RunInstallAsync, CanRunInstall);
         ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null);
         GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null);
         CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null);
@@ -106,6 +115,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public ObservableCollection<StepViewModel> Steps { get; }
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
     public ObservableCollection<PreviewResultViewModel> PreviewResults { get; } = [];
+    public ObservableCollection<DeploymentResultViewModel> DeploymentResults { get; } = [];
     public ObservableCollection<DiscoveryReadinessCardViewModel> DiscoveryReadinessCards { get; } = [];
     public ObservableCollection<DiscoveryValueViewModel> DiscoveryValues { get; } = [];
     public ObservableCollection<DiscoveryFindingViewModel> DiscoveryFindings { get; } = [];
@@ -128,6 +138,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand ConnectGraphCommand { get; }
     public RelayCommand RunPreflightCommand { get; }
     public RelayCommand RunPreviewCommand { get; }
+    public RelayCommand RunInstallCommand { get; }
     public RelayCommand ExplainIssueCommand { get; }
     public RelayCommand GenerateAdminMessageCommand { get; }
     public RelayCommand CreateSupportBundleCommand { get; }
@@ -286,6 +297,66 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         get => _previewOutputPath;
         set => SetProperty(ref _previewOutputPath, value);
     }
+
+    public string DeploymentStatus
+    {
+        get => _deploymentStatus;
+        set => SetProperty(ref _deploymentStatus, value);
+    }
+
+    public string DeploymentStatusBrush
+    {
+        get => _deploymentStatusBrush;
+        set => SetProperty(ref _deploymentStatusBrush, value);
+    }
+
+    public string DeploymentSummary
+    {
+        get => _deploymentSummary;
+        set => SetProperty(ref _deploymentSummary, value);
+    }
+
+    public string DeploymentOutputPath
+    {
+        get => _deploymentOutputPath;
+        set => SetProperty(ref _deploymentOutputPath, value);
+    }
+
+    public bool DeploymentApprovalConfirmed
+    {
+        get => _deploymentApprovalConfirmed;
+        set
+        {
+            if (SetProperty(ref _deploymentApprovalConfirmed, value))
+            {
+                RunInstallCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public string DeploymentConfirmationText
+    {
+        get => _deploymentConfirmationText;
+        set
+        {
+            if (SetProperty(ref _deploymentConfirmationText, value))
+            {
+                RunInstallCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public string DeploymentConfirmationTarget => _config?.Azure.ResourceGroupName ?? "target resource group";
+
+    public string DeploymentConfirmationPrompt => $"Type {DeploymentConfirmationTarget} to enable install.";
+
+    public string DeploymentTargetSummary => _config is null
+        ? "No deployment target loaded."
+        : $"{_config.Customer.TenantName} | {_config.Azure.SubscriptionId} | {_config.Azure.ResourceGroupName}";
+
+    public string DeploymentTargetDetails => _config is null
+        ? "Load the customer package and complete deployment preview before installing."
+        : $"SharePoint site: {_config.SharePoint.SiteUrl}";
 
     public string AiTitle
     {
@@ -700,10 +771,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         UnlockThroughStep(4);
         SetCurrentStep(3);
         ClearPreviewReview();
+        ClearDeploymentReview();
+        OnPropertyChanged(nameof(DeploymentConfirmationTarget));
+        OnPropertyChanged(nameof(DeploymentConfirmationPrompt));
+        OnPropertyChanged(nameof(DeploymentTargetSummary));
+        OnPropertyChanged(nameof(DeploymentTargetDetails));
         ConnectAzureCommand.RaiseCanExecuteChanged();
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
+        RunInstallCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
     }
 
@@ -909,6 +986,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         NextCommand?.RaiseCanExecuteChanged();
         GoToStepCommand?.RaiseCanExecuteChanged();
         RunPreviewCommand?.RaiseCanExecuteChanged();
+        RunInstallCommand?.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsWelcomeStep));
         OnPropertyChanged(nameof(IsPackageStep));
         OnPropertyChanged(nameof(IsSignInStep));
@@ -974,6 +1052,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _maxAccessibleStepNumber = 2;
         CheckResults.Clear();
         ClearPreviewReview();
+        ClearDeploymentReview();
         CanContinue = false;
         RefreshStepNavigation();
     }
@@ -1004,6 +1083,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ClearDiscoveryReview();
         ClearPortalWorkflowReview();
         ClearPreviewReview();
+        ClearDeploymentReview();
         SessionId = "No active session";
         SessionStatus = "Not started";
         FooterStatus = "Review the workflow requirements, then continue to the next step.";
@@ -1017,6 +1097,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ConnectGraphCommand.RaiseCanExecuteChanged();
         RunPreflightCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
+        RunInstallCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
@@ -1048,6 +1129,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PreviewStatusBrush = "#19D8E9";
         PreviewSummary = "Running Azure what-if. No resources will be deployed.";
         PreviewOutputPath = "Not saved";
+        _lastPreviewStatus = InstallStatus.Running;
+        ClearDeploymentReview();
         FooterStatus = "Running Azure what-if deployment preview.";
         _session = _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
@@ -1065,6 +1148,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
 
         var previewStatus = GetPreviewStatus(previewResults);
+        _lastPreviewStatus = previewStatus;
+        RefreshDeploymentReadiness();
         PreviewStatus = previewStatus.ToString();
         PreviewStatusBrush = BrushForStatus(previewStatus);
         PreviewSummary = previewStatus switch
@@ -1091,6 +1176,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             : "Azure what-if completed without deploying resources. Review the preview evidence before continuing.";
 
         RunPreviewCommand.RaiseCanExecuteChanged();
+        RunInstallCommand.RaiseCanExecuteChanged();
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
@@ -1162,17 +1248,237 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             InstallStatus.Warning => "#FFB84D",
             InstallStatus.Failed => "#FF5C7A",
             InstallStatus.Running => "#19D8E9",
+            InstallStatus.Skipped => "#8290AA",
             _ => "#8290AA"
         };
     }
 
     private void ClearPreviewReview()
     {
+        _lastPreviewStatus = InstallStatus.NotStarted;
         PreviewStatus = "Not run";
         PreviewStatusBrush = "#8290AA";
         PreviewSummary = "Run deployment preview to see Azure what-if results before install.";
         PreviewOutputPath = "Not saved";
         PreviewResults.Clear();
+        RunInstallCommand?.RaiseCanExecuteChanged();
+    }
+
+    private bool CanRunInstall()
+    {
+        return IsSetupMode &&
+            _config is not null &&
+            File.Exists(PackagePath) &&
+            _currentStepNumber >= 6 &&
+            _lastPreviewStatus is InstallStatus.Passed or InstallStatus.Warning &&
+            DeploymentApprovalConfirmed &&
+            IsDeploymentConfirmationValid();
+    }
+
+    private async Task RunInstallAsync()
+    {
+        if (_config is null)
+        {
+            FooterStatus = "Load a customer package before running install.";
+            return;
+        }
+
+        if (_lastPreviewStatus is not (InstallStatus.Passed or InstallStatus.Warning))
+        {
+            FooterStatus = "Run deployment preview successfully before installing.";
+            return;
+        }
+
+        if (!CanRunInstall())
+        {
+            FooterStatus = "Review the preview, approve the install, and type the target resource group before running install.";
+            return;
+        }
+
+        DeploymentResults.Clear();
+        DeploymentStatus = "Running";
+        DeploymentStatusBrush = "#19D8E9";
+        DeploymentSummary = "Running approved Azure deployment.";
+        DeploymentOutputPath = "Not saved";
+        FooterStatus = "Running approved PageMaker365 deployment.";
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Install running";
+        SetCurrentStep(6);
+        SetStepStatus(6, "Running", "#19D8E9");
+
+        var deploymentResults = new List<InstallerStepResult>();
+        var progress = new Progress<InstallerStepResult>(result =>
+        {
+            deploymentResults.Add(result);
+            DeploymentResults.Add(new DeploymentResultViewModel(result));
+        });
+
+        await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
+
+        var deploymentStatus = GetDeploymentStatus(deploymentResults);
+        _lastDeploymentStatus = deploymentStatus;
+        DeploymentStatus = deploymentStatus.ToString();
+        DeploymentStatusBrush = BrushForStatus(deploymentStatus);
+        DeploymentSummary = deploymentStatus switch
+        {
+            InstallStatus.Passed => "Install completed. Continue to validation and smoke tests.",
+            InstallStatus.Warning => "Install completed with warnings. Review details before validation.",
+            InstallStatus.Skipped => "Install was skipped. Review approval and rerun when ready.",
+            InstallStatus.Failed => "Install failed. Resolve the blocker before continuing.",
+            _ => "Install did not return a final status."
+        };
+        SessionStatus = _session.Status.ToString();
+        var deploymentStepStatus = deploymentStatus switch
+        {
+            InstallStatus.Failed => "Blocked",
+            InstallStatus.Passed or InstallStatus.Warning => "Complete",
+            InstallStatus.Skipped => "Skipped",
+            _ => deploymentStatus.ToString()
+        };
+        SetStepStatus(6, deploymentStepStatus, DeploymentStatusBrush);
+        if (deploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            UnlockThroughStep(7);
+        }
+
+        DeploymentOutputPath = await SaveDeploymentEvidenceAsync(deploymentResults, deploymentStatus);
+        FooterStatus = deploymentStatus switch
+        {
+            InstallStatus.Passed => "Install completed. Continue to validation.",
+            InstallStatus.Warning => "Install completed with warnings. Review install evidence, then continue to validation.",
+            InstallStatus.Skipped => "Install was skipped. Confirm approval and retry when ready.",
+            _ => "Install failed. Review deployment results and support evidence."
+        };
+        AiTitle = deploymentStatus == InstallStatus.Failed ? "Install blocker detected" : "Install evidence ready";
+        AiSummary = deploymentStatus == InstallStatus.Failed
+            ? "Azure deployment reported a blocking issue. Review the install result details, fix the prerequisite, then rerun install."
+            : "Deployment evidence was saved. Run validation next to confirm API health, SharePoint access, and telemetry.";
+
+        RunInstallCommand.RaiseCanExecuteChanged();
+        ExplainIssueCommand.RaiseCanExecuteChanged();
+        GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+        CreateSupportBundleCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task<string> SaveDeploymentEvidenceAsync(
+        IReadOnlyList<InstallerStepResult> deploymentResults,
+        InstallStatus deploymentStatus)
+    {
+        if (_session is null)
+        {
+            return "Not saved";
+        }
+
+        var directory = Path.Combine(GetWorkspaceRoot(), "support-bundle", "install");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "deployment-install.json");
+        var receipt = new
+        {
+            contractVersion = "0.1",
+            sessionId = _session.SessionId,
+            packagePath = PackagePath,
+            deploymentStatus = deploymentStatus.ToString(),
+            deployedAt = DateTimeOffset.UtcNow,
+            previewStatus = _lastPreviewStatus.ToString(),
+            previewEvidencePath = PreviewOutputPath,
+            approval = new
+            {
+                approved = DeploymentApprovalConfirmed,
+                confirmationTarget = DeploymentConfirmationTarget,
+                confirmationText = DeploymentConfirmationText,
+                approvedAt = DateTimeOffset.UtcNow
+            },
+            target = new
+            {
+                customerName = _config?.Customer.TenantName,
+                subscriptionId = _config?.Azure.SubscriptionId,
+                resourceGroupName = _config?.Azure.ResourceGroupName,
+                sharePointSiteUrl = _config?.SharePoint.SiteUrl
+            },
+            results = deploymentResults.Select(result => new
+            {
+                result.StepName,
+                result.Code,
+                status = result.Status.ToString(),
+                result.Summary,
+                result.Details,
+                result.RetrySafe,
+                result.RequiresApproval
+            }).ToList()
+        };
+        var json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+        await File.WriteAllTextAsync(path, json);
+        return path;
+    }
+
+    private bool IsDeploymentConfirmationValid()
+    {
+        return _config is not null &&
+            string.Equals(
+                DeploymentConfirmationText.Trim(),
+                _config.Azure.ResourceGroupName,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static InstallStatus GetDeploymentStatus(IReadOnlyList<InstallerStepResult> results)
+    {
+        if (results.Count == 0)
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Failed))
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Warning))
+        {
+            return InstallStatus.Warning;
+        }
+
+        if (results.All(result => result.Status == InstallStatus.Skipped))
+        {
+            return InstallStatus.Skipped;
+        }
+
+        return InstallStatus.Passed;
+    }
+
+    private void ClearDeploymentReview()
+    {
+        _lastDeploymentStatus = InstallStatus.NotStarted;
+        DeploymentResults.Clear();
+        DeploymentApprovalConfirmed = false;
+        DeploymentConfirmationText = "";
+        RefreshDeploymentReadiness();
+    }
+
+    private void RefreshDeploymentReadiness()
+    {
+        if (_lastPreviewStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            DeploymentStatus = "Ready for approval";
+            DeploymentStatusBrush = "#FFB84D";
+            DeploymentSummary = "Review the deployment preview evidence, approve the install, then type the target resource group.";
+        }
+        else
+        {
+            DeploymentStatus = "Waiting for preview";
+            DeploymentStatusBrush = "#8290AA";
+            DeploymentSummary = "Complete deployment preview before running install.";
+        }
+
+        DeploymentOutputPath = "Not saved";
+        OnPropertyChanged(nameof(DeploymentConfirmationTarget));
+        OnPropertyChanged(nameof(DeploymentConfirmationPrompt));
+        OnPropertyChanged(nameof(DeploymentTargetSummary));
+        OnPropertyChanged(nameof(DeploymentTargetDetails));
+        RunInstallCommand?.RaiseCanExecuteChanged();
     }
 
     private bool CanSyncDiscovery()

@@ -47,7 +47,9 @@ public sealed class InstallerEngine
             ? InstallStatus.Failed
             : session.Results.Any(result => result.Status == InstallStatus.Warning)
                 ? InstallStatus.Warning
-                : InstallStatus.Passed;
+                : session.Results.Count > 0 && session.Results.All(result => result.Status == InstallStatus.Skipped)
+                    ? InstallStatus.Skipped
+                    : InstallStatus.Passed;
 
         await _logger.WriteAsync(session, "phase.completed", new { session.CurrentPhase, session.Status }, cancellationToken);
         await PersistSessionAsync(session, cancellationToken);
@@ -122,6 +124,24 @@ public sealed class InstallerEngine
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<InstallerStepResult>> RunDeploymentAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Install",
+            "Invoke-PM365Deployment",
+            progress,
+            cancellationToken,
+            "-Confirm:$false");
+    }
+
     private async Task<IReadOnlyList<InstallerStepResult>> RunPowerShellModuleCommandAsync(
         InstallerSession session,
         string workspaceRoot,
@@ -129,7 +149,8 @@ public sealed class InstallerEngine
         string phase,
         string commandName,
         IProgress<InstallerStepResult>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string commandArguments = "")
     {
         session.CurrentPhase = phase;
         session.Status = InstallStatus.Running;
@@ -150,7 +171,7 @@ public sealed class InstallerEngine
         }
 
         await _logger.WriteAsync(session, "powershell.started", new { modulePath, command = commandName, configPath }, cancellationToken);
-        var command = BuildModuleCommand(modulePath, commandName, configPath);
+        var command = BuildModuleCommand(modulePath, commandName, configPath, commandArguments);
         var execution = await _powerShellRunner.RunAsync(command, workspaceRoot, cancellationToken);
         await _logger.WriteAsync(
             session,
@@ -238,13 +259,14 @@ public sealed class InstallerEngine
         return BuildModuleCommand(modulePath, "Start-PM365Preflight", configPath);
     }
 
-    private static string BuildModuleCommand(string modulePath, string commandName, string configPath)
+    private static string BuildModuleCommand(string modulePath, string commandName, string configPath, string commandArguments = "")
     {
         var escapedPath = modulePath.Replace("'", "''");
         var escapedConfigPath = configPath.Replace("'", "''");
+        var arguments = string.IsNullOrWhiteSpace(commandArguments) ? "" : $" {commandArguments}";
         var script = "$ErrorActionPreference = 'Stop'; " +
                      $"Import-Module '{escapedPath}' -Force; " +
-                     $"{commandName} -ConfigPath '{escapedConfigPath}' | ConvertTo-Json -Depth 12";
+                     $"{commandName} -ConfigPath '{escapedConfigPath}'{arguments} | ConvertTo-Json -Depth 12";
         return $"-NoProfile -ExecutionPolicy Bypass -Command \"{script}\"";
     }
 
@@ -315,6 +337,8 @@ public sealed class InstallerEngine
             "SharePointSiteResolved" or "SharePointSiteResolveFailed" => "SharePoint Site",
             "SharePointLibraryReady" or "SharePointLibraryNotFound" or "SharePointLibraryNotConfigured" => "SharePoint Library",
             "AzureWhatIfReady" or "AzureWhatIfFailed" => "Azure What-If",
+            "AzureDeploymentReady" or "AzureDeploymentFailed" => "Azure Deployment",
+            "DeploymentSkipped" => "Deployment Approval",
             _ when string.IsNullOrWhiteSpace(code) => "PowerShell Check",
             _ => code
         };
