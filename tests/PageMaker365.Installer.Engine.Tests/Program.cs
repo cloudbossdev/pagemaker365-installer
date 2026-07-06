@@ -18,7 +18,9 @@ internal static class Program
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
-            ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides)
+            ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
+            ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
+            ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery)
         };
 
         var failed = 0;
@@ -243,6 +245,73 @@ internal static class Program
             Directory.Delete(workspaceRoot, recursive: true);
         }
 
+        return Task.CompletedTask;
+    }
+
+    private static async Task AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var result = await new AzureDiscoveryService().DiscoverAsync(workspaceRoot, CreateConfig());
+
+            AssertEx.Equal("AzureDiscoveryFallback", result.Source);
+            AssertEx.Equal("tenant-001", result.TenantId);
+            AssertEx.Equal("sub-001", result.SelectedSubscriptionId);
+            AssertEx.Equal("eastus", result.RecommendedLocation);
+            AssertEx.Equal("rg-pm365-example", result.TargetResourceGroupName);
+            AssertEx.Equal(1, result.AccessibleSubscriptions.Count);
+            AssertEx.Equal("AzureDiscoveryModuleMissing", result.Findings[0].Code);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static Task AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery()
+    {
+        var discovery = CreateDiscovery();
+        discovery.Azure.SelectedSubscriptionId = "";
+        discovery.Azure.AccessibleSubscriptions.Clear();
+        var azure = new AzureDiscoveryResult
+        {
+            TenantId = "tenant-live",
+            SelectedSubscriptionId = "sub-live",
+            SelectedSubscriptionName = "Live Subscription",
+            RecommendedLocation = "westus3",
+            TargetResourceGroupName = "rg-live",
+            AccessibleSubscriptions =
+            {
+                new AzureSubscriptionDiscovery
+                {
+                    SubscriptionId = "sub-live",
+                    DisplayName = "Live Subscription",
+                    State = "Enabled"
+                }
+            },
+            Findings =
+            {
+                new DiscoveryFinding
+                {
+                    Severity = "Info",
+                    Code = "AzureDiscoveryReady",
+                    Summary = "Azure discovery completed.",
+                    Details = "Read-only metadata collected."
+                }
+            }
+        };
+
+        AzureDiscoveryService.ApplyToDiscovery(discovery, azure);
+
+        AssertEx.Equal("tenant-live", discovery.Azure.TenantId);
+        AssertEx.Equal("sub-live", discovery.Azure.SelectedSubscriptionId);
+        AssertEx.Equal("Live Subscription", discovery.Azure.SelectedSubscriptionName);
+        AssertEx.Equal("westus3", discovery.Azure.RecommendedLocation);
+        AssertEx.Equal("rg-live", discovery.Azure.TargetResourceGroupName);
+        AssertEx.Equal(1, discovery.Azure.AccessibleSubscriptions.Count);
+        AssertEx.Equal("AzureDiscoveryReady", discovery.Findings.Last().Code);
+        AssertEx.StringContains(discovery.Source, "AzurePowerShell");
         return Task.CompletedTask;
     }
 

@@ -386,15 +386,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = $"{_onboardingApiClient.ConnectionLabel} session connected.";
     }
 
-    private Task RunDiscoveryAsync()
+    private async Task RunDiscoveryAsync()
     {
         if (_bootstrapSession is null)
         {
             FooterStatus = "Load an onboarding bootstrap session first.";
-            return Task.CompletedTask;
+            return;
         }
 
-        _tenantDiscovery = _tenantDiscoveryService.CreateDiscovery(_bootstrapSession, _config);
+        FooterStatus = "Running read-only install-readiness discovery.";
+        _tenantDiscovery = await _tenantDiscoveryService.CreateDiscoveryAsync(
+            _bootstrapSession,
+            _config,
+            GetWorkspaceRoot());
         _onboardingPortalStatus = null;
         _packageReadiness = null;
         DiscoverySummary = $"{_tenantDiscovery.Customer.TenantName}; tenant {_tenantDiscovery.Customer.TenantId}; SharePoint {_tenantDiscovery.SharePoint.SiteUrl}; subscription {_tenantDiscovery.Azure.SelectedSubscriptionId}";
@@ -408,7 +412,6 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
-        return Task.CompletedTask;
     }
 
     private async Task SyncDiscoveryAsync()

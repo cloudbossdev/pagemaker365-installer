@@ -11,6 +11,7 @@
     FunctionsToExport = @(
         'Connect-PM365Azure',
         'Connect-PM365Graph',
+        'Get-PM365AzureDiscovery',
         'Invoke-PM365BicepBuild',
         'Invoke-PM365Deployment',
         'Invoke-PM365WhatIf',

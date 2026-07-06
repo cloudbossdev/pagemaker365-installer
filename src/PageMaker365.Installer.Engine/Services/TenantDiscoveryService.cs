@@ -6,6 +6,7 @@ namespace PageMaker365.Installer.Engine.Services;
 public sealed class TenantDiscoveryService
 {
     private readonly RedactionService _redactionService;
+    private readonly AzureDiscoveryService _azureDiscoveryService;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -13,9 +14,34 @@ public sealed class TenantDiscoveryService
         WriteIndented = true
     };
 
-    public TenantDiscoveryService(RedactionService redactionService)
+    public TenantDiscoveryService(RedactionService redactionService, AzureDiscoveryService? azureDiscoveryService = null)
     {
         _redactionService = redactionService;
+        _azureDiscoveryService = azureDiscoveryService ?? new AzureDiscoveryService();
+    }
+
+    public async Task<TenantDiscoveryResult> CreateDiscoveryAsync(
+        OnboardingBootstrapSession session,
+        CustomerInstallConfig? installConfig,
+        string workspaceRoot,
+        CancellationToken cancellationToken = default)
+    {
+        var discovery = CreateDiscovery(session, installConfig);
+        if (!session.DiscoveryPolicy.AllowAzureDiscovery)
+        {
+            discovery.Findings.Add(new DiscoveryFinding
+            {
+                Severity = "Info",
+                Code = "AzureDiscoveryDisabled",
+                Summary = "Azure discovery is disabled for this onboarding session.",
+                Details = "The discovery payload is using bootstrap and package values for Azure fields."
+            });
+            return discovery;
+        }
+
+        var azure = await _azureDiscoveryService.DiscoverAsync(workspaceRoot, installConfig, cancellationToken);
+        AzureDiscoveryService.ApplyToDiscovery(discovery, azure);
+        return discovery;
     }
 
     public TenantDiscoveryResult CreateDiscovery(
@@ -80,9 +106,9 @@ public sealed class TenantDiscoveryService
         discovery.Findings.Add(new DiscoveryFinding
         {
             Severity = "Info",
-            Code = "DiscoveryMockOnly",
-            Summary = "Discovery is currently mocked from bootstrap and install package values.",
-            Details = "The next implementation step is to replace these values with read-only Azure, Graph, and SharePoint queries."
+            Code = "DiscoveryPackageFallback",
+            Summary = "Discovery starts from bootstrap and install package values.",
+            Details = "Live read-only providers can enrich these fields when the required sign-ins and modules are available."
         });
 
         discovery.Findings.Add(new DiscoveryFinding

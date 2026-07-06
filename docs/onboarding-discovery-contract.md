@@ -73,6 +73,34 @@ Excluded examples:
 - Broad user profile exports.
 - Marketing analytics data.
 
+### Azure Discovery
+
+The first live discovery provider is Azure discovery. It is read-only and runs through the `Get-PM365AzureDiscovery` PowerShell command.
+
+Collected fields:
+
+- Signed-in Azure account ID.
+- Signed-in tenant ID.
+- Current subscription ID, display name, and state.
+- Accessible subscription IDs, display names, and states.
+- Recommended Azure location from the package or existing target resource group.
+- Target resource group name.
+- Whether the target resource group already exists.
+- Tenant/subscription mismatch findings.
+
+Required local tooling:
+
+- PowerShell 7.
+- `Az.Accounts` for Azure context and subscription discovery.
+- `Az.Resources` for resource group existence checks.
+
+Failure behavior:
+
+- If Azure PowerShell modules are missing, discovery keeps bootstrap/package Azure values and adds warning findings.
+- If Azure is not signed in, discovery keeps bootstrap/package Azure values and adds `AzureNotSignedIn`.
+- If the signed-in tenant or subscription differs from the generated package, discovery adds failed findings but still returns the metadata it can read.
+- The installer must not use Azure discovery to deploy, mutate, create, delete, or grant permissions.
+
 ## API Shape
 
 The production API should expose endpoints equivalent to:
@@ -256,10 +284,11 @@ Implemented in this repo:
 - Mock generated package download and load into the installer.
 - Portal API client scaffold for connect, discovery sync, package readiness, and package download.
 - Onboarding API configuration and environment override support.
+- Read-only Azure discovery command and engine integration.
+- Onboarding API and Azure discovery contract harness.
 
 Not implemented yet:
 
-- Real Azure subscription enumeration.
 - Real Graph tenant/domain discovery.
 - Real SharePoint site/library discovery.
 - Live PageMaker365 portal API endpoint implementation and validation.
