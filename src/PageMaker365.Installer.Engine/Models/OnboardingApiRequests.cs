@@ -37,5 +37,8 @@ public sealed class OnboardingPackageContext
     public string SharePointTenantHostname { get; set; } = "";
     public string PrimaryContact { get; set; } = "";
     public string EnvironmentId { get; set; } = "";
+    public string DeploymentExportId { get; set; } = "";
+    public string PackageHashAlgorithm { get; set; } = "";
     public string PackageHash { get; set; } = "";
+    public string TrustMode { get; set; } = "";
 }

@@ -77,6 +77,51 @@ function Test-PM365DeploymentContract {
         }
     }
 
+    $trustWarnings = @()
+    $trustFailures = @()
+    if (-not $config.controlPlane) {
+        $trustWarnings += 'controlPlane'
+    } else {
+        $trustMode = [string]$config.controlPlane.trustMode
+        $signedRequired = $trustMode -eq 'SignedRequired'
+        foreach ($field in @('deploymentExportId', 'exportedAt', 'issuer', 'schemaId', 'packageHash', 'packageHashAlgorithm', 'canonicalization', 'publicKeyId', 'signature', 'signatureAlgorithm')) {
+            if ([string]::IsNullOrWhiteSpace([string]$config.controlPlane.$field)) {
+                if ($signedRequired) {
+                    $trustFailures += "controlPlane.$field"
+                } else {
+                    $trustWarnings += "controlPlane.$field"
+                }
+            }
+        }
+
+        $hashAlgorithm = [string]$config.controlPlane.packageHashAlgorithm
+        if (-not [string]::IsNullOrWhiteSpace($hashAlgorithm) -and $hashAlgorithm -ne 'SHA-256') {
+            $trustFailures += 'controlPlane.packageHashAlgorithm'
+        }
+    }
+
+    if ($trustFailures.Count -gt 0) {
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'DeploymentPackageTrustMetadataInvalid' `
+            -Summary 'Customer package is missing required signed export metadata.' `
+            -Details ("Missing or invalid fields: " + ($trustFailures -join ', ')) `
+            -RetrySafe $false
+    } elseif ($trustWarnings.Count -gt 0) {
+        $results += New-PM365Result `
+            -Status 'Warning' `
+            -Code 'DeploymentPackageTrustMetadataIncomplete' `
+            -Summary 'Customer package export trust metadata is incomplete.' `
+            -Details ("Missing fields: " + ($trustWarnings -join ', ')) `
+            -RetrySafe $true
+    } else {
+        $results += New-PM365Result `
+            -Status 'Passed' `
+            -Code 'DeploymentPackageTrustMetadataReady' `
+            -Summary 'Customer package includes export trust metadata.' `
+            -Details 'Hash and signature metadata are present for installer-side trust validation.'
+    }
+
     if (-not $config.smokeTests) {
         $warnings += 'smokeTests'
     }
@@ -98,4 +143,3 @@ function Test-PM365DeploymentContract {
 
     $results
 }
-

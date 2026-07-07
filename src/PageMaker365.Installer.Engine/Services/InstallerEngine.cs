@@ -339,6 +339,7 @@ public sealed class InstallerEngine
             "PowerShellReady" => "PowerShell 7",
             "DeploymentContractReadable" or "DeploymentContractReady" or "DeploymentContractIncomplete" => "Deployment Contract",
             "DeploymentPackageSecretSafe" or "DeploymentPackageContainsRawSecrets" or "DeploymentSecretsContractMissing" => "Deployment Package Secrets",
+            "DeploymentPackageTrustVerified" or "DeploymentPackageHashVerified" or "DeploymentPackageLegacyTrust" or "DeploymentPackageHashMismatch" or "DeploymentPackageSignatureMissing" or "DeploymentPackageTrustMetadataReady" or "DeploymentPackageTrustMetadataIncomplete" or "DeploymentPackageTrustMetadataInvalid" => "Package Trust",
             "AzAccountsReady" or "AzAccountsMissing" => "Az.Accounts Module",
             "BicepReady" or "BicepMissing" => "Bicep",
             "AzureSignInCompleted" or "AzureSignInFailed" => "Azure Sign In",

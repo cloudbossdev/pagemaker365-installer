@@ -55,11 +55,26 @@
   "controlPlane": {
     "baseUrl": "https://pagemaker365.com",
     "deploymentExportId": "export_contoso_sandbox_001",
+    "exportedAt": "2026-07-07T00:00:00Z",
+    "expiresAt": "2026-08-06T00:00:00Z",
+    "issuer": "PageMaker365 Control Plane",
+    "issuerEnvironment": "sandbox",
+    "onboardingSessionId": "onb_contoso_sandbox_001",
+    "discoveryId": "disc_contoso_sandbox_001",
+    "schemaId": "https://pagemaker365.com/schemas/customer-install.schema.json",
     "environmentId": "env_contoso_sandbox",
     "licenseActivationId": "lic_contoso_sandbox_001",
     "entitlementSyncUrl": "https://api.pagemaker365.com/api/runtime/entitlements/sync",
     "publicKeyId": "pm365-runtime-signing-key-001",
-    "packageHash": ""
+    "packageHash": "sha256:61acb9f605ff44ef7b0cbadb559f61696edf47f8b70b61bf0c6e5f00c9446f12",
+    "packageHashAlgorithm": "SHA-256",
+    "canonicalization": "json-c14n-v1",
+    "signature": "",
+    "signatureAlgorithm": "",
+    "trustMode": "UnsignedAllowed",
+    "jwksUrl": "https://api.pagemaker365.com/.well-known/jwks.json",
+    "revocationUrl": "https://api.pagemaker365.com/api/onboarding/exports/revocation",
+    "correlationId": "corr_contoso_export_001"
   },
   "secrets": {
     "keyVaultName": "kv-pm365-contoso-prod",

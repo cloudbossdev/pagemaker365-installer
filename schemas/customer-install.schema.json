@@ -98,11 +98,35 @@
       "properties": {
         "baseUrl": { "type": "string" },
         "deploymentExportId": { "type": "string" },
+        "exportedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "issuer": { "type": "string" },
+        "issuerEnvironment": { "type": "string" },
+        "onboardingSessionId": { "type": "string" },
+        "discoveryId": { "type": "string" },
+        "schemaId": { "type": "string" },
         "environmentId": { "type": "string" },
         "licenseActivationId": { "type": "string" },
         "entitlementSyncUrl": { "type": "string" },
         "publicKeyId": { "type": "string" },
-        "packageHash": { "type": "string" }
+        "packageHash": { "type": "string" },
+        "packageHashAlgorithm": {
+          "type": "string",
+          "enum": ["SHA-256"]
+        },
+        "canonicalization": {
+          "type": "string",
+          "enum": ["json-c14n-v1"]
+        },
+        "signature": { "type": "string" },
+        "signatureAlgorithm": { "type": "string" },
+        "trustMode": {
+          "type": "string",
+          "enum": ["UnsignedAllowed", "SignedRequired"]
+        },
+        "jwksUrl": { "type": "string" },
+        "revocationUrl": { "type": "string" },
+        "correlationId": { "type": "string" }
       }
     },
     "secrets": {
@@ -131,7 +155,10 @@
         "anyOf": [
           { "required": ["values"] },
           { "required": ["connectionStrings"] },
-          { "required": ["passwords"] }
+          { "required": ["passwords"] },
+          { "required": ["tokens"] },
+          { "required": ["clientSecrets"] },
+          { "required": ["apiKeys"] }
         ]
       }
     },
@@ -157,4 +184,3 @@
     }
   }
 }
-

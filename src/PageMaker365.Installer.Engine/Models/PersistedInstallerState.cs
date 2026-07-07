@@ -39,6 +39,12 @@ public sealed class PersistedInstallerState
     public string DiscoverySyncStatusBrush { get; set; } = "";
     public string PackageReadinessStatusBrush { get; set; } = "";
     public string PackageReadinessSummary { get; set; } = "";
+    public string PackageTrustStatus { get; set; } = "";
+    public string PackageTrustStatusBrush { get; set; } = "";
+    public string PackageTrustSummary { get; set; } = "";
+    public string PackageExportId { get; set; } = "";
+    public string PackageDeclaredHash { get; set; } = "";
+    public string PackageComputedHash { get; set; } = "";
     public PersistedPortalSyncReceipt PortalSyncReceipt { get; set; } = new();
     public List<InstallerStepResult> CheckResults { get; set; } = [];
     public List<InstallerStepResult> PreviewResults { get; set; } = [];

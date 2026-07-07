@@ -60,6 +60,20 @@ public sealed class FinalEvidenceService
                 config.App.CustomDomain,
                 config.App.SupportEmail
             },
+            controlPlane = new
+            {
+                config.ControlPlane.DeploymentExportId,
+                config.ControlPlane.ExportedAt,
+                config.ControlPlane.Issuer,
+                config.ControlPlane.IssuerEnvironment,
+                config.ControlPlane.PackageHash,
+                config.ControlPlane.PackageHashAlgorithm,
+                config.ControlPlane.Canonicalization,
+                config.ControlPlane.PublicKeyId,
+                config.ControlPlane.SignatureAlgorithm,
+                config.ControlPlane.TrustMode,
+                config.ControlPlane.CorrelationId
+            },
             phases = new
             {
                 preview = new
@@ -169,6 +183,19 @@ public sealed class FinalEvidenceService
         report.AppendLine($"- App name: {config.App.AppName}");
         report.AppendLine($"- Custom domain: {config.App.CustomDomain}");
         report.AppendLine($"- Support email: {config.App.SupportEmail}");
+        report.AppendLine();
+        report.AppendLine("## Package Export");
+        report.AppendLine();
+        report.AppendLine($"- Deployment export ID: {config.ControlPlane.DeploymentExportId}");
+        report.AppendLine($"- Exported at: {config.ControlPlane.ExportedAt}");
+        report.AppendLine($"- Issuer: {config.ControlPlane.Issuer}");
+        report.AppendLine($"- Issuer environment: {config.ControlPlane.IssuerEnvironment}");
+        report.AppendLine($"- Package hash: {config.ControlPlane.PackageHash}");
+        report.AppendLine($"- Hash algorithm: {config.ControlPlane.PackageHashAlgorithm}");
+        report.AppendLine($"- Canonicalization: {config.ControlPlane.Canonicalization}");
+        report.AppendLine($"- Signing key ID: {config.ControlPlane.PublicKeyId}");
+        report.AppendLine($"- Signature algorithm: {config.ControlPlane.SignatureAlgorithm}");
+        report.AppendLine($"- Trust mode: {config.ControlPlane.TrustMode}");
         report.AppendLine();
         report.AppendLine("## Workflow Evidence");
         report.AppendLine();

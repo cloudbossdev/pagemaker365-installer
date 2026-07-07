@@ -49,6 +49,18 @@ Discovery is intended to answer setup-readiness questions:
 
 Discovery writes an `InstallReadinessOnly` payload. It should not collect document content, mailbox content, user files, raw secrets, tokens, or customer business data. The payload can be sent to the PageMaker365 control plane to prefill onboarding fields and help generate the final customer install package.
 
+## Package Trust
+
+The Package step shows the customer package export ID, declared hash, computed hash, and trust status. This helps confirm the package came from a PageMaker365 control-plane export and was not edited after export.
+
+Trust statuses:
+
+- `Hash verified`: package contents match `controlPlane.packageHash`.
+- `Legacy package`: export trust metadata is missing; allowed for alpha compatibility but not ideal for production.
+- `Hash mismatch`: package contents do not match the declared hash and preflight is blocked.
+- `Missing signature`: `controlPlane.trustMode` is `SignedRequired`, but required signing metadata is absent.
+- `Verified`: hash matches and signature metadata is present. Full cryptographic signature verification is still a later signing slice.
+
 ## Portal Sync And Package Download
 
 When portal sync is enabled, the installer connects to a short-lived onboarding session, sends read-only discovery data, checks package readiness, and downloads the generated customer install package after the portal says it is ready.

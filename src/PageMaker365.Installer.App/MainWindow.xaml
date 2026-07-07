@@ -539,6 +539,30 @@
                             <TextBlock Text="Customer Package" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                             <TextBlock Text="{Binding CustomerName}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0" />
                             <TextBlock Text="{Binding PackagePath}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,6,0,16" />
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,9,0">
+                                    <TextBlock Text="Package Trust" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageTrustStatus}"
+                                               Foreground="{Binding PackageTrustStatusBrush}"
+                                               FontSize="18"
+                                               FontWeight="SemiBold"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,8" />
+                                    <TextBlock Text="{Binding PackageTrustSummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="19" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="9,0,0,0">
+                                    <TextBlock Text="Export ID" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageExportId}" TextWrapping="Wrap" Margin="0,4,0,8" />
+                                    <TextBlock Text="Package Hash" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageDeclaredHash}" TextWrapping="Wrap" Margin="0,4,0,8" />
+                                    <TextBlock Text="Computed Hash" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageComputedHash}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Grid>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />

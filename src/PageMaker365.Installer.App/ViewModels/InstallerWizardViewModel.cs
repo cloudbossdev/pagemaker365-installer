@@ -54,6 +54,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _discoverySyncStatusBrush = "#8290AA";
     private string _packageReadinessStatusBrush = "#8290AA";
     private string _packageReadinessSummary = "Package readiness has not been checked.";
+    private string _packageTrustStatus = "Not checked";
+    private string _packageTrustStatusBrush = "#8290AA";
+    private string _packageTrustSummary = "Load a package to inspect export metadata and integrity.";
+    private string _packageExportId = "Not available";
+    private string _packageDeclaredHash = "Not available";
+    private string _packageComputedHash = "Not checked";
     private string _previewStatus = "Not run";
     private string _previewStatusBrush = "#8290AA";
     private string _previewSummary = "Run deployment preview to see Azure what-if results before install.";
@@ -302,6 +308,42 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _packageReadinessSummary;
         set => SetProperty(ref _packageReadinessSummary, value);
+    }
+
+    public string PackageTrustStatus
+    {
+        get => _packageTrustStatus;
+        set => SetProperty(ref _packageTrustStatus, value);
+    }
+
+    public string PackageTrustStatusBrush
+    {
+        get => _packageTrustStatusBrush;
+        set => SetProperty(ref _packageTrustStatusBrush, value);
+    }
+
+    public string PackageTrustSummary
+    {
+        get => _packageTrustSummary;
+        set => SetProperty(ref _packageTrustSummary, value);
+    }
+
+    public string PackageExportId
+    {
+        get => _packageExportId;
+        set => SetProperty(ref _packageExportId, string.IsNullOrWhiteSpace(value) ? "Not available" : value);
+    }
+
+    public string PackageDeclaredHash
+    {
+        get => _packageDeclaredHash;
+        set => SetProperty(ref _packageDeclaredHash, string.IsNullOrWhiteSpace(value) ? "Not available" : value);
+    }
+
+    public string PackageComputedHash
+    {
+        get => _packageComputedHash;
+        set => SetProperty(ref _packageComputedHash, string.IsNullOrWhiteSpace(value) ? "Not checked" : value);
     }
 
     public string PreviewStatus
@@ -985,15 +1027,17 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private async Task<bool> LoadPackageAsync(string path)
     {
+        var packageJson = await File.ReadAllTextAsync(path);
         var config = await _configService.LoadAsync(path);
-        var validation = _configService.Validate(config);
+        var validation = _configService.Validate(config, packageJson);
         if (!validation.IsValid)
         {
+            ApplyPackageTrustReview(validation);
             FooterStatus = string.Join(" ", validation.Errors);
             return false;
         }
 
-        LoadConfig(config, path);
+        LoadConfig(config, path, validation);
         if (validation.Warnings.Count > 0)
         {
             FooterStatus = string.Join(" ", validation.Warnings);
@@ -1003,11 +1047,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return true;
     }
 
-    private void LoadConfig(CustomerInstallConfig config, string path)
+    private void LoadConfig(CustomerInstallConfig config, string path, ConfigValidationResult? validation = null)
     {
         _config = config;
         _onboardingPortalStatus = null;
         _packageReadiness = null;
+        validation ??= _configService.Validate(config);
+        ApplyPackageTrustReview(validation);
         PackagePath = path;
         CustomerName = config.Customer.TenantName;
         AzureSubscription = $"{config.Azure.SubscriptionId} / {config.Azure.ResourceGroupName}";
@@ -1046,6 +1092,39 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunValidationCommand.RaiseCanExecuteChanged();
         CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ApplyPackageTrustReview(ConfigValidationResult validation)
+    {
+        PackageTrustStatus = validation.PackageTrustStatus;
+        PackageTrustStatusBrush = BrushForPackageTrust(validation.PackageTrustStatus);
+        PackageTrustSummary = validation.PackageTrustSummary;
+        PackageExportId = validation.DeploymentExportId;
+        PackageDeclaredHash = validation.DeclaredPackageHash;
+        PackageComputedHash = validation.ComputedPackageHash;
+    }
+
+    private void ClearPackageTrustReview()
+    {
+        PackageTrustStatus = "Not checked";
+        PackageTrustStatusBrush = "#8290AA";
+        PackageTrustSummary = "Load a package to inspect export metadata and integrity.";
+        PackageExportId = "Not available";
+        PackageDeclaredHash = "Not available";
+        PackageComputedHash = "Not checked";
+    }
+
+    private static string BrushForPackageTrust(string status)
+    {
+        return status switch
+        {
+            "Verified" => "#42D8A0",
+            "Hash verified" => "#42D8A0",
+            "Legacy package" => "#FFB84D",
+            "Missing signature" => "#FF5C7A",
+            "Hash mismatch" => "#FF5C7A",
+            _ => "#8290AA"
+        };
     }
 
     private async Task ConnectAzureAsync()
@@ -1088,6 +1167,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             CheckResults.Add(new CheckResultViewModel(result));
         });
 
+        var packageTrustResult = CreatePackageTrustStepResult();
+        _session.Results.Add(packageTrustResult);
+        CheckResults.Add(new CheckResultViewModel(packageTrustResult));
+
         await _engine.RunPowerShellPreflightAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
 
         SessionStatus = _session.Status.ToString();
@@ -1107,6 +1190,58 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
         RunPreviewCommand.RaiseCanExecuteChanged();
         SaveWizardState();
+    }
+
+    private InstallerStepResult CreatePackageTrustStepResult()
+    {
+        var packageJson = File.Exists(PackagePath) ? File.ReadAllText(PackagePath) : "";
+        var validation = _configService.Validate(_config!, packageJson);
+        ApplyPackageTrustReview(validation);
+
+        var status = validation.IsValid
+            ? validation.PackageTrustStatus.Equals("Verified", StringComparison.OrdinalIgnoreCase) ||
+                validation.PackageTrustStatus.Equals("Hash verified", StringComparison.OrdinalIgnoreCase)
+                ? InstallStatus.Passed
+                : InstallStatus.Warning
+            : InstallStatus.Failed;
+
+        return new InstallerStepResult
+        {
+            StepName = "Package Trust",
+            Code = validation.PackageTrustStatus switch
+            {
+                "Verified" => "DeploymentPackageTrustVerified",
+                "Hash verified" => "DeploymentPackageHashVerified",
+                "Legacy package" => "DeploymentPackageLegacyTrust",
+                "Hash mismatch" => "DeploymentPackageHashMismatch",
+                "Missing signature" => "DeploymentPackageSignatureMissing",
+                _ => "DeploymentPackageTrustUnchecked"
+            },
+            Status = status,
+            Summary = validation.PackageTrustSummary,
+            Details = BuildPackageTrustDetails(validation),
+            RetrySafe = status is not InstallStatus.Failed,
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    private static string BuildPackageTrustDetails(ConfigValidationResult validation)
+    {
+        var details = new[]
+        {
+            $"Export ID: {ValueOrNotAvailable(validation.DeploymentExportId)}",
+            $"Declared hash: {ValueOrNotAvailable(validation.DeclaredPackageHash)}",
+            $"Computed hash: {ValueOrNotAvailable(validation.ComputedPackageHash)}",
+            $"Trust mode: {ValueOrNotAvailable(validation.TrustMode)}"
+        };
+
+        return string.Join(Environment.NewLine, details);
+    }
+
+    private static string ValueOrNotAvailable(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "Not available" : value;
     }
 
     private async Task RunPowerShellActionAsync(
@@ -1354,6 +1489,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PackageReadinessVersion = "Not available";
         PackageDownloadPath = "Not downloaded";
         PortalStatusOutputPath = "Not saved";
+        ClearPackageTrustReview();
         ClearDiscoveryReview();
         ClearPortalWorkflowReview();
         ClearPreviewReview();
@@ -1453,6 +1589,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DiscoverySyncStatusBrush = SavedOrDefault(state.DiscoverySyncStatusBrush, DiscoverySyncStatusBrush);
         PackageReadinessStatusBrush = SavedOrDefault(state.PackageReadinessStatusBrush, PackageReadinessStatusBrush);
         PackageReadinessSummary = SavedOrDefault(state.PackageReadinessSummary, PackageReadinessSummary);
+        PackageTrustStatus = SavedOrDefault(state.PackageTrustStatus, PackageTrustStatus);
+        PackageTrustStatusBrush = SavedOrDefault(state.PackageTrustStatusBrush, PackageTrustStatusBrush);
+        PackageTrustSummary = SavedOrDefault(state.PackageTrustSummary, PackageTrustSummary);
+        PackageExportId = SavedOrDefault(state.PackageExportId, PackageExportId);
+        PackageDeclaredHash = SavedOrDefault(state.PackageDeclaredHash, PackageDeclaredHash);
+        PackageComputedHash = SavedOrDefault(state.PackageComputedHash, PackageComputedHash);
 
         ApplyPortalSyncReceipt(state.PortalSyncReceipt);
         RebuildResultCollections(state);
@@ -1571,6 +1713,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             DiscoverySyncStatusBrush = DiscoverySyncStatusBrush,
             PackageReadinessStatusBrush = PackageReadinessStatusBrush,
             PackageReadinessSummary = PackageReadinessSummary,
+            PackageTrustStatus = PackageTrustStatus,
+            PackageTrustStatusBrush = PackageTrustStatusBrush,
+            PackageTrustSummary = PackageTrustSummary,
+            PackageExportId = PackageExportId,
+            PackageDeclaredHash = PackageDeclaredHash,
+            PackageComputedHash = PackageComputedHash,
             PortalSyncReceipt = new PersistedPortalSyncReceipt
             {
                 SessionId = PortalSyncReceipt.SessionId,

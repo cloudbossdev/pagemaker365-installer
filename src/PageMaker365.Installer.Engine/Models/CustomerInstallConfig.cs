@@ -94,11 +94,26 @@ public sealed class ControlPlaneInfo
 {
     public string BaseUrl { get; set; } = "";
     public string DeploymentExportId { get; set; } = "";
+    public string ExportedAt { get; set; } = "";
+    public string ExpiresAt { get; set; } = "";
+    public string Issuer { get; set; } = "";
+    public string IssuerEnvironment { get; set; } = "";
+    public string OnboardingSessionId { get; set; } = "";
+    public string DiscoveryId { get; set; } = "";
+    public string SchemaId { get; set; } = "";
     public string EnvironmentId { get; set; } = "";
     public string LicenseActivationId { get; set; } = "";
     public string EntitlementSyncUrl { get; set; } = "";
     public string PublicKeyId { get; set; } = "";
     public string PackageHash { get; set; } = "";
+    public string PackageHashAlgorithm { get; set; } = "";
+    public string Canonicalization { get; set; } = "";
+    public string Signature { get; set; } = "";
+    public string SignatureAlgorithm { get; set; } = "";
+    public string TrustMode { get; set; } = "";
+    public string JwksUrl { get; set; } = "";
+    public string RevocationUrl { get; set; } = "";
+    public string CorrelationId { get; set; } = "";
 }
 
 public sealed class SecretContractInfo

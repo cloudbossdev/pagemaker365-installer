@@ -23,6 +23,10 @@ internal static class Program
             ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
             ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
+            ("CustomerConfigService verifies matching package hash", CustomerConfigServiceVerifiesMatchingPackageHash),
+            ("CustomerConfigService rejects package hash mismatch", CustomerConfigServiceRejectsPackageHashMismatch),
+            ("CustomerConfigService enforces signed-required trust mode", CustomerConfigServiceEnforcesSignedRequiredTrustMode),
+            ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
@@ -147,7 +151,8 @@ internal static class Program
         AssertJsonString(loadedPackage, "resourceGroupName", "rg-pm365-example");
         AssertJsonString(loadedPackage, "sharePointSiteUrl", "https://example.sharepoint.com/sites/intranet");
         AssertJsonString(loadedPackage, "sharePointTenantHostname", "example.sharepoint.com");
-        AssertJsonString(loadedPackage, "packageHash", "hash-001");
+        AssertJsonString(loadedPackage, "deploymentExportId", "export-001");
+        AssertJsonString(loadedPackage, "packageHash", "");
 
         var requestJson = handler.RequestBodies[0];
         AssertEx.False(requestJson.Contains("secrets", StringComparison.OrdinalIgnoreCase), requestJson);
@@ -314,6 +319,72 @@ internal static class Program
         AssertEx.Equal("ConnectedMock", response.Status);
         AssertEx.StringContains(response.Message, "using local mock fallback");
         AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static Task CustomerConfigServiceVerifiesMatchingPackageHash()
+    {
+        var config = CreateConfig();
+        var jsonWithoutHash = CustomerConfigService.ToJson(config);
+        config.ControlPlane.PackageHash = CustomerConfigService.ComputePackageHash(jsonWithoutHash);
+        var jsonWithHash = CustomerConfigService.ToJson(config);
+
+        var result = new CustomerConfigService().Validate(config, jsonWithHash);
+
+        AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
+        AssertEx.Equal("Hash verified", result.PackageTrustStatus);
+        AssertEx.Equal(config.ControlPlane.PackageHash, result.ComputedPackageHash);
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsPackageHashMismatch()
+    {
+        var config = CreateConfig();
+        config.ControlPlane.PackageHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.Equal("Hash mismatch", result.PackageTrustStatus);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "hash mismatch");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceEnforcesSignedRequiredTrustMode()
+    {
+        var config = CreateConfig();
+        config.ControlPlane.TrustMode = "SignedRequired";
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.Equal("Missing signature", result.PackageTrustStatus);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "controlPlane.packageHash");
+        AssertEx.StringContains(string.Join(" ", result.Errors), "controlPlane.signature");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsRawSecretContainers()
+    {
+        var json = """
+            {
+              "customer": { "tenantName": "Example", "tenantId": "tenant-001" },
+              "azure": { "subscriptionId": "sub-001", "location": "eastus", "resourceGroupName": "rg-test" },
+              "sharePoint": { "siteUrl": "https://example.sharepoint.com/sites/intranet" },
+              "app": { "appName": "PageMaker365" },
+              "features": {},
+              "secrets": {
+                "tokens": {
+                  "runtime": "do-not-store"
+                }
+              }
+            }
+            """;
+        var config = JsonSerializer.Deserialize<CustomerInstallConfig>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        var result = new CustomerConfigService().Validate(config, json);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "secrets.tokens");
+        return Task.CompletedTask;
     }
 
     private static Task OptionsServiceLoadsFileAndEnvironmentOverrides()
@@ -709,8 +780,17 @@ internal static class Program
             },
             ControlPlane =
             {
+                DeploymentExportId = "export-001",
+                ExportedAt = "2026-07-07T00:00:00Z",
+                Issuer = "PageMaker365 Control Plane",
+                IssuerEnvironment = "test",
+                SchemaId = "https://pagemaker365.com/schemas/customer-install.schema.json",
                 EnvironmentId = "env-001",
-                PackageHash = "hash-001"
+                LicenseActivationId = "lic-001",
+                EntitlementSyncUrl = "https://api.example.test/api/runtime/entitlements/sync",
+                PackageHashAlgorithm = "SHA-256",
+                Canonicalization = "json-c14n-v1",
+                TrustMode = "UnsignedAllowed"
             },
             Secrets =
             {

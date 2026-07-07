@@ -366,7 +366,10 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             SharePointTenantHostname = HostFromSharePointUrl(config.SharePoint.SiteUrl),
             PrimaryContact = config.Customer.PrimaryContact,
             EnvironmentId = config.ControlPlane.EnvironmentId,
-            PackageHash = config.ControlPlane.PackageHash
+            DeploymentExportId = config.ControlPlane.DeploymentExportId,
+            PackageHashAlgorithm = config.ControlPlane.PackageHashAlgorithm,
+            PackageHash = config.ControlPlane.PackageHash,
+            TrustMode = config.ControlPlane.TrustMode
         };
     }
 
@@ -521,7 +524,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId);
         }
 
-        var validation = ConfigService.Validate(config);
+        var validation = ConfigService.Validate(config, body);
         if (!validation.IsValid)
         {
             throw new OnboardingApiException(

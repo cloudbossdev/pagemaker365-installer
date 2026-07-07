@@ -2,7 +2,7 @@
 
 Status: draft for first implementation.
 
-Last updated: 2026-07-06.
+Last updated: 2026-07-07.
 
 ## Purpose
 
@@ -325,6 +325,20 @@ Generated packages are downloaded from `packageReadiness.packageDownloadUrl` whe
 
 Package download responses must use a JSON media type such as `application/json` or `application/*+json`. The installer validates the downloaded body against the local customer install package model before saving it as a usable package. A downloaded package is not marked `Downloaded` unless local validation succeeds.
 
+Generated packages should include control-plane trust metadata before the portal returns them to the installer:
+
+- `controlPlane.deploymentExportId`
+- `controlPlane.exportedAt`
+- `controlPlane.issuer`
+- `controlPlane.schemaId`
+- `controlPlane.packageHash`
+- `controlPlane.packageHashAlgorithm`
+- `controlPlane.canonicalization`
+- `controlPlane.publicKeyId`
+- `controlPlane.trustMode`
+
+During the alpha rollout, missing trust metadata produces warnings. A hash mismatch always fails local validation. If `controlPlane.trustMode` is `SignedRequired`, missing hash/signature/key metadata fails local validation.
+
 Portal errors, invalid responses, validation failures, and download failures are persisted in:
 
 `support-bundle/onboarding/{sessionId}/portal-sync-receipt.json`
@@ -353,6 +367,7 @@ Implemented in this repo:
 - Mock package-readiness status.
 - Mock generated package download and load into the installer.
 - Portal API client for connect, discovery sync, package readiness, and package download with fail-closed response validation.
+- Customer package export metadata and hash validation.
 - Onboarding API configuration and environment override support.
 - Read-only Azure discovery command and engine integration.
 - Read-only Graph and SharePoint discovery command and engine integration.
@@ -363,4 +378,4 @@ Not implemented yet:
 
 - Live PageMaker365 portal API endpoint implementation.
 - Portal-side onboarding form population.
-- Signed final install package generation and signature validation.
+- Signed final install package generation and cryptographic signature validation.

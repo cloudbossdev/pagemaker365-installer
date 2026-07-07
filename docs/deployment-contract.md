@@ -2,7 +2,7 @@
 
 Status: first implementation contract.
 
-Last updated: 2026-07-05.
+Last updated: 2026-07-07.
 
 ## Purpose
 
@@ -47,7 +47,41 @@ Required launch sections:
 - `features`
 - `smokeTests`
 
-The installer currently accepts the older alpha package shape, but preflight warns when launch contract fields are missing.
+The installer currently accepts the older alpha package shape, but preflight warns when launch contract fields are missing. Explicit package hash mismatches and raw secret containers are blocking failures.
+
+## Package Export Trust Metadata
+
+Production packages should include control-plane export metadata so the installer can prove which onboarding export it is using and whether the local file has been edited.
+
+Recommended `controlPlane` fields:
+
+- `deploymentExportId`: immutable export ID from the PageMaker365 control plane.
+- `exportedAt`: UTC timestamp when the package was generated.
+- `expiresAt`: optional UTC expiration timestamp for time-limited exports.
+- `issuer`: PageMaker365 issuer name.
+- `issuerEnvironment`: `prod`, `staging`, `sandbox`, or equivalent.
+- `onboardingSessionId`: source onboarding session ID.
+- `discoveryId`: source tenant discovery payload ID.
+- `schemaId`: schema URI used for the export.
+- `packageHash`: canonical package hash.
+- `packageHashAlgorithm`: currently `SHA-256`.
+- `canonicalization`: currently `json-c14n-v1`.
+- `publicKeyId`: signing key identifier.
+- `signature`: detached signature metadata placeholder.
+- `signatureAlgorithm`: signature algorithm metadata placeholder.
+- `trustMode`: `UnsignedAllowed` during alpha rollout or `SignedRequired` for strict production exports.
+- `jwksUrl`: optional public key discovery endpoint.
+- `revocationUrl`: optional export revocation endpoint.
+- `correlationId`: server trace ID for support.
+
+The first installer trust pass computes `sha256:<hex>` over canonical JSON with object properties sorted by ordinal name. The hash excludes only `controlPlane.packageHash` and `controlPlane.signature`, so package formatting and property order do not affect the result.
+
+Trust behavior:
+
+- Missing trust metadata is a warning while alpha packages remain supported.
+- `controlPlane.trustMode = SignedRequired` makes missing hash/signature/key metadata a failure.
+- A declared `packageHash` that does not match the package contents is always a failure.
+- Signature fields are recorded now; cryptographic signature verification is a later signing slice.
 
 ## Azure Runtime Resource Contract
 
@@ -139,6 +173,7 @@ After a deployment attempt, the installer should produce a redacted evidence pay
 - installation ID
 - deployment export ID
 - package hash
+- package trust status and signing key ID
 - installer version
 - started/completed timestamps
 - signed-in tenant IDs
@@ -176,4 +211,3 @@ These decisions are still required before full production deployment:
 - customer DNS and custom domain automation level
 - production signing certificate and distribution format
 - whether AI diagnostics call the PageMaker365 backend or a local approved diagnostic endpoint
-

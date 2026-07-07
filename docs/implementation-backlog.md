@@ -2,7 +2,7 @@
 
 Status: active backlog.
 
-Last updated: 2026-07-05.
+Last updated: 2026-07-07.
 
 ## Milestone 1 - Deployment Contract
 
@@ -21,14 +21,17 @@ Goal: make the customer install package deterministic enough for the installer a
 - [x] Add read-only Microsoft Graph tenant/domain discovery command.
 - [x] Add read-only SharePoint site/library discovery command.
 - [ ] Align control-plane deployment export with `schemas/customer-install.schema.json`.
+- [x] Add installer-side package hash validation.
+- [x] Add signed export metadata fields and immutable export ID to the installer contract.
 - [ ] Add package hash generation in the control plane export.
-- [ ] Add signed export metadata and immutable export ID.
+- [ ] Add cryptographic signature verification.
 
 Acceptance criteria:
 
 - The other app agent can generate a package without relying on free-form notes.
 - The installer can warn on missing optional contract fields.
 - The installer fails when raw secret values are present.
+- The installer fails when a declared package hash does not match the local package contents.
 
 ## Milestone 2 - Production Bicep
 
