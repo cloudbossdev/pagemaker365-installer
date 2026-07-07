@@ -658,11 +658,23 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        var connection = await _onboardingApiClient.ConnectAsync(_bootstrapSession);
-        OnboardingStatus = $"{connection.Status}: {connection.Message}";
-        PortalSyncStatus = $"Connected with correlation {connection.CorrelationId}.";
-        FooterStatus = $"{_onboardingApiClient.ConnectionLabel} session connected.";
-        SaveWizardState();
+        try
+        {
+            var connection = await _onboardingApiClient.ConnectAsync(_bootstrapSession);
+            OnboardingStatus = $"{connection.Status}: {connection.Message}";
+            PortalSyncStatus = $"Connected with correlation {connection.CorrelationId}.";
+            PortalSyncReceipt.SessionId = connection.SessionId;
+            PortalSyncReceipt.SyncStatus = connection.Status;
+            PortalSyncReceipt.CorrelationId = connection.CorrelationId;
+            PortalSyncReceipt.ErrorMessage = "";
+            PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
+            FooterStatus = $"{_onboardingApiClient.ConnectionLabel} session connected.";
+            SaveWizardState();
+        }
+        catch (Exception exception)
+        {
+            await HandlePortalOperationFailureAsync("Portal connect", "Connection failed", exception, saveReceipt: false);
+        }
     }
 
     private async Task RunDiscoveryAsync()
@@ -714,18 +726,26 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        var submission = await _onboardingApiClient.SubmitDiscoveryAsync(_bootstrapSession, _tenantDiscovery);
-        PortalSyncStatus = $"{submission.Status}: {submission.PortalRecordUrl}";
-        PortalSyncReceipt.SessionId = submission.SessionId;
-        PortalSyncReceipt.DiscoveryId = submission.DiscoveryId;
-        PortalSyncReceipt.SyncStatus = submission.Status;
-        PortalSyncReceipt.CorrelationId = submission.CorrelationId;
-        PortalSyncReceipt.PortalRecordUrl = submission.PortalRecordUrl;
-        PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
-        FooterStatus = $"Discovery synced through {_onboardingApiClient.ConnectionLabel}.";
-        await RefreshOnboardingPortalStatusAsync("Discovery synced. Package readiness refreshed.");
-        await SavePortalSyncReceiptAsync();
-        SaveWizardState();
+        try
+        {
+            var submission = await _onboardingApiClient.SubmitDiscoveryAsync(_bootstrapSession, _tenantDiscovery);
+            PortalSyncStatus = $"{submission.Status}: {submission.PortalRecordUrl}";
+            PortalSyncReceipt.SessionId = submission.SessionId;
+            PortalSyncReceipt.DiscoveryId = submission.DiscoveryId;
+            PortalSyncReceipt.SyncStatus = submission.Status;
+            PortalSyncReceipt.CorrelationId = submission.CorrelationId;
+            PortalSyncReceipt.PortalRecordUrl = submission.PortalRecordUrl;
+            PortalSyncReceipt.ErrorMessage = "";
+            PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
+            FooterStatus = $"Discovery synced through {_onboardingApiClient.ConnectionLabel}.";
+            await RefreshOnboardingPortalStatusAsync("Discovery synced. Package readiness refreshed.");
+            await SavePortalSyncReceiptAsync();
+            SaveWizardState();
+        }
+        catch (Exception exception)
+        {
+            await HandlePortalOperationFailureAsync("Discovery sync", "Sync failed", exception);
+        }
     }
 
     private async Task SaveDiscoveryAsync()
@@ -751,7 +771,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        await RefreshOnboardingPortalStatusAsync("Package readiness checked.");
+        try
+        {
+            await RefreshOnboardingPortalStatusAsync("Package readiness checked.");
+        }
+        catch (Exception exception)
+        {
+            await HandlePortalOperationFailureAsync("Package readiness check", "Readiness failed", exception);
+        }
     }
 
     private async Task RefreshOnboardingPortalStatusAsync(string footerStatus)
@@ -785,6 +812,59 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SaveWizardState();
     }
 
+    private async Task HandlePortalOperationFailureAsync(
+        string operation,
+        string readinessStatus,
+        Exception exception,
+        bool saveReceipt = true)
+    {
+        var message = FormatPortalOperationFailure(operation, exception);
+        FooterStatus = message;
+        OnboardingStatus = message;
+        PortalSyncStatus = message;
+        PackageReadinessStatus = readinessStatus;
+        PackageReadinessStatusBrush = "#FF5C7A";
+        PackageReadinessSummary = message;
+
+        if (_bootstrapSession is not null)
+        {
+            PortalSyncReceipt.SessionId = _bootstrapSession.SessionId;
+        }
+
+        if (_tenantDiscovery is not null)
+        {
+            PortalSyncReceipt.DiscoveryId = _tenantDiscovery.DiscoveryId;
+        }
+
+        PortalSyncReceipt.SyncStatus = "Failed";
+        PortalSyncReceipt.PackageReadinessStatus = readinessStatus;
+        PortalSyncReceipt.ErrorMessage = message;
+        PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
+        if (exception is OnboardingApiException apiException && !string.IsNullOrWhiteSpace(apiException.CorrelationId))
+        {
+            PortalSyncReceipt.CorrelationId = apiException.CorrelationId;
+        }
+
+        if (saveReceipt)
+        {
+            await SavePortalSyncReceiptAsync();
+        }
+
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
+    }
+
+    private static string FormatPortalOperationFailure(string operation, Exception exception)
+    {
+        if (exception is OnboardingApiException apiException &&
+            !string.IsNullOrWhiteSpace(apiException.CorrelationId))
+        {
+            return $"{operation} failed: {apiException.Message} Correlation: {apiException.CorrelationId}";
+        }
+
+        return $"{operation} failed: {exception.Message}";
+    }
+
     private bool CanDownloadGeneratedPackage()
     {
         return _bootstrapSession is not null
@@ -802,7 +882,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         if (_packageReadiness is null)
         {
-            await RefreshOnboardingPortalStatusAsync("Package readiness checked before download.");
+            try
+            {
+                await RefreshOnboardingPortalStatusAsync("Package readiness checked before download.");
+            }
+            catch (Exception exception)
+            {
+                await HandlePortalOperationFailureAsync("Package readiness check", "Readiness failed", exception);
+                return;
+            }
         }
 
         if (!CanDownloadGeneratedPackage() || _packageReadiness is null)
@@ -811,26 +899,61 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        var download = await _onboardingApiClient.DownloadPackageAsync(_bootstrapSession, _packageReadiness, GetWorkspaceRoot());
-        PackageDownloadPath = download.PackagePath;
-        PackageReadinessStatus = download.Status;
-        if (!download.Status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            FooterStatus = download.Message;
-            return;
-        }
+            var download = await _onboardingApiClient.DownloadPackageAsync(_bootstrapSession, _packageReadiness, GetWorkspaceRoot());
+            PackageDownloadPath = download.PackagePath;
+            PackageReadinessStatus = download.Status;
+            PackageReadinessVersion = download.PackageVersion;
+            PortalSyncReceipt.PackageVersion = download.PackageVersion;
+            if (!string.IsNullOrWhiteSpace(download.CorrelationId))
+            {
+                PortalSyncReceipt.CorrelationId = download.CorrelationId;
+            }
 
-        await LoadPackageAsync(download.PackagePath);
-        PackageDownloadPath = download.PackagePath;
-        PackageReadinessStatus = "Downloaded";
-        PackageReadinessStatusBrush = "#42D8A0";
-        PackageReadinessSummary = "Generated package has been downloaded and loaded into the installer.";
-        PackageReadinessVersion = download.PackageVersion;
-        PortalSyncReceipt.PackageReadinessStatus = PackageReadinessStatus;
-        FooterStatus = $"Generated install package downloaded and loaded: {download.PackagePath}";
-        await SavePortalSyncReceiptAsync();
-        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
-        SaveWizardState();
+            if (!download.Status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase))
+            {
+                FooterStatus = download.Message;
+                PortalSyncReceipt.PackageReadinessStatus = download.Status;
+                PortalSyncReceipt.ErrorMessage = "";
+                await SavePortalSyncReceiptAsync();
+                SaveWizardState();
+                return;
+            }
+
+            var packageLoaded = await LoadPackageAsync(download.PackagePath);
+            if (!packageLoaded)
+            {
+                var validationMessage = FooterStatus;
+                PackageDownloadPath = download.PackagePath;
+                PackageReadinessStatus = "PackageInvalid";
+                PackageReadinessStatusBrush = "#FF5C7A";
+                PackageReadinessSummary = $"Generated package downloaded but failed local validation. {validationMessage}";
+                PortalSyncReceipt.PackageReadinessStatus = PackageReadinessStatus;
+                PortalSyncReceipt.ErrorMessage = PackageReadinessSummary;
+                await SavePortalSyncReceiptAsync();
+                DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+                SaveWizardState();
+                return;
+            }
+
+            PackageDownloadPath = download.PackagePath;
+            PackageReadinessStatus = "Downloaded";
+            PackageReadinessStatusBrush = "#42D8A0";
+            PackageReadinessSummary = "Generated package has been downloaded and loaded into the installer.";
+            PackageReadinessVersion = download.PackageVersion;
+            PortalSyncReceipt.PackageReadinessStatus = PackageReadinessStatus;
+            PortalSyncReceipt.PackageVersion = download.PackageVersion;
+            PortalSyncReceipt.ErrorMessage = "";
+            FooterStatus = $"Generated install package downloaded and loaded: {download.PackagePath}";
+            await SavePortalSyncReceiptAsync();
+            DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+            SaveWizardState();
+        }
+        catch (Exception exception)
+        {
+            await HandlePortalOperationFailureAsync("Package download", "Download failed", exception);
+        }
     }
 
     private async Task LoadSamplePackageAsync()
@@ -860,14 +983,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
     }
 
-    private async Task LoadPackageAsync(string path)
+    private async Task<bool> LoadPackageAsync(string path)
     {
         var config = await _configService.LoadAsync(path);
         var validation = _configService.Validate(config);
         if (!validation.IsValid)
         {
             FooterStatus = string.Join(" ", validation.Errors);
-            return;
+            return false;
         }
 
         LoadConfig(config, path);
@@ -877,6 +1000,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         SaveWizardState();
+        return true;
     }
 
     private void LoadConfig(CustomerInstallConfig config, string path)
@@ -1454,9 +1578,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 SyncStatus = PortalSyncReceipt.SyncStatus,
                 CorrelationId = PortalSyncReceipt.CorrelationId,
                 PackageReadinessStatus = PortalSyncReceipt.PackageReadinessStatus,
+                PackageVersion = PortalSyncReceipt.PackageVersion,
                 PortalRecordUrl = PortalSyncReceipt.PortalRecordUrl,
                 ReceiptOutputPath = PortalSyncReceipt.ReceiptOutputPath,
-                SyncedAt = PortalSyncReceipt.SyncedAt
+                SyncedAt = PortalSyncReceipt.SyncedAt,
+                ErrorMessage = PortalSyncReceipt.ErrorMessage
             },
             CheckResults = CheckResults.Select(ToStepResult).ToList(),
             PreviewResults = PreviewResults.Select(ToStepResult).ToList(),
@@ -1499,9 +1625,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PortalSyncReceipt.SyncStatus = receipt.SyncStatus;
         PortalSyncReceipt.CorrelationId = receipt.CorrelationId;
         PortalSyncReceipt.PackageReadinessStatus = receipt.PackageReadinessStatus;
+        PortalSyncReceipt.PackageVersion = receipt.PackageVersion;
         PortalSyncReceipt.PortalRecordUrl = receipt.PortalRecordUrl;
         PortalSyncReceipt.ReceiptOutputPath = receipt.ReceiptOutputPath;
         PortalSyncReceipt.SyncedAt = receipt.SyncedAt;
+        PortalSyncReceipt.ErrorMessage = receipt.ErrorMessage;
     }
 
     private void RebuildResultCollections(PersistedInstallerState state)
@@ -2433,6 +2561,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             "NeedsCustomerInput" => "#FFB84D",
             "NotReady" => "#FFB84D",
             "Failed" => "#FF5C7A",
+            "Blocked" => "#FF5C7A",
+            "Unauthorized" => "#FF5C7A",
+            "InvalidResponse" => "#FF5C7A",
+            "DownloadFailed" => "#FF5C7A",
+            "PackageInvalid" => "#FF5C7A",
             _ => "#8290AA"
         };
         PackageReadinessSummary = string.IsNullOrWhiteSpace(status.PackageReadiness.Message)
@@ -2441,7 +2574,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         PortalSyncReceipt.SessionId = status.SessionId;
         PortalSyncReceipt.PackageReadinessStatus = status.PackageReadiness.Status;
+        PortalSyncReceipt.PackageVersion = status.PackageReadiness.PackageVersion;
         PortalSyncReceipt.PortalRecordUrl = status.PortalRecordUrl;
+        PortalSyncReceipt.ErrorMessage = "";
         if (!string.IsNullOrWhiteSpace(status.CorrelationId))
         {
             PortalSyncReceipt.CorrelationId = status.CorrelationId;
@@ -2455,7 +2590,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private async Task SavePortalSyncReceiptAsync()
     {
-        if (_bootstrapSession is null || _tenantDiscovery is null)
+        if (_bootstrapSession is null)
         {
             return;
         }
@@ -2472,8 +2607,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             portalCorrelationId = PortalSyncReceipt.CorrelationId,
             portalRecordUrl = PortalSyncReceipt.PortalRecordUrl,
             packageReadinessStatus = PortalSyncReceipt.PackageReadinessStatus,
+            packageVersion = PortalSyncReceipt.PackageVersion,
             portalStatusOutputPath = PortalStatusOutputPath,
             packageDownloadPath = PackageDownloadPath,
+            errorMessage = PortalSyncReceipt.ErrorMessage,
             savedAt = DateTimeOffset.UtcNow
         };
         var json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions

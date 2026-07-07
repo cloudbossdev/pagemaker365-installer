@@ -510,7 +510,9 @@
                                             <TextBlock Text="Discovery" Foreground="{StaticResource PmMuted}" />
                                             <TextBlock Text="{Binding PortalSyncReceipt.DiscoveryId}" TextWrapping="Wrap" Margin="0,4,0,10" />
                                             <TextBlock Text="Sync Status" Foreground="{StaticResource PmMuted}" />
-                                            <TextBlock Text="{Binding PortalSyncReceipt.SyncStatus}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                            <TextBlock Text="{Binding PortalSyncReceipt.SyncStatus}" TextWrapping="Wrap" Margin="0,4,0,10" />
+                                            <TextBlock Text="Package Version" Foreground="{StaticResource PmMuted}" />
+                                            <TextBlock Text="{Binding PortalSyncReceipt.PackageVersion}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="9,0,0,0">
                                             <TextBlock Text="Correlation" Foreground="{StaticResource PmMuted}" />
@@ -525,6 +527,8 @@
                                     <TextBlock Text="{Binding PortalSyncReceipt.PortalRecordUrl}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                     <TextBlock Text="Receipt Output" Foreground="{StaticResource PmMuted}" Margin="0,12,0,0" />
                                     <TextBlock Text="{Binding PortalSyncReceipt.ReceiptOutputPath}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    <TextBlock Text="Last Error" Foreground="{StaticResource PmMuted}" Margin="0,12,0,0" />
+                                    <TextBlock Text="{Binding PortalSyncReceipt.ErrorMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>

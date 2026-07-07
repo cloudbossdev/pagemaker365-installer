@@ -7,9 +7,11 @@ public sealed class PortalSyncReceiptViewModel : ViewModelBase
     private string _syncStatus = "Not synced";
     private string _correlationId = "Not available";
     private string _packageReadinessStatus = "Not checked";
+    private string _packageVersion = "Not available";
     private string _portalRecordUrl = "Not available";
     private string _receiptOutputPath = "Not saved";
     private string _syncedAt = "Not synced";
+    private string _errorMessage = "No errors";
 
     public string SessionId
     {
@@ -41,6 +43,12 @@ public sealed class PortalSyncReceiptViewModel : ViewModelBase
         set => SetProperty(ref _packageReadinessStatus, string.IsNullOrWhiteSpace(value) ? "Not checked" : value);
     }
 
+    public string PackageVersion
+    {
+        get => _packageVersion;
+        set => SetProperty(ref _packageVersion, string.IsNullOrWhiteSpace(value) ? "Not available" : value);
+    }
+
     public string PortalRecordUrl
     {
         get => _portalRecordUrl;
@@ -59,6 +67,12 @@ public sealed class PortalSyncReceiptViewModel : ViewModelBase
         set => SetProperty(ref _syncedAt, string.IsNullOrWhiteSpace(value) ? "Not synced" : value);
     }
 
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        set => SetProperty(ref _errorMessage, string.IsNullOrWhiteSpace(value) ? "No errors" : value);
+    }
+
     public void Reset()
     {
         SessionId = "Not synced";
@@ -66,8 +80,10 @@ public sealed class PortalSyncReceiptViewModel : ViewModelBase
         SyncStatus = "Not synced";
         CorrelationId = "Not available";
         PackageReadinessStatus = "Not checked";
+        PackageVersion = "Not available";
         PortalRecordUrl = "Not available";
         ReceiptOutputPath = "Not saved";
         SyncedAt = "Not synced";
+        ErrorMessage = "No errors";
     }
 }

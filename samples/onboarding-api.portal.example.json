@@ -7,5 +7,5 @@
   "packageEndpointPathTemplate": "/api/onboarding/installer/{sessionId}/install-package",
   "apiKeyEnvironmentVariable": "PM365_ONBOARDING_API_KEY",
   "timeoutSeconds": 30,
-  "fallbackToMockOnFailure": true
+  "fallbackToMockOnFailure": false
 }

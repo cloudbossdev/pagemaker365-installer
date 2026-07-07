@@ -148,6 +148,8 @@ The desktop app defaults to `Mock` mode, which does not make network calls. It l
 
 Portal mode is configured with `onboarding-api.json` in the repo/package root, `config/onboarding-api.json`, or beside the app executable. A sample is available at `samples/onboarding-api.portal.example.json`.
 
+Portal mode fails closed by default. `fallbackToMockOnFailure` is `false` unless explicitly enabled for local demos or development. Production packages should leave fallback disabled so failed, unauthorized, malformed, or incomplete portal responses remain visible to the user and support team.
+
 Supported environment overrides:
 
 - `PM365_ONBOARDING_MODE`: `Mock` or `Portal`.
@@ -184,6 +186,14 @@ The bootstrap session `apiBaseUrl` takes precedence over `PM365_ONBOARDING_API_B
 
 Response: `OnboardingSessionConnection`.
 
+Required response fields:
+
+- `status`
+- `sessionId`
+- `correlationId`
+
+The installer rejects responses that omit these fields or return a different `sessionId` than the active bootstrap session.
+
 ### Discovery Submit Request
 
 `POST /api/onboarding/installer/discovery`
@@ -206,6 +216,15 @@ Response: `OnboardingDiscoverySubmission`.
 
 The `discovery` object is the full `TenantDiscoveryResult` payload. It must remain install-readiness metadata only.
 
+Required response fields:
+
+- `status`
+- `sessionId`
+- `discoveryId`
+- `correlationId`
+
+The installer rejects responses that omit these fields or return a different `sessionId` than the active bootstrap session.
+
 ### Onboarding Status / Package Readiness
 
 Sample: `samples/contoso.onboarding.status.json`
@@ -221,6 +240,17 @@ Important fields:
 - `packageReadiness.packageVersion`: generated package contract/version identifier.
 - `packageReadiness.packageDownloadUrl`: API endpoint the installer can use to retrieve the generated package.
 - `correlationId`: server-side trace ID for audit/support.
+
+Required response fields:
+
+- `status`
+- `sessionId`
+- `correlationId`
+- `packageReadiness`
+- `packageReadiness.status`
+- `packageReadiness.packageDownloadUrl` when `packageReadiness.status` is `Ready`
+
+The installer rejects malformed status responses before updating local package-readiness state.
 
 Request:
 
@@ -293,6 +323,14 @@ In portal mode, status snapshots are written locally to:
 
 Generated packages are downloaded from `packageReadiness.packageDownloadUrl` when present, otherwise from the configured package endpoint template.
 
+Package download responses must use a JSON media type such as `application/json` or `application/*+json`. The installer validates the downloaded body against the local customer install package model before saving it as a usable package. A downloaded package is not marked `Downloaded` unless local validation succeeds.
+
+Portal errors, invalid responses, validation failures, and download failures are persisted in:
+
+`support-bundle/onboarding/{sessionId}/portal-sync-receipt.json`
+
+The receipt includes the session, discovery ID, portal correlation ID, package readiness status, package version, local output paths, and the latest visible error message.
+
 ## Security Rules
 
 - Discovery is read-only.
@@ -314,14 +352,15 @@ Implemented in this repo:
 - Redacted local discovery JSON export.
 - Mock package-readiness status.
 - Mock generated package download and load into the installer.
-- Portal API client scaffold for connect, discovery sync, package readiness, and package download.
+- Portal API client for connect, discovery sync, package readiness, and package download with fail-closed response validation.
 - Onboarding API configuration and environment override support.
 - Read-only Azure discovery command and engine integration.
 - Read-only Graph and SharePoint discovery command and engine integration.
 - Onboarding API, Azure discovery, and Graph discovery contract harness.
+- Portal response, API error, and generated-package validation contract tests.
 
 Not implemented yet:
 
-- Live PageMaker365 portal API endpoint implementation and validation.
+- Live PageMaker365 portal API endpoint implementation.
 - Portal-side onboarding form population.
 - Signed final install package generation and signature validation.

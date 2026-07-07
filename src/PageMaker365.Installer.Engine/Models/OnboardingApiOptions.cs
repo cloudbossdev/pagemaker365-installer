@@ -10,7 +10,7 @@ public sealed class OnboardingApiOptions
     public string PackageEndpointPathTemplate { get; set; } = "/api/onboarding/installer/{sessionId}/install-package";
     public string ApiKeyEnvironmentVariable { get; set; } = "PM365_ONBOARDING_API_KEY";
     public int TimeoutSeconds { get; set; } = 30;
-    public bool FallbackToMockOnFailure { get; set; } = true;
+    public bool FallbackToMockOnFailure { get; set; }
 
     public bool UseMock => !Mode.Equals("Portal", StringComparison.OrdinalIgnoreCase);
 

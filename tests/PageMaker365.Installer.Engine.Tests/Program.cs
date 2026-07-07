@@ -17,6 +17,11 @@ internal static class Program
             ("SubmitDiscoveryAsync sends install-readiness discovery payload", SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload),
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
+            ("ConnectAsync rejects invalid portal response", ConnectAsyncRejectsInvalidPortalResponse),
+            ("GetOnboardingStatusAsync rejects ready status without package URL", GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl),
+            ("ConnectAsync surfaces portal API error details", ConnectAsyncSurfacesPortalApiErrorDetails),
+            ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
+            ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
@@ -153,7 +158,7 @@ internal static class Program
 
     private static async Task DownloadPackageAsyncSavesPortalPackageToSupportBundle()
     {
-        var packageJson = """{"contractVersion":"0.2","customer":{"tenantName":"Example Customer"}}""";
+        var packageJson = CustomerConfigService.ToJson(CreateConfig());
         var handler = new RecordingHttpMessageHandler(_ =>
         {
             var response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -174,12 +179,7 @@ internal static class Program
         {
             var result = await client.DownloadPackageAsync(
                 CreateSession(),
-                new OnboardingPackageReadiness
-                {
-                    Status = "Ready",
-                    PackageVersion = "0.2-test",
-                    PackageDownloadUrl = "https://api.example.test/custom/download"
-                },
+                CreateReadyReadiness(),
                 workspaceRoot);
 
             AssertEx.Equal("Downloaded", result.Status);
@@ -189,6 +189,111 @@ internal static class Program
             AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
             AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
             AssertEx.StringContains(result.PackagePath, Path.Combine("support-bundle", "onboarding", "onb_test_001", "generated-package"));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task ConnectAsyncRejectsInvalidPortalResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""{"status":"Connected"}"""));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.StringContains(exception.Message, "missing required field");
+        AssertEx.StringContains(exception.Message, "sessionId");
+        AssertEx.StringContains(exception.Message, "correlationId");
+    }
+
+    private static async Task GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "0.1",
+              "sessionId": "onb_test_001",
+              "customerName": "Example Customer",
+              "status": "Ready",
+              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "correlationId": "corr-status-002",
+              "message": "Ready",
+              "missingFields": [],
+              "packageReadiness": {
+                "status": "Ready",
+                "packageVersion": "0.2-test",
+                "message": "Ready for download"
+              }
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.GetOnboardingStatusAsync(CreateSession(), CreateDiscovery(), CreateConfig()));
+
+        AssertEx.StringContains(exception.Message, "packageReadiness.packageDownloadUrl");
+    }
+
+    private static async Task ConnectAsyncSurfacesPortalApiErrorDetails()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent(
+                """{"message":"Expired onboarding code","correlationId":"corr-401"}""",
+                Encoding.UTF8,
+                "application/json")
+        });
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode.GetValueOrDefault());
+        AssertEx.Equal("corr-401", exception.CorrelationId);
+        AssertEx.StringContains(exception.Message, "Expired onboarding code");
+    }
+
+    private static async Task DownloadPackageAsyncRejectsNonJsonPackageResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>not a package</html>", Encoding.UTF8, "text/html")
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "unsupported content type");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRejectsInvalidGeneratedPackage()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"contractVersion":"0.2","customer":{"tenantName":"Example Customer"}}""",
+                Encoding.UTF8,
+                "application/json")
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "failed validation");
+            AssertEx.StringContains(exception.Message, "Azure subscription ID is required");
         }
         finally
         {
@@ -590,6 +695,11 @@ internal static class Program
                 DefaultDocumentLibrary = "Documents",
                 PermissionMode = "SitesSelected"
             },
+            App =
+            {
+                AppName = "PageMaker365",
+                SupportEmail = "support@example.test"
+            },
             Entra =
             {
                 AppRegistrationMode = "Create",
@@ -615,6 +725,16 @@ internal static class Program
                     }
                 ]
             }
+        };
+    }
+
+    private static OnboardingPackageReadiness CreateReadyReadiness()
+    {
+        return new OnboardingPackageReadiness
+        {
+            Status = "Ready",
+            PackageVersion = "0.2-test",
+            PackageDownloadUrl = "https://api.example.test/custom/download"
         };
     }
 
@@ -738,5 +858,20 @@ internal static class AssertEx
         {
             throw new InvalidOperationException($"Expected '{value}' to contain '{expected}'.");
         }
+    }
+
+    public static async Task<TException> ThrowsAsync<TException>(Func<Task> action)
+        where TException : Exception
+    {
+        try
+        {
+            await action();
+        }
+        catch (TException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException($"Expected exception of type {typeof(TException).Name}.");
     }
 }

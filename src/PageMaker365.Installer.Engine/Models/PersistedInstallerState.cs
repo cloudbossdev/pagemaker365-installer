@@ -88,7 +88,9 @@ public sealed class PersistedPortalSyncReceipt
     public string SyncStatus { get; set; } = "";
     public string CorrelationId { get; set; } = "";
     public string PackageReadinessStatus { get; set; } = "";
+    public string PackageVersion { get; set; } = "";
     public string PortalRecordUrl { get; set; } = "";
     public string ReceiptOutputPath { get; set; } = "";
     public string SyncedAt { get; set; } = "";
+    public string ErrorMessage { get; set; } = "";
 }

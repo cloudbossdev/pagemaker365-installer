@@ -49,6 +49,18 @@ Discovery is intended to answer setup-readiness questions:
 
 Discovery writes an `InstallReadinessOnly` payload. It should not collect document content, mailbox content, user files, raw secrets, tokens, or customer business data. The payload can be sent to the PageMaker365 control plane to prefill onboarding fields and help generate the final customer install package.
 
+## Portal Sync And Package Download
+
+When portal sync is enabled, the installer connects to a short-lived onboarding session, sends read-only discovery data, checks package readiness, and downloads the generated customer install package after the portal says it is ready.
+
+Portal mode is intentionally strict. The app does not silently accept incomplete portal responses, mismatched session IDs, unsupported package download content types, or generated packages that fail local validation. Failures stay visible in the workflow and are written to the portal sync receipt with the correlation ID when the API provides one.
+
+Important local outputs:
+
+- `support-bundle\onboarding\{sessionId}\portal-status.json` contains the latest portal status snapshot.
+- `support-bundle\onboarding\{sessionId}\portal-sync-receipt.json` contains session, discovery, readiness, package version, output path, and latest error details.
+- `support-bundle\onboarding\{sessionId}\generated-package\` contains the downloaded package only after the portal returns valid JSON that passes local package validation.
+
 ## Resuming A Session
 
 The desktop app remembers the most recent active installer session on the local workstation. If the user closes the app, reboots, or pauses during deployment, the next launch restores the latest active session and returns the UI to the saved workflow step.
@@ -60,6 +72,8 @@ Resume state is written under the user's local application data folder:
 ```
 
 The saved state includes workflow mode, current step, accessible steps, loaded package metadata, onboarding status, discovery summaries, check results, evidence paths, assistant status, and final handoff paths.
+
+Portal sync receipt details and the latest portal error are also restored, so a reopened app can show where the last onboarding handoff stopped.
 
 The saved state should not include raw secrets or authentication tokens. Azure and Microsoft Graph sign-in may need to be repeated after reopening the app. The install approval checkbox and typed resource-group confirmation are also not restored, so an approved deployment cannot reopen already armed for execution.
 
