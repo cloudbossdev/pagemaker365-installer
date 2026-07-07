@@ -125,7 +125,17 @@ Write-Host 'Building Bicep template...'
 Invoke-PM365BicepBuild | ConvertTo-Json -Depth 12 | Out-Null
 
 Write-Host 'Checking what-if guard...'
-Invoke-PM365WhatIf -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
+$whatIfArtifactPath = Join-Path $repoRoot 'support-bundle\verify-azure-whatif.json'
+if (Test-Path -LiteralPath $whatIfArtifactPath) {
+    Remove-Item -LiteralPath $whatIfArtifactPath -Force
+}
+
+Invoke-PM365WhatIf -ConfigPath $configPath -OutputPath $whatIfArtifactPath | ConvertTo-Json -Depth 12 | Out-Null
+if (-not (Test-Path -LiteralPath $whatIfArtifactPath)) {
+    throw "What-if artifact was not written: $whatIfArtifactPath"
+}
+
+Get-Content -LiteralPath $whatIfArtifactPath -Raw | ConvertFrom-Json | Out-Null
 
 Write-Host 'Running smoke test scaffold...'
 Test-PM365SmokeTests -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null

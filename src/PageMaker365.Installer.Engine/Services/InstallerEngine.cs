@@ -111,9 +111,14 @@ public sealed class InstallerEngine
         InstallerSession session,
         string workspaceRoot,
         string configPath,
+        string outputPath = "",
         IProgress<InstallerStepResult>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var commandArguments = string.IsNullOrWhiteSpace(outputPath)
+            ? ""
+            : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+
         return await RunPowerShellModuleCommandAsync(
             session,
             workspaceRoot,
@@ -121,16 +126,22 @@ public sealed class InstallerEngine
             "Deployment Preview",
             "Invoke-PM365WhatIf",
             progress,
-            cancellationToken);
+            cancellationToken,
+            commandArguments);
     }
 
     public async Task<IReadOnlyList<InstallerStepResult>> RunDeploymentAsync(
         InstallerSession session,
         string workspaceRoot,
         string configPath,
+        string outputPath = "",
         IProgress<InstallerStepResult>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var commandArguments = string.IsNullOrWhiteSpace(outputPath)
+            ? "-Confirm:$false"
+            : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}' -Confirm:$false";
+
         return await RunPowerShellModuleCommandAsync(
             session,
             workspaceRoot,
@@ -139,7 +150,7 @@ public sealed class InstallerEngine
             "Invoke-PM365Deployment",
             progress,
             cancellationToken,
-            "-Confirm:$false");
+            commandArguments);
     }
 
     public async Task<IReadOnlyList<InstallerStepResult>> RunValidationAsync(
@@ -278,13 +289,18 @@ public sealed class InstallerEngine
 
     private static string BuildModuleCommand(string modulePath, string commandName, string configPath, string commandArguments = "")
     {
-        var escapedPath = modulePath.Replace("'", "''");
-        var escapedConfigPath = configPath.Replace("'", "''");
+        var escapedPath = EscapePowerShellSingleQuotedValue(modulePath);
+        var escapedConfigPath = EscapePowerShellSingleQuotedValue(configPath);
         var arguments = string.IsNullOrWhiteSpace(commandArguments) ? "" : $" {commandArguments}";
         var script = "$ErrorActionPreference = 'Stop'; " +
                      $"Import-Module '{escapedPath}' -Force; " +
                      $"{commandName} -ConfigPath '{escapedConfigPath}'{arguments} | ConvertTo-Json -Depth 12";
         return $"-NoProfile -ExecutionPolicy Bypass -Command \"{script}\"";
+    }
+
+    private static string EscapePowerShellSingleQuotedValue(string value)
+    {
+        return value.Replace("'", "''");
     }
 
     private static IReadOnlyList<InstallerStepResult> ParsePowerShellResults(string json)

@@ -17,6 +17,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly InstallerEngine _engine;
     private readonly SupportBundleService _supportBundleService;
     private readonly FinalEvidenceService _finalEvidenceService = new();
+    private readonly DeploymentApprovalManifestService _deploymentApprovalManifestService = new();
     private readonly TenantDiscoveryService _tenantDiscoveryService;
     private readonly InstallerStateStore _stateStore = new();
     private readonly IOnboardingApiClient _onboardingApiClient;
@@ -64,10 +65,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _previewStatusBrush = "#8290AA";
     private string _previewSummary = "Run deployment preview to see Azure what-if results before install.";
     private string _previewOutputPath = "Not saved";
+    private string _previewArtifactPath = "Not created";
     private string _deploymentStatus = "Waiting for preview";
     private string _deploymentStatusBrush = "#8290AA";
     private string _deploymentSummary = "Complete deployment preview before running install.";
     private string _deploymentOutputPath = "Not saved";
+    private string _deploymentArtifactPath = "Not created";
+    private string _deploymentApprovalManifestId = "";
+    private string _deploymentApprovalManifestPath = "Not created";
+    private string _deploymentApprovalSummary = "No deployment approval manifest created.";
     private string _validationStatus = "Waiting for install";
     private string _validationStatusBrush = "#8290AA";
     private string _validationSummary = "Complete install before running validation.";
@@ -387,6 +393,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         set => SetProperty(ref _previewOutputPath, value);
     }
 
+    public string PreviewArtifactPath
+    {
+        get => _previewArtifactPath;
+        set => SetProperty(ref _previewArtifactPath, string.IsNullOrWhiteSpace(value) ? "Not created" : value);
+    }
+
     public string DeploymentStatus
     {
         get => _deploymentStatus;
@@ -409,6 +421,30 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _deploymentOutputPath;
         set => SetProperty(ref _deploymentOutputPath, value);
+    }
+
+    public string DeploymentArtifactPath
+    {
+        get => _deploymentArtifactPath;
+        set => SetProperty(ref _deploymentArtifactPath, string.IsNullOrWhiteSpace(value) ? "Not created" : value);
+    }
+
+    public string DeploymentApprovalManifestId
+    {
+        get => _deploymentApprovalManifestId;
+        set => SetProperty(ref _deploymentApprovalManifestId, value);
+    }
+
+    public string DeploymentApprovalManifestPath
+    {
+        get => _deploymentApprovalManifestPath;
+        set => SetProperty(ref _deploymentApprovalManifestPath, string.IsNullOrWhiteSpace(value) ? "Not created" : value);
+    }
+
+    public string DeploymentApprovalSummary
+    {
+        get => _deploymentApprovalSummary;
+        set => SetProperty(ref _deploymentApprovalSummary, string.IsNullOrWhiteSpace(value) ? "No deployment approval manifest created." : value);
     }
 
     public bool DeploymentApprovalConfirmed
@@ -1771,10 +1807,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PreviewStatusBrush = SavedOrDefault(state.PreviewStatusBrush, PreviewStatusBrush);
         PreviewSummary = SavedOrDefault(state.PreviewSummary, PreviewSummary);
         PreviewOutputPath = SavedOrDefault(state.PreviewOutputPath, PreviewOutputPath);
+        PreviewArtifactPath = SavedOrDefault(state.PreviewArtifactPath, PreviewArtifactPath);
         DeploymentStatus = SavedOrDefault(state.DeploymentStatus, DeploymentStatus);
         DeploymentStatusBrush = SavedOrDefault(state.DeploymentStatusBrush, DeploymentStatusBrush);
         DeploymentSummary = SavedOrDefault(state.DeploymentSummary, DeploymentSummary);
         DeploymentOutputPath = SavedOrDefault(state.DeploymentOutputPath, DeploymentOutputPath);
+        DeploymentArtifactPath = SavedOrDefault(state.DeploymentArtifactPath, DeploymentArtifactPath);
+        DeploymentApprovalManifestId = SavedOrDefault(state.DeploymentApprovalManifestId, DeploymentApprovalManifestId);
+        DeploymentApprovalManifestPath = SavedOrDefault(state.DeploymentApprovalManifestPath, DeploymentApprovalManifestPath);
+        DeploymentApprovalSummary = SavedOrDefault(state.DeploymentApprovalSummary, DeploymentApprovalSummary);
         ValidationStatus = SavedOrDefault(state.ValidationStatus, ValidationStatus);
         ValidationStatusBrush = SavedOrDefault(state.ValidationStatusBrush, ValidationStatusBrush);
         ValidationSummary = SavedOrDefault(state.ValidationSummary, ValidationSummary);
@@ -1910,10 +1951,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             PreviewStatusBrush = PreviewStatusBrush,
             PreviewSummary = PreviewSummary,
             PreviewOutputPath = PreviewOutputPath,
+            PreviewArtifactPath = PreviewArtifactPath,
             DeploymentStatus = DeploymentStatus,
             DeploymentStatusBrush = DeploymentStatusBrush,
             DeploymentSummary = DeploymentSummary,
             DeploymentOutputPath = DeploymentOutputPath,
+            DeploymentArtifactPath = DeploymentArtifactPath,
+            DeploymentApprovalManifestId = DeploymentApprovalManifestId,
+            DeploymentApprovalManifestPath = DeploymentApprovalManifestPath,
+            DeploymentApprovalSummary = DeploymentApprovalSummary,
             ValidationStatus = ValidationStatus,
             ValidationStatusBrush = ValidationStatusBrush,
             ValidationSummary = ValidationSummary,
@@ -2155,6 +2201,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PreviewStatusBrush = "#19D8E9";
         PreviewSummary = "Running Azure what-if. No resources will be deployed.";
         PreviewOutputPath = "Not saved";
+        var previewArtifactOutputPath = PrepareArtifactOutputPath("preview", "azure-whatif.json");
+        PreviewArtifactPath = previewArtifactOutputPath;
         _lastPreviewStatus = InstallStatus.Running;
         ClearDeploymentReview();
         FooterStatus = "Running Azure what-if deployment preview.";
@@ -2171,7 +2219,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             PreviewResults.Add(new PreviewResultViewModel(result));
         });
 
-        await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
+        await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, previewArtifactOutputPath, progress);
+        PreviewArtifactPath = GetArtifactPathFromResults(previewResults, previewArtifactOutputPath);
 
         var previewStatus = GetPreviewStatus(previewResults);
         _lastPreviewStatus = previewStatus;
@@ -2192,7 +2241,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             UnlockThroughStep(6);
         }
 
-        PreviewOutputPath = await SavePreviewEvidenceAsync(previewResults, previewStatus);
+        PreviewOutputPath = await SavePreviewEvidenceAsync(previewResults, previewStatus, PreviewArtifactPath);
         FooterStatus = previewStatus == InstallStatus.Failed
             ? "Deployment preview failed. Review the preview details and retry."
             : "Deployment preview completed. Continue to install after reviewing the results.";
@@ -2211,7 +2260,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private async Task<string> SavePreviewEvidenceAsync(
         IReadOnlyList<InstallerStepResult> previewResults,
-        InstallStatus previewStatus)
+        InstallStatus previewStatus,
+        string previewArtifactPath)
     {
         if (_session is null)
         {
@@ -2228,6 +2278,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             packagePath = PackagePath,
             previewStatus = previewStatus.ToString(),
             previewedAt = DateTimeOffset.UtcNow,
+            azureWhatIfArtifactPath = previewArtifactPath,
             results = previewResults.Select(result => new
             {
                 result.StepName,
@@ -2287,6 +2338,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PreviewStatusBrush = "#8290AA";
         PreviewSummary = "Run deployment preview to see Azure what-if results before install.";
         PreviewOutputPath = "Not saved";
+        PreviewArtifactPath = "Not created";
         PreviewResults.Clear();
         RunInstallCommand?.RaiseCanExecuteChanged();
     }
@@ -2328,6 +2380,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentStatusBrush = "#19D8E9";
         DeploymentSummary = "Running approved Azure deployment.";
         DeploymentOutputPath = "Not saved";
+        var deploymentArtifactOutputPath = PrepareArtifactOutputPath("install", "azure-deployment.json");
+        DeploymentArtifactPath = deploymentArtifactOutputPath;
         FooterStatus = "Running approved PageMaker365 deployment.";
         _session = _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
@@ -2342,7 +2396,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             DeploymentResults.Add(new DeploymentResultViewModel(result));
         });
 
-        await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
+        await WriteDeploymentApprovalManifestAsync();
+        SaveWizardState();
+
+        await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, deploymentArtifactOutputPath, progress);
+        DeploymentArtifactPath = GetArtifactPathFromResults(deploymentResults, deploymentArtifactOutputPath);
 
         var deploymentStatus = GetDeploymentStatus(deploymentResults);
         _lastDeploymentStatus = deploymentStatus;
@@ -2371,7 +2429,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
         RefreshValidationReadiness();
 
-        DeploymentOutputPath = await SaveDeploymentEvidenceAsync(deploymentResults, deploymentStatus);
+        DeploymentOutputPath = await SaveDeploymentEvidenceAsync(deploymentResults, deploymentStatus, DeploymentArtifactPath);
         OnPropertyChanged(nameof(ValidationTargetDetails));
         FooterStatus = deploymentStatus switch
         {
@@ -2393,9 +2451,79 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SaveWizardState();
     }
 
+    private async Task WriteDeploymentApprovalManifestAsync()
+    {
+        if (_config is null)
+        {
+            throw new InvalidOperationException("A customer package must be loaded before writing deployment approval.");
+        }
+
+        var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
+        var result = await _deploymentApprovalManifestService.CreateAsync(
+            _config,
+            new DeploymentApprovalManifestRequest
+            {
+                OutputRoot = outputRoot,
+                InstallerVersion = InstallerVersion,
+                WorkflowMode = _workflowMode,
+                PackagePath = PackagePath,
+                PackageExportId = PackageExportId,
+                PackageTrustStatus = PackageTrustStatus,
+                PackageTrustSummary = PackageTrustSummary,
+                PackageDeclaredHash = PackageDeclaredHash,
+                PackageComputedHash = PackageComputedHash,
+                PreviewStatus = _lastPreviewStatus.ToString(),
+                PreviewSummary = PreviewSummary,
+                PreviewEvidencePath = GetApprovalPreviewEvidencePath(),
+                PreviewResultCount = PreviewResults.Count,
+                PreviewWarningCount = PreviewResults.Count(result => ParseInstallStatus(result.StatusLabel) == InstallStatus.Warning),
+                PreviewFailureCount = PreviewResults.Count(result => ParseInstallStatus(result.StatusLabel) == InstallStatus.Failed),
+                ApprovalConfirmed = DeploymentApprovalConfirmed,
+                ConfirmationTarget = DeploymentConfirmationTarget,
+                ConfirmationMatched = IsDeploymentConfirmationValid(),
+                Acknowledgements = CreateDeploymentApprovalAcknowledgements()
+            });
+
+        DeploymentApprovalManifestId = result.ApprovalId;
+        DeploymentApprovalManifestPath = result.ManifestPath;
+        DeploymentApprovalSummary = result.Summary;
+    }
+
+    private List<DeploymentApprovalAcknowledgement> CreateDeploymentApprovalAcknowledgements()
+    {
+        return
+        [
+            new()
+            {
+                Code = "PreviewReviewed",
+                Summary = $"Deployment preview was reviewed with status {_lastPreviewStatus}.",
+                Accepted = true
+            },
+            new()
+            {
+                Code = "PackageTrustReviewed",
+                Summary = $"Package trust status was reviewed as {PackageTrustStatus}.",
+                Accepted = true
+            },
+            new()
+            {
+                Code = "TargetConfirmed",
+                Summary = $"Deployment target {DeploymentConfirmationTarget} was confirmed without storing raw typed text.",
+                Accepted = true
+            },
+            new()
+            {
+                Code = "DeploymentApproved",
+                Summary = "Approved deployment execution after preview review.",
+                Accepted = true
+            }
+        ];
+    }
+
     private async Task<string> SaveDeploymentEvidenceAsync(
         IReadOnlyList<InstallerStepResult> deploymentResults,
-        InstallStatus deploymentStatus)
+        InstallStatus deploymentStatus,
+        string deploymentArtifactPath)
     {
         if (_session is null)
         {
@@ -2414,11 +2542,17 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             deployedAt = DateTimeOffset.UtcNow,
             previewStatus = _lastPreviewStatus.ToString(),
             previewEvidencePath = PreviewOutputPath,
+            azureWhatIfArtifactPath = PreviewArtifactPath,
+            azureDeploymentArtifactPath = deploymentArtifactPath,
             approval = new
             {
                 approved = DeploymentApprovalConfirmed,
                 confirmationTarget = DeploymentConfirmationTarget,
-                confirmationText = DeploymentConfirmationText,
+                confirmationMatched = IsDeploymentConfirmationValid(),
+                rawConfirmationTextPersisted = false,
+                approvalManifestId = DeploymentApprovalManifestId,
+                approvalManifestPath = DeploymentApprovalManifestPath,
+                approvalSummary = DeploymentApprovalSummary,
                 approvedAt = DateTimeOffset.UtcNow
             },
             target = new
@@ -2485,10 +2619,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         _lastDeploymentStatus = InstallStatus.NotStarted;
         DeploymentResults.Clear();
+        DeploymentArtifactPath = "Not created";
         DeploymentApprovalConfirmed = false;
         DeploymentConfirmationText = "";
+        ClearDeploymentApprovalManifestState();
         ClearValidationReview();
         RefreshDeploymentReadiness();
+    }
+
+    private void ClearDeploymentApprovalManifestState()
+    {
+        DeploymentApprovalManifestId = "";
+        DeploymentApprovalManifestPath = "Not created";
+        DeploymentApprovalSummary = "No deployment approval manifest created.";
     }
 
     private void RefreshDeploymentReadiness()
@@ -2758,8 +2901,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 PackagePath = PackagePath,
                 PreviewStatus = _lastPreviewStatus.ToString(),
                 PreviewEvidencePath = PreviewOutputPath,
+                PreviewArtifactPath = PreviewArtifactPath,
+                ApprovalManifestPath = DeploymentApprovalManifestPath,
                 DeploymentStatus = _lastDeploymentStatus.ToString(),
                 DeploymentEvidencePath = DeploymentOutputPath,
+                DeploymentArtifactPath = DeploymentArtifactPath,
                 ValidationStatus = _lastValidationStatus.ToString(),
                 ValidationEvidencePath = ValidationOutputPath,
                 FinalStatus = GetFinalStatusLabel()
@@ -3415,6 +3561,44 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         return EnumerateCandidateRoots().FirstOrDefault(root => Directory.Exists(Path.Combine(root, "samples")))
             ?? Environment.CurrentDirectory;
+    }
+
+    private static string GetArtifactPathFromResults(IEnumerable<InstallerStepResult> results, string fallbackPath)
+    {
+        var artifactPath = results
+            .Select(result => result.Data.TryGetValue("artifactPath", out var value) ? value : "")
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+        return NormalizeArtifactPath(artifactPath, fallbackPath);
+    }
+
+    private static string NormalizeArtifactPath(string? artifactPath, string fallbackPath)
+    {
+        var value = artifactPath?.Trim().Trim('"') ?? "";
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return File.Exists(fallbackPath) ? fallbackPath : "Not created";
+    }
+
+    private string PrepareArtifactOutputPath(string phaseDirectory, string fileName)
+    {
+        var directory = Path.Combine(GetWorkspaceRoot(), "support-bundle", phaseDirectory);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, fileName);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        return path;
+    }
+
+    private string GetApprovalPreviewEvidencePath()
+    {
+        return File.Exists(PreviewArtifactPath) ? PreviewArtifactPath : PreviewOutputPath;
     }
 
     private static CustomerInstallConfig CreateFallbackConfig()

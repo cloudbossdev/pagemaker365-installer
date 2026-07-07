@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PageMaker365.Installer.Engine.Models;
@@ -31,6 +32,8 @@ internal static class Program
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
+            ("DeploymentApprovalManifestService writes hash without raw confirmation", DeploymentApprovalManifestServiceWritesHashWithoutRawConfirmation),
+            ("FinalEvidenceService copies approval and Azure artifacts", FinalEvidenceServiceCopiesApprovalAndAzureArtifacts),
             ("PowerShellProcessRunner returns failed result on timeout", PowerShellProcessRunnerReturnsFailedResultOnTimeout),
             ("PowerShellProcessRunner returns failed result on cancellation", PowerShellProcessRunnerReturnsFailedResultOnCancellation),
             ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
@@ -511,6 +514,109 @@ internal static class Program
         }
 
         return Task.CompletedTask;
+    }
+
+    private static async Task DeploymentApprovalManifestServiceWritesHashWithoutRawConfirmation()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var previewPath = Path.Combine(workspaceRoot, "azure-whatif.json");
+            await File.WriteAllTextAsync(previewPath, """{"artifactType":"PageMaker365.AzureWhatIf","status":"Passed"}""");
+            var previewHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(previewPath))).ToLowerInvariant();
+            var config = CreateConfig();
+
+            var result = await new DeploymentApprovalManifestService().CreateAsync(
+                config,
+                new DeploymentApprovalManifestRequest
+                {
+                    OutputRoot = workspaceRoot,
+                    InstallerVersion = "test-version",
+                    WorkflowMode = "Setup",
+                    PackagePath = "sample-package.json",
+                    PackageExportId = "export-001",
+                    PackageTrustStatus = "Hash verified",
+                    PackageTrustSummary = "Package hash matched.",
+                    PreviewStatus = "Passed",
+                    PreviewSummary = "Preview reviewed.",
+                    PreviewEvidencePath = previewPath,
+                    PreviewResultCount = 1,
+                    ApprovalConfirmed = true,
+                    ConfirmationTarget = config.Azure.ResourceGroupName,
+                    ConfirmationMatched = true
+                });
+
+            var manifestJson = await File.ReadAllTextAsync(result.ManifestPath);
+            AssertEx.True(File.Exists(result.ManifestPath), result.ManifestPath);
+            AssertEx.Equal("PageMaker365.DeploymentApproval", result.Manifest.ManifestType);
+            AssertEx.Equal(previewPath, result.Manifest.PreviewEvidence.Path);
+            AssertEx.Equal(previewHash, result.Manifest.PreviewEvidence.Hash);
+            AssertEx.True(result.Manifest.PreviewEvidence.EvidenceFileFound);
+            AssertEx.True(result.Manifest.ConfirmationSummary.Approved);
+            AssertEx.False(result.Manifest.ConfirmationSummary.RawConfirmationTextPersisted);
+            AssertEx.False(manifestJson.Contains("do-not-store-typed-confirmation", StringComparison.OrdinalIgnoreCase), manifestJson);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task FinalEvidenceServiceCopiesApprovalAndAzureArtifacts()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var previewReceiptPath = Path.Combine(workspaceRoot, "deployment-preview.json");
+            var previewArtifactPath = Path.Combine(workspaceRoot, "azure-whatif.json");
+            var approvalManifestPath = Path.Combine(workspaceRoot, "deployment-approval-manifest.json");
+            var deploymentReceiptPath = Path.Combine(workspaceRoot, "deployment-install.json");
+            var deploymentArtifactPath = Path.Combine(workspaceRoot, "azure-deployment.json");
+            var validationReceiptPath = Path.Combine(workspaceRoot, "deployment-validation.json");
+
+            await File.WriteAllTextAsync(previewReceiptPath, """{"previewStatus":"Passed"}""");
+            await File.WriteAllTextAsync(previewArtifactPath, """{"artifactType":"PageMaker365.AzureWhatIf"}""");
+            await File.WriteAllTextAsync(approvalManifestPath, """{"manifestType":"PageMaker365.DeploymentApproval"}""");
+            await File.WriteAllTextAsync(deploymentReceiptPath, """{"deploymentStatus":"Passed"}""");
+            await File.WriteAllTextAsync(deploymentArtifactPath, """{"artifactType":"PageMaker365.AzureDeployment"}""");
+            await File.WriteAllTextAsync(validationReceiptPath, """{"validationStatus":"Passed"}""");
+
+            var result = await new FinalEvidenceService().CreateAsync(
+                CreateConfig(),
+                new FinalEvidenceRequest
+                {
+                    OutputRoot = workspaceRoot,
+                    InstallerVersion = "test-version",
+                    PackagePath = "sample-package.json",
+                    PreviewStatus = "Passed",
+                    PreviewEvidencePath = previewReceiptPath,
+                    PreviewArtifactPath = previewArtifactPath,
+                    ApprovalManifestPath = approvalManifestPath,
+                    DeploymentStatus = "Passed",
+                    DeploymentEvidencePath = deploymentReceiptPath,
+                    DeploymentArtifactPath = deploymentArtifactPath,
+                    ValidationStatus = "Passed",
+                    ValidationEvidencePath = validationReceiptPath,
+                    FinalStatus = "Complete"
+                });
+
+            AssertEx.True(File.Exists(Path.Combine(result.EvidenceDirectory, "deployment-preview.json")));
+            AssertEx.True(File.Exists(Path.Combine(result.EvidenceDirectory, "azure-whatif.json")));
+            AssertEx.True(File.Exists(Path.Combine(result.EvidenceDirectory, "deployment-approval-manifest.json")));
+            AssertEx.True(File.Exists(Path.Combine(result.EvidenceDirectory, "deployment-install.json")));
+            AssertEx.True(File.Exists(Path.Combine(result.EvidenceDirectory, "azure-deployment.json")));
+            AssertEx.True(File.Exists(Path.Combine(result.EvidenceDirectory, "deployment-validation.json")));
+            AssertEx.True(File.Exists(result.BundlePath), result.BundlePath);
+
+            var finalManifest = await File.ReadAllTextAsync(result.ManifestPath);
+            AssertEx.StringContains(finalManifest, "artifactCopiedPath");
+            AssertEx.StringContains(finalManifest, "azure-whatif.json");
+            AssertEx.StringContains(finalManifest, "azure-deployment.json");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
     }
 
     private static async Task PowerShellProcessRunnerReturnsFailedResultOnTimeout()

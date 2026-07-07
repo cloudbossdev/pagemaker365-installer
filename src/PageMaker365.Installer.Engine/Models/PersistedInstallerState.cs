@@ -58,10 +58,15 @@ public sealed class PersistedInstallerState
     public string PreviewStatusBrush { get; set; } = "";
     public string PreviewSummary { get; set; } = "";
     public string PreviewOutputPath { get; set; } = "";
+    public string PreviewArtifactPath { get; set; } = "";
     public string DeploymentStatus { get; set; } = "";
     public string DeploymentStatusBrush { get; set; } = "";
     public string DeploymentSummary { get; set; } = "";
     public string DeploymentOutputPath { get; set; } = "";
+    public string DeploymentArtifactPath { get; set; } = "";
+    public string DeploymentApprovalManifestId { get; set; } = "";
+    public string DeploymentApprovalManifestPath { get; set; } = "";
+    public string DeploymentApprovalSummary { get; set; } = "";
     public string ValidationStatus { get; set; } = "";
     public string ValidationStatusBrush { get; set; } = "";
     public string ValidationSummary { get; set; } = "";
