@@ -15,6 +15,9 @@ Get-ChildItem -Path $repoRoot -Recurse -File -Include *.json |
         Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json | Out-Null
     }
 
+Write-Host 'Validating sample schemas...'
+& (Join-Path $repoRoot 'scripts\validate-schemas.ps1')
+
 Write-Host 'Checking onboarding discovery samples...'
 $bootstrapPath = Join-Path $repoRoot 'samples\contoso.onboarding.bootstrap.json'
 $discoveryPath = Join-Path $repoRoot 'samples\contoso.tenant.discovery.json'

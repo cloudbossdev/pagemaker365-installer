@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using PageMaker365.Installer.Engine.Models;
+using PageMaker365.Installer.Engine.PowerShell;
 using PageMaker365.Installer.Engine.Services;
 
 namespace PageMaker365.Installer.Engine.Tests;
@@ -30,6 +31,8 @@ internal static class Program
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
+            ("PowerShellProcessRunner returns failed result on timeout", PowerShellProcessRunnerReturnsFailedResultOnTimeout),
+            ("PowerShellProcessRunner returns failed result on cancellation", PowerShellProcessRunnerReturnsFailedResultOnCancellation),
             ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
             ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery),
             ("GraphDiscoveryService returns package fallback when module is missing", GraphDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
@@ -508,6 +511,54 @@ internal static class Program
         }
 
         return Task.CompletedTask;
+    }
+
+    private static async Task PowerShellProcessRunnerReturnsFailedResultOnTimeout()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var result = await new PowerShellProcessRunner().RunAsync(
+                "-NoLogo -NoProfile -NonInteractive -Command \"Write-Output 'before-timeout'; Start-Sleep -Seconds 10\"",
+                workspaceRoot,
+                timeout: TimeSpan.FromSeconds(2));
+
+            AssertEx.False(result.Succeeded);
+            AssertEx.True(result.TimedOut);
+            AssertEx.False(result.Canceled);
+            AssertEx.Equal(-1, result.ExitCode);
+            AssertEx.StringContains(result.StandardOutput, "before-timeout");
+            AssertEx.StringContains(result.StandardError, "timed out");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task PowerShellProcessRunnerReturnsFailedResultOnCancellation()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var result = await new PowerShellProcessRunner().RunAsync(
+                "-NoLogo -NoProfile -NonInteractive -Command \"Write-Output 'before-cancel'; Start-Sleep -Seconds 10\"",
+                workspaceRoot,
+                cancellation.Token,
+                timeout: TimeSpan.FromMinutes(1));
+
+            AssertEx.False(result.Succeeded);
+            AssertEx.False(result.TimedOut);
+            AssertEx.True(result.Canceled);
+            AssertEx.Equal(-2, result.ExitCode);
+            AssertEx.StringContains(result.StandardOutput, "before-cancel");
+            AssertEx.StringContains(result.StandardError, "canceled");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
     }
 
     private static async Task AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing()

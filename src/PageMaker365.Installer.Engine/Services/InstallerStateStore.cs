@@ -75,6 +75,44 @@ public sealed class InstallerStateStore
         return File.Exists(path) ? LoadFile(path) : null;
     }
 
+    public bool Delete(string stateId)
+    {
+        if (string.IsNullOrWhiteSpace(stateId))
+        {
+            return false;
+        }
+
+        var directory = Path.Combine(_rootDirectory, SafePathSegment(stateId));
+        var root = Path.GetFullPath(_rootDirectory);
+        var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        var target = Path.GetFullPath(directory);
+        if (!target.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!Directory.Exists(directory))
+        {
+            return false;
+        }
+
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     public IReadOnlyList<PersistedInstallerState> EnumerateStates()
     {
         if (!Directory.Exists(_rootDirectory))

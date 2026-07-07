@@ -97,6 +97,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private bool _canContinue;
     private bool _canGoBack;
     private bool _canGoNext;
+    private bool _workflowSelected;
+    private bool _hasRestorableSession;
+    private PersistedInstallerState? _pendingResumeState;
+    private string _resumeSessionSummary = "No saved installer session found.";
+    private string _resumeSessionDetails = "Start a new setup workflow to begin.";
+    private string _removalAvailabilityText = RemovalWorkflowEnabled()
+        ? "Removal workflow is enabled for this environment. Review inventory and preview output before approving cleanup."
+        : "Removal workflow is a design preview in this build and is disabled until backend cleanup commands are implemented.";
+    private string _removalWorkflowButtonText = RemovalWorkflowEnabled() ? "Use Removal Workflow" : "Removal Unavailable";
     private string _deploymentConfirmationText = "";
 
     public InstallerWizardViewModel()
@@ -135,8 +144,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         NextCommand = new RelayCommand(GoNextAsync, () => CanGoNext);
         GoToStepCommand = new RelayCommand(GoToStepAsync, CanGoToStep);
         GoHomeCommand = new RelayCommand(GoHomeAsync);
+        ResumeSessionCommand = new RelayCommand(ResumeSessionAsync, () => HasRestorableSession);
+        StartNewSessionCommand = new RelayCommand(StartNewSessionAsync);
+        ForgetResumeSessionCommand = new RelayCommand(ForgetResumeSessionAsync, () => HasRestorableSession);
         ConfigureSetupWorkflow();
-        RestoreMostRecentState();
+        _workflowSelected = false;
+        DetectRestorableState();
+        RefreshStepNavigation();
     }
 
     public string InstallerVersion => "Alpha scaffold 0.1";
@@ -178,6 +192,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand NextCommand { get; }
     public RelayCommand GoToStepCommand { get; }
     public RelayCommand GoHomeCommand { get; }
+    public RelayCommand ResumeSessionCommand { get; }
+    public RelayCommand StartNewSessionCommand { get; }
+    public RelayCommand ForgetResumeSessionCommand { get; }
 
     public void SaveCurrentState()
     {
@@ -588,25 +605,75 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public bool IsFinishStep => _currentStepNumber == 8;
     public bool IsSetupMode => _workflowMode == "Setup";
     public bool IsRemovalMode => _workflowMode == "Removal";
+    public bool IsWorkflowSelected => _workflowSelected;
+    public bool HasRestorableSession
+    {
+        get => _hasRestorableSession;
+        set => SetProperty(ref _hasRestorableSession, value);
+    }
+
+    public string ResumeSessionSummary
+    {
+        get => _resumeSessionSummary;
+        set => SetProperty(ref _resumeSessionSummary, value);
+    }
+
+    public string ResumeSessionDetails
+    {
+        get => _resumeSessionDetails;
+        set => SetProperty(ref _resumeSessionDetails, value);
+    }
+
+    public bool IsRemovalWorkflowAvailable => RemovalWorkflowEnabled();
+
+    public string RemovalAvailabilityText
+    {
+        get => _removalAvailabilityText;
+        set => SetProperty(ref _removalAvailabilityText, value);
+    }
+
+    public string RemovalWorkflowButtonText
+    {
+        get => _removalWorkflowButtonText;
+        set => SetProperty(ref _removalWorkflowButtonText, value);
+    }
 
     private Task SelectSetupModeAsync()
     {
         _stateId = InstallerStateStore.CreateStateId();
         _stateCreatedAt = DateTimeOffset.UtcNow;
         _stateCompleted = false;
+        _pendingResumeState = null;
+        HasRestorableSession = false;
         ConfigureSetupWorkflow();
+        _workflowSelected = true;
         FooterStatus = "Setup workflow selected. Continue to load the customer install package.";
+        OnPropertyChanged(nameof(IsWorkflowSelected));
+        RefreshStepNavigation();
         SaveWizardState();
         return Task.CompletedTask;
     }
 
     private Task SelectRemovalModeAsync()
     {
+        if (!IsRemovalWorkflowAvailable)
+        {
+            FooterStatus = "Removal workflow is disabled in this build. It will be enabled after inventory, preview, cleanup, and validation commands are implemented.";
+            AiTitle = "Removal workflow unavailable";
+            AiSummary = "This build can document the removal concept, but it should not be used as a customer uninstall tool yet.";
+            return Task.CompletedTask;
+        }
+
         _stateId = InstallerStateStore.CreateStateId();
         _stateCreatedAt = DateTimeOffset.UtcNow;
         _stateCompleted = false;
+        _pendingResumeState = null;
+        HasRestorableSession = false;
         ConfigureRemovalWorkflow();
+        _workflowSelected = true;
         FooterStatus = "Removal workflow selected. Continue to discover or load the existing PageMaker365 deployment.";
+        OnPropertyChanged(nameof(IsWorkflowSelected));
+        RefreshStepNavigation();
         SaveWizardState();
         return Task.CompletedTask;
     }
@@ -1289,7 +1356,6 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
-        SaveWizardState();
     }
 
     private Task GoBackAsync()
@@ -1305,6 +1371,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private Task GoNextAsync()
     {
+        if (!CanAdvanceFromCurrentStep())
+        {
+            FooterStatus = "Choose a workflow before continuing.";
+            return Task.CompletedTask;
+        }
+
         if (_currentStepNumber < _maxAccessibleStepNumber)
         {
             SetCurrentStep(_currentStepNumber + 1);
@@ -1316,7 +1388,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private Task GoToStepAsync(object? parameter)
     {
-        if (TryGetStepNumber(parameter, out var stepNumber) && stepNumber <= _maxAccessibleStepNumber)
+        if (TryGetStepNumber(parameter, out var stepNumber) && CanNavigateToStep(stepNumber))
         {
             SetCurrentStep(stepNumber);
             SaveWizardState();
@@ -1328,14 +1400,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private Task GoHomeAsync()
     {
         SetCurrentStep(1);
-        FooterStatus = "Choose setup or removal, then continue through the guided workflow.";
+        FooterStatus = _workflowSelected
+            ? "Review the selected workflow or choose a new workflow to restart this session."
+            : "Choose setup to continue through the guided workflow.";
         SaveWizardState();
         return Task.CompletedTask;
     }
 
     private bool CanGoToStep(object? parameter)
     {
-        return TryGetStepNumber(parameter, out var stepNumber) && stepNumber <= _maxAccessibleStepNumber;
+        return TryGetStepNumber(parameter, out var stepNumber) && CanNavigateToStep(stepNumber);
     }
 
     private static bool TryGetStepNumber(object? parameter, out int stepNumber)
@@ -1364,13 +1438,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         foreach (var step in Steps)
         {
-            step.IsAccessible = step.Number <= _maxAccessibleStepNumber;
+            step.IsAccessible = step.Number <= _maxAccessibleStepNumber && (step.Number == 1 || _workflowSelected);
             step.IsCurrent = step.Number == _currentStepNumber;
             RefreshStepStatusForNavigation(step);
         }
 
         CanGoBack = _currentStepNumber > 1;
-        CanGoNext = _currentStepNumber < _maxAccessibleStepNumber;
+        CanGoNext = _currentStepNumber < _maxAccessibleStepNumber && CanAdvanceFromCurrentStep();
         NextButtonText = _currentStepNumber switch
         {
             4 when IsSetupMode => "Continue to Preview",
@@ -1404,6 +1478,23 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsFinishStep));
         OnPropertyChanged(nameof(IsSetupMode));
         OnPropertyChanged(nameof(IsRemovalMode));
+        OnPropertyChanged(nameof(IsWorkflowSelected));
+        OnPropertyChanged(nameof(IsRemovalWorkflowAvailable));
+    }
+
+    private bool CanNavigateToStep(int stepNumber)
+    {
+        if (stepNumber < 1 || stepNumber > _maxAccessibleStepNumber)
+        {
+            return false;
+        }
+
+        return stepNumber == 1 || _workflowSelected;
+    }
+
+    private bool CanAdvanceFromCurrentStep()
+    {
+        return _currentStepNumber != 1 || _workflowSelected;
     }
 
     private void ConfigureSetupWorkflow()
@@ -1517,23 +1608,96 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
     }
 
-    private void RestoreMostRecentState()
+    private void DetectRestorableState()
     {
         var state = _stateStore.LoadMostRecentActive();
         if (state is null)
         {
+            HasRestorableSession = false;
+            ResumeSessionSummary = "No saved installer session found.";
+            ResumeSessionDetails = "Start a new setup workflow to begin.";
+            ResumeSessionCommand.RaiseCanExecuteChanged();
+            ForgetResumeSessionCommand.RaiseCanExecuteChanged();
             return;
+        }
+
+        _pendingResumeState = state;
+        HasRestorableSession = true;
+        ResumeSessionSummary = $"Saved {WorkflowLabel(state.WorkflowMode)} session for {SavedOrDefault(state.CustomerName, "unknown customer")}.";
+        ResumeSessionDetails = $"Step {state.CurrentStepNumber}; last saved {state.SavedAt.LocalDateTime:g}; package {SavedOrDefault(Path.GetFileName(state.PackagePath), "not loaded")}.";
+        FooterStatus = "A previous active session was found. Resume it, start a new session, or forget it before continuing.";
+        ResumeSessionCommand.RaiseCanExecuteChanged();
+        ForgetResumeSessionCommand.RaiseCanExecuteChanged();
+    }
+
+    private Task ResumeSessionAsync()
+    {
+        if (_pendingResumeState is null)
+        {
+            DetectRestorableState();
+            return Task.CompletedTask;
+        }
+
+        if (_pendingResumeState.WorkflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) && !IsRemovalWorkflowAvailable)
+        {
+            FooterStatus = "The saved session uses the disabled removal workflow. Start a new setup session or forget the saved removal session.";
+            return Task.CompletedTask;
         }
 
         _isRestoringState = true;
         try
         {
-            ApplyPersistedState(state);
+            ApplyPersistedState(_pendingResumeState);
+            _workflowSelected = true;
+            HasRestorableSession = false;
+            _pendingResumeState = null;
+            OnPropertyChanged(nameof(IsWorkflowSelected));
+            ResumeSessionCommand.RaiseCanExecuteChanged();
+            ForgetResumeSessionCommand.RaiseCanExecuteChanged();
         }
         finally
         {
             _isRestoringState = false;
         }
+
+        RefreshStepNavigation();
+        return Task.CompletedTask;
+    }
+
+    private Task StartNewSessionAsync()
+    {
+        _pendingResumeState = null;
+        HasRestorableSession = false;
+        _stateId = InstallerStateStore.CreateStateId();
+        _stateCreatedAt = DateTimeOffset.UtcNow;
+        _stateCompleted = false;
+        ConfigureSetupWorkflow();
+        _workflowSelected = false;
+        ResumeSessionSummary = "No saved installer session selected.";
+        ResumeSessionDetails = "Choose setup to begin a new customer session.";
+        FooterStatus = "Started a new installer session. Choose setup to continue.";
+        OnPropertyChanged(nameof(IsWorkflowSelected));
+        RefreshStepNavigation();
+        ResumeSessionCommand.RaiseCanExecuteChanged();
+        ForgetResumeSessionCommand.RaiseCanExecuteChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task ForgetResumeSessionAsync()
+    {
+        if (_pendingResumeState is not null)
+        {
+            _stateStore.Delete(_pendingResumeState.StateId);
+        }
+
+        _pendingResumeState = null;
+        HasRestorableSession = false;
+        ResumeSessionSummary = "Saved installer session forgotten.";
+        ResumeSessionDetails = "Choose setup to begin a new customer session.";
+        FooterStatus = "Saved session was forgotten locally. No customer tenant resources were changed.";
+        ResumeSessionCommand.RaiseCanExecuteChanged();
+        ForgetResumeSessionCommand.RaiseCanExecuteChanged();
+        return Task.CompletedTask;
     }
 
     private void ApplyPersistedState(PersistedInstallerState state)
@@ -1550,6 +1714,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _stateId = string.IsNullOrWhiteSpace(state.StateId) ? InstallerStateStore.CreateStateId() : state.StateId;
         _stateCreatedAt = state.CreatedAt == default ? state.SavedAt : state.CreatedAt;
         _stateCompleted = state.IsCompleted;
+        _workflowSelected = state.WorkflowSelected || state.CurrentStepNumber > 1 || state.Config is not null || state.InstallerSession is not null || state.TenantDiscovery is not null;
         _bootstrapSourcePath = state.BootstrapSourcePath;
         _config = state.Config ?? TryLoadConfig(state.PackagePath);
         _session = state.InstallerSession;
@@ -1664,6 +1829,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _tenantDiscovery is not null ||
             _session is not null ||
             _currentStepNumber > 1 ||
+            _workflowSelected ||
             _workflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) ||
             !PackagePath.Equals("No customer package loaded.", StringComparison.OrdinalIgnoreCase);
     }
@@ -1677,6 +1843,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             CompletedAt = markCompleted || _stateCompleted ? DateTimeOffset.UtcNow : null,
             IsCompleted = markCompleted || _stateCompleted,
             WorkflowMode = _workflowMode,
+            WorkflowSelected = _workflowSelected,
             CurrentStepNumber = _currentStepNumber,
             MaxAccessibleStepNumber = _maxAccessibleStepNumber,
             Steps = Steps.Select(step => new PersistedInstallerStepState
@@ -1887,6 +2054,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string WorkflowModeLabel()
     {
         return _workflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) ? "removal" : "setup";
+    }
+
+    private static string WorkflowLabel(string workflowMode)
+    {
+        return workflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) ? "removal" : "setup";
+    }
+
+    private static bool RemovalWorkflowEnabled()
+    {
+        return bool.TryParse(Environment.GetEnvironmentVariable("PM365_ENABLE_REMOVAL_WORKFLOW"), out var enabled) && enabled;
     }
 
     private static string SavedOrDefault(string value, string fallback)
@@ -2434,6 +2611,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
     }
 
     private async Task<string> SaveValidationEvidenceAsync(

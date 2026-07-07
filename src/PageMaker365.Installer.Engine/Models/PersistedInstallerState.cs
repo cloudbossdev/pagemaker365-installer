@@ -9,6 +9,7 @@ public sealed class PersistedInstallerState
     public DateTimeOffset? CompletedAt { get; set; }
     public bool IsCompleted { get; set; }
     public string WorkflowMode { get; set; } = "Setup";
+    public bool WorkflowSelected { get; set; }
     public int CurrentStepNumber { get; set; } = 1;
     public int MaxAccessibleStepNumber { get; set; } = 2;
     public List<PersistedInstallerStepState> Steps { get; set; } = [];
