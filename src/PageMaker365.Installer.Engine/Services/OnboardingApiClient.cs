@@ -392,23 +392,11 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
 
     private static void ValidateStatusJson(Uri endpoint, JsonElement root)
     {
-        EnsureRequiredJsonFields(
-            "status check",
-            endpoint,
-            root,
-            "status",
-            "sessionId",
-            "correlationId",
-            "packageReadiness",
-            "packageReadiness.status");
-
-        if (TryGetJsonPath(root, "packageReadiness.status", out var readinessStatus) &&
-            readinessStatus.ValueKind == JsonValueKind.String &&
-            readinessStatus.GetString()?.Equals("Ready", StringComparison.OrdinalIgnoreCase) == true &&
-            IsJsonPathMissingOrBlank(root, "packageReadiness.packageDownloadUrl"))
+        var validation = RuntimeContractValidator.ValidateOnboardingStatusJson(root);
+        if (!validation.IsValid)
         {
             throw new OnboardingApiException(
-                "Portal onboarding API status check response is missing required field(s): packageReadiness.packageDownloadUrl.",
+                $"Portal onboarding API status check response failed validation: missing required field(s) or invalid field(s): {string.Join(" ", validation.Errors)}",
                 endpoint);
         }
     }

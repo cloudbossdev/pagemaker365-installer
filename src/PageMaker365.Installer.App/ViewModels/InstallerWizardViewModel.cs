@@ -1315,7 +1315,20 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private async Task<bool> LoadPackageAsync(string path)
     {
         var packageJson = await File.ReadAllTextAsync(path);
-        var config = await _configService.LoadAsync(path);
+        CustomerInstallConfig config;
+        try
+        {
+            config = await _configService.LoadAsync(path);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or JsonException)
+        {
+            var loadValidation = new ConfigValidationResult();
+            loadValidation.Errors.Add(exception.Message);
+            ApplyPackageTrustReview(loadValidation);
+            FooterStatus = exception.Message;
+            return false;
+        }
+
         var validation = _configService.Validate(config, packageJson);
         if (!validation.IsValid)
         {

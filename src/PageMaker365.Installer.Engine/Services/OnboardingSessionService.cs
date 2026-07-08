@@ -13,8 +13,15 @@ public sealed class OnboardingSessionService
 
     public async Task<OnboardingBootstrapSession> LoadBootstrapAsync(string path, CancellationToken cancellationToken = default)
     {
-        await using var stream = File.OpenRead(path);
-        var session = await JsonSerializer.DeserializeAsync<OnboardingBootstrapSession>(stream, JsonOptions, cancellationToken);
+        var json = await File.ReadAllTextAsync(path, cancellationToken);
+        var contractValidation = RuntimeContractValidator.ValidateBootstrapJson(json);
+        if (!contractValidation.IsValid)
+        {
+            throw new InvalidDataException("The onboarding bootstrap session failed contract validation: " +
+                string.Join(" ", contractValidation.Errors));
+        }
+
+        var session = JsonSerializer.Deserialize<OnboardingBootstrapSession>(json, JsonOptions);
         return session ?? throw new InvalidOperationException("The onboarding bootstrap session could not be read.");
     }
 

@@ -125,6 +125,8 @@ Needs customer: no.
 
 #### Slice 1.2 - Runtime Schema Validation
 
+Status: completed in engine runtime validation, status schema, sample schema verification, and engine tests.
+
 Scope:
 
 - Add runtime validation for bootstrap session, onboarding status/readiness, and customer install package.
@@ -574,25 +576,26 @@ These decisions should be made before the related phase becomes blocking:
 
 ## Recommended Next Coding Slice
 
-Start with Phase 1, Slice 1.2: Runtime Schema Validation.
+Start with Phase 1, Slice 1.3: Package Provenance Binding.
 
 Reason:
 
 - It does not require production credentials.
-- It hardens portal/package boundaries before sandbox deployment.
-- It reduces the chance that malformed portal responses mutate installer state.
-- It gives the portal agent exact schemas to satisfy.
-- It can be tested locally with fake clients and malformed JSON fixtures.
+- It is the last local contract-hardening slice before Azure deployment work.
+- It prevents packages for the wrong session, tenant, or discovery export from being accepted.
+- It gives the portal agent exact metadata rules for generated install packages.
+- It can be tested locally with mismatched package fixtures and fake portal responses.
 
 Suggested subagent use:
 
-- Worker A owns engine tests for malformed bootstrap/status/package payloads.
-- Coordinator owns runtime validation integration in installer services.
-- Optional docs worker updates `docs/onboarding-discovery-contract.md` after implementation.
+- Worker A owns engine tests for session, tenant, discovery, and export mismatches.
+- Coordinator owns package validation integration in `CustomerConfigService` and installer package-load paths.
+- Optional docs worker updates package provenance requirements after implementation.
 
 Definition of done:
 
-- Malformed bootstrap/status/package payloads fail before state mutation.
+- Mismatched generated packages fail before package state changes.
+- Valid generated packages with matching provenance still load.
 - Valid sample payloads still work.
 - App tests and engine tests pass.
 - `scripts/verify.ps1` or equivalent test/build path passes.

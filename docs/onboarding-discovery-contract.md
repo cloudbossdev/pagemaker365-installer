@@ -227,6 +227,8 @@ The installer rejects responses that omit these fields or return a different `se
 
 ### Onboarding Status / Package Readiness
 
+Schema: `schemas/onboarding-status.schema.json`
+
 Sample: `samples/contoso.onboarding.status.json`
 
 The status endpoint should tell the installer whether the portal has enough customer/onboarding data to generate the final install package.

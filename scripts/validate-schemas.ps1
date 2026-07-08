@@ -46,6 +46,10 @@ $validations = @(
         Schema = 'schemas\onboarding-bootstrap.schema.json'
     },
     @{
+        Sample = 'samples\contoso.onboarding.status.json'
+        Schema = 'schemas\onboarding-status.schema.json'
+    },
+    @{
         Sample = 'samples\contoso.tenant.discovery.json'
         Schema = 'schemas\tenant-discovery.schema.json'
     }

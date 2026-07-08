@@ -23,11 +23,17 @@ internal static class Program
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync sanitizes unsafe content disposition filename", DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename),
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
+            ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
+            ("OnboardingSessionService validates sample bootstrap contract", OnboardingSessionServiceValidatesSampleBootstrapContract),
             ("ConnectAsync rejects invalid portal response", ConnectAsyncRejectsInvalidPortalResponse),
+            ("GetOnboardingStatusAsync rejects status missing readiness status", GetOnboardingStatusAsyncRejectsStatusMissingReadinessStatus),
             ("GetOnboardingStatusAsync rejects ready status without package URL", GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl),
+            ("GetOnboardingStatusAsync rejects status session mismatch", GetOnboardingStatusAsyncRejectsStatusSessionMismatch),
+            ("GetOnboardingStatusAsync validates sample status contract", GetOnboardingStatusAsyncValidatesSampleStatusContract),
             ("ConnectAsync surfaces portal API error details", ConnectAsyncSurfacesPortalApiErrorDetails),
             ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
             ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
+            ("DownloadPackageAsync rejects generated package missing required contract sections", DownloadPackageAsyncRejectsGeneratedPackageMissingRequiredContractSections),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
             ("ConnectAsync does not fall back to mock for invalid portal response", ConnectAsyncDoesNotFallBackToMockForInvalidPortalResponse),
             ("CustomerConfigService verifies matching package hash", CustomerConfigServiceVerifiesMatchingPackageHash),
@@ -379,6 +385,41 @@ internal static class Program
         }
     }
 
+    private static Task OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields()
+    {
+        var session = new OnboardingBootstrapSession
+        {
+            SessionId = "",
+            CustomerName = "Example Customer",
+            PortalBaseUrl = "not-a-url",
+            ApiBaseUrl = "",
+            OneTimeCode = "",
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
+        };
+
+        var result = new OnboardingSessionService().Validate(session);
+        var errors = string.Join(" ", result.Errors);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(errors, "Onboarding session ID is required");
+        AssertEx.StringContains(errors, "API base URL is required");
+        AssertEx.StringContains(errors, "One-time onboarding code is required");
+        AssertEx.StringContains(errors, "Portal base URL must be an absolute URL");
+        return Task.CompletedTask;
+    }
+
+    private static async Task OnboardingSessionServiceValidatesSampleBootstrapContract()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "samples", "contoso.onboarding.bootstrap.json");
+        var session = await new OnboardingSessionService().LoadBootstrapAsync(path);
+
+        var result = new OnboardingSessionService().Validate(session);
+
+        AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
+        AssertEx.Equal("onb_contoso_sandbox_001", session.SessionId);
+        AssertEx.True(session.AllowsOperation(OnboardingOperation.InstallStatusSync));
+    }
+
     private static async Task ConnectAsyncRejectsInvalidPortalResponse()
     {
         var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""{"status":"Connected"}"""));
@@ -389,6 +430,33 @@ internal static class Program
         AssertEx.StringContains(exception.Message, "missing required field");
         AssertEx.StringContains(exception.Message, "sessionId");
         AssertEx.StringContains(exception.Message, "correlationId");
+    }
+
+    private static async Task GetOnboardingStatusAsyncRejectsStatusMissingReadinessStatus()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "0.1",
+              "sessionId": "onb_test_001",
+              "customerName": "Example Customer",
+              "status": "Pending",
+              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "correlationId": "corr-status-missing-readiness",
+              "message": "Package generation is queued.",
+              "missingFields": [],
+              "packageReadiness": {
+                "packageVersion": "0.2-test",
+                "message": "Queued"
+              }
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.GetOnboardingStatusAsync(CreateSession(), CreateDiscovery(), CreateConfig()));
+
+        AssertEx.StringContains(exception.Message, "missing required field");
+        AssertEx.StringContains(exception.Message, "packageReadiness.status");
     }
 
     private static async Task GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl()
@@ -416,6 +484,52 @@ internal static class Program
             client.GetOnboardingStatusAsync(CreateSession(), CreateDiscovery(), CreateConfig()));
 
         AssertEx.StringContains(exception.Message, "packageReadiness.packageDownloadUrl");
+    }
+
+    private static async Task GetOnboardingStatusAsyncRejectsStatusSessionMismatch()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "0.1",
+              "sessionId": "onb_test_other",
+              "customerName": "Example Customer",
+              "status": "Ready",
+              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_other",
+              "correlationId": "corr-status-mismatch",
+              "message": "Ready",
+              "missingFields": [],
+              "packageReadiness": {
+                "status": "Ready",
+                "packageVersion": "0.2-test",
+                "packageDownloadUrl": "https://api.example.test/api/onboarding/installer/onb_test_other/install-package",
+                "message": "Ready for download"
+              }
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.GetOnboardingStatusAsync(CreateSession(), CreateDiscovery(), CreateConfig()));
+
+        AssertEx.StringContains(exception.Message, "returned session 'onb_test_other'");
+        AssertEx.StringContains(exception.Message, "expected session 'onb_test_001'");
+    }
+
+    private static async Task GetOnboardingStatusAsyncValidatesSampleStatusContract()
+    {
+        var root = FindRepositoryRoot();
+        var session = await new OnboardingSessionService().LoadBootstrapAsync(
+            Path.Combine(root, "samples", "contoso.onboarding.bootstrap.json"));
+        var statusJson = await File.ReadAllTextAsync(Path.Combine(root, "samples", "contoso.onboarding.status.json"));
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse(statusJson));
+        var client = CreatePortalClient(handler);
+
+        var status = await client.GetOnboardingStatusAsync(session, discovery: null, config: null);
+
+        AssertEx.Equal("Ready", status.Status);
+        AssertEx.Equal(session.SessionId, status.SessionId);
+        AssertEx.Equal("Ready", status.PackageReadiness.Status);
+        AssertEx.Equal("0.2-mock", status.PackageReadiness.PackageVersion);
     }
 
     private static async Task ConnectAsyncSurfacesPortalApiErrorDetails()
@@ -477,6 +591,60 @@ internal static class Program
 
             AssertEx.StringContains(exception.Message, "failed validation");
             AssertEx.StringContains(exception.Message, "Azure subscription ID is required");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRejectsGeneratedPackageMissingRequiredContractSections()
+    {
+        var json = """
+            {
+              "contractVersion": "0.2",
+              "customer": {
+                "tenantName": "Example Customer",
+                "tenantId": "tenant-001",
+                "primaryContact": "owner@example.test"
+              },
+              "azure": {
+                "tenantId": "tenant-001",
+                "subscriptionId": "sub-001",
+                "location": "eastus",
+                "resourceGroupName": "rg-pm365-example",
+                "environment": "test"
+              },
+              "sharePoint": {
+                "siteUrl": "https://example.sharepoint.com/sites/intranet",
+                "defaultDocumentLibrary": "Documents",
+                "permissionMode": "SitesSelected"
+              },
+              "app": {
+                "appName": "PageMaker365",
+                "supportEmail": "support@example.test"
+              },
+              "controlPlane": {
+                "deploymentExportId": "export-001",
+                "trustMode": "UnsignedAllowed"
+              }
+            }
+            """;
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "failed validation");
+            AssertEx.StringContains(exception.Message, "features is required");
+            AssertEx.False(Directory.Exists(Path.Combine(workspaceRoot, "support-bundle", "onboarding", "onb_test_001", "generated-package")));
         }
         finally
         {

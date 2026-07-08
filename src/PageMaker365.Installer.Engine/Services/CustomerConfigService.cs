@@ -31,8 +31,15 @@ public sealed class CustomerConfigService
 
     public async Task<CustomerInstallConfig> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
-        await using var stream = File.OpenRead(path);
-        var config = await JsonSerializer.DeserializeAsync<CustomerInstallConfig>(stream, JsonOptions, cancellationToken);
+        var packageJson = await File.ReadAllTextAsync(path, cancellationToken);
+        var contractValidation = RuntimeContractValidator.ValidateCustomerInstallPackageJson(packageJson);
+        if (!contractValidation.IsValid)
+        {
+            throw new InvalidDataException("The customer install package failed contract validation: " +
+                string.Join(" ", contractValidation.Errors));
+        }
+
+        var config = JsonSerializer.Deserialize<CustomerInstallConfig>(packageJson, JsonOptions);
         return config ?? throw new InvalidOperationException("The customer install package could not be read.");
     }
 
@@ -63,8 +70,19 @@ public sealed class CustomerConfigService
             result.Errors.Add("SharePoint site URL must be an absolute URL.");
         }
 
+        if (!string.IsNullOrWhiteSpace(packageJson))
+        {
+            var contractValidation = RuntimeContractValidator.ValidateCustomerInstallPackageJson(packageJson);
+            result.Errors.AddRange(contractValidation.Errors);
+            result.Warnings.AddRange(contractValidation.Warnings);
+            ValidateSecretContainers(packageJson, result);
+            if (!contractValidation.IsValid)
+            {
+                return result;
+            }
+        }
+
         ValidateRequiredPackageProperties(packageJson, result);
-        ValidateSecretContainers(packageJson, result);
         ValidatePackageTrust(config, packageJson, result);
 
         return result;
