@@ -47,7 +47,6 @@ Goal: replace the placeholder Bicep entry point with deployable customer runtime
 - [x] Add deployment outputs consumed by smoke tests.
 - [x] Decide whether installer creates the resource group or requires a pre-existing resource group.
 - [ ] Run `Invoke-PM365WhatIf` against a real sandbox subscription.
-  - Blocked until `rg-pagemaker365-cloudboss-sandbox` exists.
   - Blocked until a real CloudBoss `customer-install` package is downloaded from the portal `install-package` endpoint.
 
 Acceptance criteria:
