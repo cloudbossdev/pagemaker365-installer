@@ -13,6 +13,21 @@ public sealed class OnboardingBootstrapSession
     public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.UtcNow.AddHours(8);
     public List<string> AllowedOperations { get; set; } = [];
     public DiscoveryPolicy DiscoveryPolicy { get; set; } = new();
+
+    public bool AllowsOperation(string operation)
+    {
+        return AllowedOperations.Any(allowed =>
+            allowed.Equals(operation, StringComparison.OrdinalIgnoreCase));
+    }
+}
+
+public static class OnboardingOperation
+{
+    public const string TenantDiscovery = "TenantDiscovery";
+    public const string InstallPackageGeneration = "InstallPackageGeneration";
+    public const string InstallStatusSync = "InstallStatusSync";
+    public const string RemovalDiscovery = "RemovalDiscovery";
+    public const string RemovalStatusSync = "RemovalStatusSync";
 }
 
 public sealed class DiscoveryPolicy

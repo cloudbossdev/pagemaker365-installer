@@ -25,7 +25,7 @@ Goal: make the customer install package deterministic enough for the installer a
 - [x] Add signed export metadata fields and immutable export ID to the installer contract.
 - [ ] Add package hash generation in the control plane export.
 - [ ] Add cryptographic signature verification.
-- [ ] Enforce bootstrap operation policy in installer commands.
+- [x] Enforce bootstrap operation policy in installer commands.
 - [ ] Add runtime schema validation for bootstrap, readiness/status, and generated packages.
 - [ ] Bind generated package provenance to onboarding session, discovery, tenant, and export metadata.
 

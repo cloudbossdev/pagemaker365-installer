@@ -97,6 +97,8 @@ Owner pattern: one coordinator plus one worker for engine tests and one worker f
 
 #### Slice 1.1 - Bootstrap Policy Enforcement
 
+Status: completed in installer code and app tests.
+
 Scope:
 
 - Enforce `allowedOperations`.
@@ -572,26 +574,25 @@ These decisions should be made before the related phase becomes blocking:
 
 ## Recommended Next Coding Slice
 
-Start with Phase 1, Slice 1.1: Bootstrap Policy Enforcement.
+Start with Phase 1, Slice 1.2: Runtime Schema Validation.
 
 Reason:
 
 - It does not require production credentials.
-- It hardens an existing contract.
-- It reduces risk before real portal integration.
-- It gives the portal agent a clearer contract to satisfy.
-- It can be tested locally with fake clients and sample bootstrap files.
+- It hardens portal/package boundaries before sandbox deployment.
+- It reduces the chance that malformed portal responses mutate installer state.
+- It gives the portal agent exact schemas to satisfy.
+- It can be tested locally with fake clients and malformed JSON fixtures.
 
 Suggested subagent use:
 
-- Worker A owns engine/app tests for policy allowed/denied cases.
-- Coordinator owns `InstallerWizardViewModel.cs` integration to avoid overlap.
-- Optional explorer reviews schema/bootstrap policy docs after implementation.
+- Worker A owns engine tests for malformed bootstrap/status/package payloads.
+- Coordinator owns runtime validation integration in installer services.
+- Optional docs worker updates `docs/onboarding-discovery-contract.md` after implementation.
 
 Definition of done:
 
-- Policy-denied operations are blocked before network calls.
-- Allowed operations still work with existing samples.
+- Malformed bootstrap/status/package payloads fail before state mutation.
+- Valid sample payloads still work.
 - App tests and engine tests pass.
 - `scripts/verify.ps1` or equivalent test/build path passes.
-

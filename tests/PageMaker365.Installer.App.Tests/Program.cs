@@ -14,6 +14,10 @@ internal static class Program
         {
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("CheckPackageReadinessCommand applies portal status and missing fields", CheckPackageReadinessCommandAppliesPortalStatusAndMissingFields),
+            ("SyncDiscoveryCommand blocks portal sync when policy disallows portal sync", SyncDiscoveryCommandBlocksPortalSyncWhenPolicyDisallowsPortalSync),
+            ("CheckPackageReadinessCommand blocks portal status when policy disallows portal sync", CheckPackageReadinessCommandBlocksPortalStatusWhenPolicyDisallowsPortalSync),
+            ("DownloadGeneratedPackageCommand blocks package download when operation is not allowed", DownloadGeneratedPackageCommandBlocksPackageDownloadWhenOperationIsNotAllowed),
+            ("SyncDiscoveryCommand calls portal client when policy allows portal sync", SyncDiscoveryCommandCallsPortalClientWhenPolicyAllowsPortalSync),
             ("DownloadGeneratedPackageCommand loads downloaded portal package", DownloadGeneratedPackageCommandLoadsDownloadedPortalPackage),
             ("DownloadGeneratedPackageCommand rejects invalid downloaded package", DownloadGeneratedPackageCommandRejectsInvalidDownloadedPackage)
         };
@@ -85,6 +89,76 @@ internal static class Program
         AssertEx.Equal("SharePoint site URL", viewModel.PortalMissingFields[0].Label);
         AssertEx.True(viewModel.DownloadGeneratedPackageCommand.CanExecute(null), "Ready portal package should enable download.");
         AssertEx.True(File.Exists(viewModel.PortalStatusOutputPath), viewModel.PortalStatusOutputPath);
+    }
+
+    private static async Task SyncDiscoveryCommandBlocksPortalSyncWhenPolicyDisallowsPortalSync()
+    {
+        using var scope = TestScope.Create();
+        scope.WriteBootstrap(CreateBootstrap(allowPortalSync: false));
+        var client = new FakeOnboardingApiClient();
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.RunDiscoveryCommand.ExecuteAsync();
+        await viewModel.SyncDiscoveryCommand.ExecuteAsync();
+
+        AssertEx.Equal(0, client.SubmitDiscoveryCalls);
+        AssertEx.Equal(0, client.StatusCalls);
+        AssertEx.False(viewModel.SyncDiscoveryCommand.CanExecute(null), "Portal sync should be disabled when discoveryPolicy.allowPortalSync is false.");
+        AssertEx.StringContains(viewModel.PortalSyncStatus, "not allowed");
+    }
+
+    private static async Task CheckPackageReadinessCommandBlocksPortalStatusWhenPolicyDisallowsPortalSync()
+    {
+        using var scope = TestScope.Create();
+        scope.WriteBootstrap(CreateBootstrap(allowPortalSync: false));
+        var client = new FakeOnboardingApiClient();
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.CheckPackageReadinessCommand.ExecuteAsync();
+
+        AssertEx.Equal(0, client.StatusCalls);
+        AssertEx.Equal(0, client.SaveStatusCalls);
+        AssertEx.StringContains(viewModel.OnboardingStatus, "not allowed");
+        AssertEx.StringContains(viewModel.PackageReadinessStatus, "blocked");
+    }
+
+    private static async Task DownloadGeneratedPackageCommandBlocksPackageDownloadWhenOperationIsNotAllowed()
+    {
+        using var scope = TestScope.Create();
+        scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true, allowPackageGeneration: false));
+        var client = new FakeOnboardingApiClient();
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.CheckPackageReadinessCommand.ExecuteAsync();
+        await viewModel.DownloadGeneratedPackageCommand.ExecuteAsync();
+
+        AssertEx.Equal(1, client.StatusCalls);
+        AssertEx.Equal(0, client.DownloadCalls);
+        AssertEx.False(viewModel.DownloadGeneratedPackageCommand.CanExecute(null), "Package download should be disabled when InstallPackageGeneration is not allowed.");
+        AssertEx.StringContains(viewModel.PackageReadinessStatus, "blocked");
+    }
+
+    private static async Task SyncDiscoveryCommandCallsPortalClientWhenPolicyAllowsPortalSync()
+    {
+        using var scope = TestScope.Create();
+        scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient();
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.RunDiscoveryCommand.ExecuteAsync();
+        await viewModel.SyncDiscoveryCommand.ExecuteAsync();
+
+        AssertEx.Equal(1, client.SubmitDiscoveryCalls);
+        AssertEx.Equal(1, client.StatusCalls);
+        AssertEx.Equal("Ready", viewModel.PackageReadinessStatus);
     }
 
     private static async Task DownloadGeneratedPackageCommandLoadsDownloadedPortalPackage()
@@ -165,6 +239,26 @@ internal static class Program
                 Message = "Generated package is ready."
             }
         };
+    }
+
+    private static OnboardingBootstrapSession CreateBootstrap(bool allowPortalSync, bool allowPackageGeneration = true)
+    {
+        var session = OnboardingSessionService.CreateFallbackSession();
+        session.ExpiresAt = DateTimeOffset.UtcNow.AddDays(7);
+        session.DiscoveryPolicy.AllowPortalSync = allowPortalSync;
+        session.AllowedOperations.Clear();
+        session.AllowedOperations.Add("TenantDiscovery");
+
+        if (allowPortalSync)
+        {
+            session.AllowedOperations.Add("InstallStatusSync");
+            if (allowPackageGeneration)
+            {
+                session.AllowedOperations.Add("InstallPackageGeneration");
+            }
+        }
+
+        return session;
     }
 
     private static CustomerInstallConfig CreateConfig(string tenantName)
@@ -284,6 +378,9 @@ internal static class Program
         public string PackageJson { get; set; } = CustomerConfigService.ToJson(CreateConfig("Downloaded Customer"));
 
         public int DownloadCalls { get; private set; }
+        public int SubmitDiscoveryCalls { get; private set; }
+        public int StatusCalls { get; private set; }
+        public int SaveStatusCalls { get; private set; }
 
         public Task<OnboardingSessionConnection> ConnectAsync(
             OnboardingBootstrapSession session,
@@ -303,6 +400,7 @@ internal static class Program
             TenantDiscoveryResult discovery,
             CancellationToken cancellationToken = default)
         {
+            SubmitDiscoveryCalls++;
             return Task.FromResult(new OnboardingDiscoverySubmission
             {
                 Status = "Accepted",
@@ -320,6 +418,7 @@ internal static class Program
             CustomerInstallConfig? config,
             CancellationToken cancellationToken = default)
         {
+            StatusCalls++;
             Status.SessionId = session.SessionId;
             return Task.FromResult(Status);
         }
@@ -329,6 +428,7 @@ internal static class Program
             string outputRoot,
             CancellationToken cancellationToken = default)
         {
+            SaveStatusCalls++;
             Directory.CreateDirectory(outputRoot);
             var path = Path.Combine(outputRoot, "fake-portal-status.json");
             File.WriteAllText(path, JsonSerializer.Serialize(status, JsonOptions));
@@ -380,6 +480,15 @@ internal static class Program
             return new InstallerWizardViewModel(client ?? new FakeOnboardingApiClient(), stateStore, RootDirectory);
         }
 
+        public void WriteBootstrap(OnboardingBootstrapSession session)
+        {
+            var samplesDirectory = Path.Combine(RootDirectory, "samples");
+            Directory.CreateDirectory(samplesDirectory);
+            File.WriteAllText(
+                Path.Combine(samplesDirectory, "contoso.onboarding.bootstrap.json"),
+                OnboardingSessionService.ToJson(session));
+        }
+
         public void Dispose()
         {
             if (!Directory.Exists(RootDirectory))
@@ -421,6 +530,14 @@ internal static class Program
         public static void True(bool condition, string message)
         {
             if (!condition)
+            {
+                throw new InvalidOperationException(message);
+            }
+        }
+
+        public static void False(bool condition, string message)
+        {
+            if (condition)
             {
                 throw new InvalidOperationException(message);
             }

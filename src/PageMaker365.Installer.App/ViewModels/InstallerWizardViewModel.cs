@@ -141,7 +141,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         LoadSampleBootstrapCommand = new RelayCommand(LoadSampleBootstrapAsync);
         BrowseBootstrapCommand = new RelayCommand(BrowseBootstrapAsync);
         ConnectOnboardingCommand = new RelayCommand(ConnectOnboardingAsync, () => _bootstrapSession is not null);
-        RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, () => _bootstrapSession is not null);
+        RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, CanRunTenantDiscovery);
         SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, CanSyncDiscovery);
         SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null);
         CheckPackageReadinessCommand = new RelayCommand(CheckPackageReadinessAsync, () => _bootstrapSession is not null);
@@ -816,6 +816,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallStatusSync,
+                "Portal connect",
+                "Blocked",
+                requirePortalSync: true))
+        {
+            return;
+        }
+
         try
         {
             var connection = await _onboardingApiClient.ConnectAsync(_bootstrapSession);
@@ -840,6 +849,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (_bootstrapSession is null)
         {
             FooterStatus = "Load an onboarding bootstrap session first.";
+            return;
+        }
+
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.TenantDiscovery,
+                "Tenant discovery",
+                "Discovery blocked",
+                requirePortalSync: false))
+        {
             return;
         }
 
@@ -874,6 +892,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (_bootstrapSession is null || _tenantDiscovery is null)
         {
             FooterStatus = "Create a discovery snapshot before syncing.";
+            return;
+        }
+
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallStatusSync,
+                "Discovery sync",
+                "Sync blocked",
+                requirePortalSync: true))
+        {
             return;
         }
 
@@ -929,6 +956,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallStatusSync,
+                "Package readiness check",
+                "Blocked",
+                requirePortalSync: true))
+        {
+            return;
+        }
+
         try
         {
             await RefreshOnboardingPortalStatusAsync("Package readiness checked.");
@@ -942,6 +978,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private async Task RefreshOnboardingPortalStatusAsync(string footerStatus)
     {
         if (_bootstrapSession is null)
+        {
+            return;
+        }
+
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallStatusSync,
+                "Package readiness check",
+                "Blocked",
+                requirePortalSync: true))
         {
             return;
         }
@@ -961,6 +1006,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RefreshPortalReadinessReview(_onboardingPortalStatus);
         PortalSyncStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.PortalRecordUrl}";
         OnboardingStatus = $"{_onboardingPortalStatus.Status}: {_onboardingPortalStatus.Message}";
+
+        ApplyPackageGenerationPolicyReview();
 
         var outputRoot = Path.Combine(GetWorkspaceRoot(), "support-bundle");
         PortalStatusOutputPath = await _onboardingApiClient.SaveStatusAsync(_onboardingPortalStatus, outputRoot);
@@ -1012,6 +1059,108 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SaveWizardState();
     }
 
+    private async Task<bool> EnsureBootstrapOperationAllowedAsync(
+        string operation,
+        string operationLabel,
+        string blockedStatus,
+        bool requirePortalSync)
+    {
+        if (IsBootstrapOperationAllowed(operation, requirePortalSync, out var reason))
+        {
+            return true;
+        }
+
+        await ApplyBootstrapPolicyBlockAsync(operationLabel, blockedStatus, reason);
+        return false;
+    }
+
+    private bool IsBootstrapOperationAllowed(
+        string operation,
+        bool requirePortalSync,
+        out string reason)
+    {
+        reason = "";
+
+        if (_bootstrapSession is null)
+        {
+            reason = "Load an onboarding bootstrap session first.";
+            return false;
+        }
+
+        if (requirePortalSync && !_bootstrapSession.DiscoveryPolicy.AllowPortalSync)
+        {
+            reason = "Portal sync is not allowed by this onboarding bootstrap policy.";
+            return false;
+        }
+
+        if (!_bootstrapSession.AllowsOperation(operation))
+        {
+            reason = $"The {operation} operation is not allowed by this onboarding bootstrap session.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task ApplyBootstrapPolicyBlockAsync(
+        string operationLabel,
+        string blockedStatus,
+        string reason)
+    {
+        var message = $"{operationLabel} not allowed: {reason}";
+        FooterStatus = message;
+        OnboardingStatus = message;
+        PortalSyncStatus = message;
+        DiscoverySyncReadinessSummary = message;
+        DiscoverySyncStatusBrush = "#FF5C7A";
+        PackageReadinessStatus = blockedStatus;
+        PackageReadinessStatusBrush = "#FF5C7A";
+        PackageReadinessSummary = message;
+
+        if (_bootstrapSession is not null)
+        {
+            PortalSyncReceipt.SessionId = _bootstrapSession.SessionId;
+        }
+
+        if (_tenantDiscovery is not null)
+        {
+            PortalSyncReceipt.DiscoveryId = _tenantDiscovery.DiscoveryId;
+        }
+
+        PortalSyncReceipt.SyncStatus = "PolicyDenied";
+        PortalSyncReceipt.PackageReadinessStatus = blockedStatus;
+        PortalSyncReceipt.ErrorMessage = message;
+        PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
+        await SavePortalSyncReceiptAsync();
+
+        ConnectOnboardingCommand.RaiseCanExecuteChanged();
+        RunDiscoveryCommand.RaiseCanExecuteChanged();
+        SyncDiscoveryCommand.RaiseCanExecuteChanged();
+        CheckPackageReadinessCommand.RaiseCanExecuteChanged();
+        DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
+    }
+
+    private void ApplyPackageGenerationPolicyReview()
+    {
+        if (_packageReadiness is null ||
+            !_packageReadiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase) ||
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallPackageGeneration,
+                requirePortalSync: true,
+                out var reason))
+        {
+            return;
+        }
+
+        var message = $"Package download not allowed: {reason}";
+        PackageReadinessStatus = "Blocked";
+        PackageReadinessStatusBrush = "#FF5C7A";
+        PackageReadinessSummary = message;
+        PortalSyncReceipt.PackageReadinessStatus = "Blocked";
+        PortalSyncReceipt.ErrorMessage = message;
+    }
+
     private static string FormatPortalOperationFailure(string operation, Exception exception)
     {
         if (exception is OnboardingApiException apiException &&
@@ -1023,11 +1172,24 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return $"{operation} failed: {exception.Message}";
     }
 
+    private bool CanRunTenantDiscovery()
+    {
+        return _bootstrapSession is not null &&
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.TenantDiscovery,
+                requirePortalSync: false,
+                out _);
+    }
+
     private bool CanDownloadGeneratedPackage()
     {
         return _bootstrapSession is not null
             && _packageReadiness is not null
-            && _packageReadiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase);
+            && _packageReadiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase)
+            && IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallPackageGeneration,
+                requirePortalSync: true,
+                out _);
     }
 
     private async Task DownloadGeneratedPackageAsync()
@@ -1035,6 +1197,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         if (_bootstrapSession is null)
         {
             FooterStatus = "Load an onboarding bootstrap session before downloading a generated package.";
+            return;
+        }
+
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallPackageGeneration,
+                "Package download",
+                "Blocked",
+                requirePortalSync: true))
+        {
             return;
         }
 
@@ -2980,6 +3151,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         return _bootstrapSession is not null &&
             _tenantDiscovery is not null &&
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallStatusSync,
+                requirePortalSync: true,
+                out _) &&
             !HasBlockingDiscoveryFindings(_tenantDiscovery);
     }
 
@@ -2999,6 +3174,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             DiscoverySyncReadinessSummary = "Create discovery before syncing onboarding data to the portal.";
             DiscoverySyncStatusBrush = "#8290AA";
+            SyncDiscoveryCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        if (!IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallStatusSync,
+                requirePortalSync: true,
+                out var policyReason))
+        {
+            var message = $"Discovery sync not allowed: {policyReason}";
+            DiscoverySyncReadinessSummary = message;
+            DiscoverySyncStatusBrush = "#FF5C7A";
+            PortalSyncStatus = message;
             SyncDiscoveryCommand.RaiseCanExecuteChanged();
             return;
         }
@@ -3528,9 +3716,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         };
     }
 
-    private static string? FindSamplePackagePath()
+    private string? FindSamplePackagePath()
     {
-        foreach (var root in EnumerateCandidateRoots())
+        foreach (var root in EnumerateWorkspaceCandidateRoots())
         {
             var candidate = Path.Combine(root, "samples", "contoso.customer.install.json");
             if (File.Exists(candidate))
@@ -3542,9 +3730,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return null;
     }
 
-    private static string? FindSampleBootstrapPath()
+    private string? FindSampleBootstrapPath()
     {
-        foreach (var root in EnumerateCandidateRoots())
+        foreach (var root in EnumerateWorkspaceCandidateRoots())
         {
             var candidate = Path.Combine(root, "samples", "contoso.onboarding.bootstrap.json");
             if (File.Exists(candidate))
@@ -3554,6 +3742,23 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         return null;
+    }
+
+    private IEnumerable<string> EnumerateWorkspaceCandidateRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(_workspaceRoot) && seen.Add(_workspaceRoot))
+        {
+            yield return _workspaceRoot;
+        }
+
+        foreach (var root in EnumerateCandidateRoots())
+        {
+            if (seen.Add(root))
+            {
+                yield return root;
+            }
+        }
     }
 
     private static IEnumerable<string> EnumerateCandidateRoots()
