@@ -1,8 +1,8 @@
 # Installer Implementation Backlog
 
-Status: active backlog.
+Status: active backlog. See `docs/execution-master-plan.md` for execution order, subagent lanes, dependencies, and customer decisions.
 
-Last updated: 2026-07-07.
+Last updated: 2026-07-08.
 
 ## Milestone 1 - Deployment Contract
 
@@ -16,7 +16,7 @@ Goal: make the customer install package deterministic enough for the installer a
 - [x] Document installer/control-plane/customer-runtime boundary.
 - [x] Add first customer install package schema.
 - [x] Add PowerShell contract preflight check.
-- [ ] Add production PageMaker365 onboarding API client.
+- [x] Add production PageMaker365 onboarding API client.
 - [x] Add read-only Azure discovery command.
 - [x] Add read-only Microsoft Graph tenant/domain discovery command.
 - [x] Add read-only SharePoint site/library discovery command.
@@ -25,6 +25,9 @@ Goal: make the customer install package deterministic enough for the installer a
 - [x] Add signed export metadata fields and immutable export ID to the installer contract.
 - [ ] Add package hash generation in the control plane export.
 - [ ] Add cryptographic signature verification.
+- [ ] Enforce bootstrap operation policy in installer commands.
+- [ ] Add runtime schema validation for bootstrap, readiness/status, and generated packages.
+- [ ] Bind generated package provenance to onboarding session, discovery, tenant, and export metadata.
 
 Acceptance criteria:
 
@@ -37,11 +40,12 @@ Acceptance criteria:
 
 Goal: replace the placeholder Bicep entry point with deployable customer runtime infrastructure.
 
-- [ ] Decide runtime hosting model.
+- [ ] Confirm Linux App Service as the v1 runtime hosting model or choose an alternative.
 - [ ] Add resource modules for Key Vault, Log Analytics, Application Insights, storage, managed identity, runtime API host, and runtime frontend host.
 - [ ] Add naming rules and Azure name validation.
 - [ ] Add tags from the customer package.
 - [ ] Add deployment outputs consumed by smoke tests.
+- [ ] Decide whether installer creates the resource group or requires a pre-existing resource group.
 - [ ] Run `Invoke-PM365WhatIf` against a real sandbox subscription.
 
 Acceptance criteria:
@@ -110,6 +114,8 @@ Goal: provide operator help without allowing unsafe automation.
 - [ ] Map known errors to approved remediation playbooks.
 - [ ] Generate customer admin message drafts.
 - [ ] Add evaluation cases for wrong tenant, missing RBAC, missing Graph consent, SharePoint denial, and deployment failure.
+- [ ] Add assistant API contract tests.
+- [ ] Harden recommended action allowlist and approval requirements.
 
 Acceptance criteria:
 
