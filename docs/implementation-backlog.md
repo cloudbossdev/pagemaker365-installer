@@ -40,7 +40,7 @@ Acceptance criteria:
 
 Goal: replace the placeholder Bicep entry point with deployable customer runtime infrastructure.
 
-- [ ] Confirm Linux App Service as the v1 runtime hosting model or choose an alternative.
+- [x] Confirm Linux App Service as the v1 runtime hosting model or choose an alternative.
 - [ ] Add resource modules for Key Vault, Log Analytics, Application Insights, storage, managed identity, runtime API host, and runtime frontend host.
 - [ ] Add naming rules and Azure name validation.
 - [ ] Add tags from the customer package.

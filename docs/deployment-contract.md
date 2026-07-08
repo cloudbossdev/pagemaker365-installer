@@ -94,6 +94,16 @@ Generated package provenance behavior:
 
 ## Azure Runtime Resource Contract
 
+The selected v1 runtime hosting model for the first production/customer pilot build is Linux App Service.
+
+Linux App Service is selected because it gives customer IT teams the simplest first-version operating story, aligns with the current Bicep direction, fits naturally with managed identity access to Key Vault, and produces straightforward Application Insights, App Service, and deployment outputs for installer evidence and smoke tests. It also keeps operational complexity lower than a container platform or split static/API hosting model while the first customer pilot path is being proven.
+
+Deferred hosting alternatives:
+
+- Static Web Apps plus API App Service remains a later option if the frontend needs independent global static hosting, preview environments, or CDN-oriented deployment workflows.
+- Container Apps remains a later option if runtime packaging requires containers, background workers need independent scale profiles, or the service needs event-driven scale behavior that App Service cannot satisfy cleanly.
+- A hosting-model change should be made only after the v1 App Service deployment path has clear blockers or post-pilot operational evidence that justifies the added complexity.
+
 The first production Bicep template should support these resources in the customer subscription:
 
 | Resource | Purpose |
@@ -103,9 +113,9 @@ The first production Bicep template should support these resources in the custom
 | Application Insights | API/runtime telemetry. |
 | Key Vault | Runtime secrets and generated keys. |
 | Storage account | Runtime assets, support bundles, or export staging if needed. |
-| App Service plan or Container Apps environment | Runtime API host. |
-| API App Service or container app | Runtime API and backend worker surface. |
-| Static Web App or frontend App Service | Runtime frontend if deployed separately. |
+| Linux App Service plan | v1 runtime hosting plan. |
+| API App Service | v1 runtime API and backend worker surface. |
+| Frontend App Service | v1 runtime frontend if deployed separately. |
 | Managed identity | Runtime access to Key Vault and Azure resources. |
 
 The Bicep output must include:
@@ -213,7 +223,6 @@ Minimum post-deployment smoke tests:
 
 These decisions are still required before full production deployment:
 
-- final runtime hosting model: App Service, Container Apps, or Static Web Apps plus API App Service
 - final app registration shape and Graph permissions
 - final `Sites.Selected` consent flow
 - runtime database requirement, if any

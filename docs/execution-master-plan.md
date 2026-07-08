@@ -178,7 +178,11 @@ Owner pattern: one Bicep worker, one PowerShell worker, coordinator integrates.
 
 #### Slice 2.1 - Runtime Hosting Decision
 
-Recommended decision: keep Linux App Service for the first production build unless there is a strong reason to switch. It is simpler for customer IT teams than Container Apps, easier to reason about than mixed Static Web App/API hosting, and already matches the current Bicep direction.
+Status: completed in deployment contract and backlog documentation.
+
+Decision: Linux App Service is the selected v1 runtime hosting model for the first production/customer pilot build. Static Web Apps plus API App Service and Container Apps are deferred alternatives.
+
+Reason: Linux App Service gives customer IT teams a simpler first-version operating model, aligns with the current Bicep direction, supports straightforward Key Vault managed identity integration, and makes Application Insights, App Service, and deployment outputs easier to consume in installer evidence and smoke tests. It also avoids introducing Container Apps or split static/API hosting operations before the first pilot deployment path is proven.
 
 Scope:
 
@@ -196,7 +200,7 @@ Acceptance criteria:
 - Deployment contract states App Service as the selected v1 hosting model.
 - Bicep expectations and package resource names align with that decision.
 
-Needs customer: approval of App Service as v1 runtime hosting.
+Needs customer: none for this slice. The v1 decision is now recorded.
 
 #### Slice 2.2 - Bicep Modularization And Naming Validation
 
@@ -563,33 +567,34 @@ Do not assign two workers to `InstallerWizardViewModel.cs`, `MainWindow.xaml`, o
 
 These decisions should be made before the related phase becomes blocking:
 
-1. Runtime hosting model: approve Linux App Service for v1 or choose another hosting model.
-2. Resource group behavior: installer creates the resource group or requires it to exist.
-3. Portal auth model: bearer key plus one-time code for alpha, or short-lived session token/device flow for production.
-4. Final portal package schema and alpha compatibility cutoff.
-5. App registration strategy: create, reuse, single app, or separate portal/API apps.
-6. SharePoint permission model: confirm `Sites.Selected` as default.
-7. Required runtime secrets and which are generated versus customer supplied.
-8. Assistant endpoint and attachment policy.
-9. Removal policy: auto-remove, approval-required, and never-remove categories.
-10. Distribution format and code-signing certificate strategy.
+1. Resource group behavior: installer creates the resource group or requires it to exist.
+2. Portal auth model: bearer key plus one-time code for alpha, or short-lived session token/device flow for production.
+3. Final portal package schema and alpha compatibility cutoff.
+4. App registration strategy: create, reuse, single app, or separate portal/API apps.
+5. SharePoint permission model: confirm `Sites.Selected` as default.
+6. Required runtime secrets and which are generated versus customer supplied.
+7. Assistant endpoint and attachment policy.
+8. Removal policy: auto-remove, approval-required, and never-remove categories.
+9. Distribution format and code-signing certificate strategy.
 
 ## Recommended Next Coding Slice
 
-Start with Phase 2, Slice 2.1: Runtime Hosting Decision.
+Start with Phase 2, Slice 2.2: Bicep Modularization And Naming Validation.
 
 Reason:
 
-- Phase 1 contract hardening is now complete enough to move toward sandbox deployment work.
-- The Bicep/runtime direction affects resource modules, installer preflight language, deployment outputs, and smoke tests.
-- This decision can be documented first, then converted into modular Bicep and PowerShell work without needing production credentials.
+- Phase 2.1 is complete and Linux App Service is now the documented v1 hosting model.
+- The next blocker is converting that decision into modular Bicep resources, validated naming rules, explicit deployment outputs, and a clear resource group contract.
+- This work can be done before live sandbox deployment credentials are available.
 
 Suggested subagent use:
 
-- Docs worker updates `docs/deployment-contract.md` and backlog wording for the selected v1 hosting model.
-- Coordinator confirms the decision with the user before implementation touches `infra/` or deployment modules.
+- Bicep worker modularizes `infra/main.bicep`, adds validation, and exposes required outputs.
+- PowerShell worker updates parameter generation and build/verification wrappers only after the Bicep shape is stable.
+- Coordinator reviews resource group behavior and output names before sandbox what-if.
 
 Definition of done:
 
-- The deployment contract states the selected v1 hosting model.
-- Follow-on Bicep and PowerShell slices have clear acceptance criteria.
+- `Invoke-PM365BicepBuild` passes locally.
+- Bicep outputs include API URL, portal URL, Key Vault URI, resource IDs, managed identity principal ID, telemetry references, and storage ID.
+- Resource group behavior is unambiguous in preflight and deployment.
