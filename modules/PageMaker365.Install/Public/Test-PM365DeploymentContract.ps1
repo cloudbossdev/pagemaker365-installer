@@ -61,6 +61,28 @@ function Test-PM365DeploymentContract {
         $warnings += 'azure.resourceNames'
     }
 
+    $hasBlockingContractFailure = $false
+    $parameterValidationIssues = @(Get-PM365TemplateParameterValidationIssue -Config $config)
+    if ($parameterValidationIssues.Count -gt 0) {
+        $hasBlockingContractFailure = $true
+        $details = @($parameterValidationIssues | ForEach-Object { "{0}: {1}" -f $_.field, $_.message }) -join [Environment]::NewLine
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'DeploymentParametersInvalid' `
+            -Summary 'Azure deployment parameters are missing or invalid.' `
+            -Details $details `
+            -RetrySafe $false `
+            -Data @{
+                issues = @($parameterValidationIssues)
+            }
+    } else {
+        $results += New-PM365Result `
+            -Status 'Passed' `
+            -Code 'DeploymentParametersReady' `
+            -Summary 'Azure deployment parameters satisfy installer validation rules.' `
+            -Details 'The package can be converted into Bicep deployment parameters.'
+    }
+
     if (-not $config.entra) {
         $warnings += 'entra'
     } elseif ([string]::IsNullOrWhiteSpace([string]$config.entra.appRegistrationMode)) {
@@ -133,7 +155,16 @@ function Test-PM365DeploymentContract {
             -Summary 'Customer package is missing launch deployment contract fields.' `
             -Details ("Missing or incomplete fields: " + ($warnings -join ', ')) `
             -RetrySafe $true
-    } else {
+    }
+
+    if ($hasBlockingContractFailure) {
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'DeploymentContractBlocked' `
+            -Summary 'Customer package cannot be used for deployment until blocking issues are fixed.' `
+            -Details 'Resolve the failed deployment contract checks above, then run preflight again.' `
+            -RetrySafe $false
+    } elseif ($warnings.Count -eq 0) {
         $results += New-PM365Result `
             -Status 'Passed' `
             -Code 'DeploymentContractReady' `

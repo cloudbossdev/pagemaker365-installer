@@ -38,6 +38,39 @@ function Invoke-PM365Deployment {
         }
     }
 
+    $parameterValidationIssues = @(Get-PM365TemplateParameterValidationIssue -Config $config)
+    if ($parameterValidationIssues.Count -gt 0) {
+        $artifactPath = ''
+        $details = @($parameterValidationIssues | ForEach-Object { "{0}: {1}" -f $_.field, $_.message }) -join [Environment]::NewLine
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365DeploymentArtifact `
+                -Config $config `
+                -Status 'Failed' `
+                -ErrorCode 'DeploymentParameterValidationFailed' `
+                -ErrorMessage $details
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-result.json' `
+                -InputObject $artifact
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code 'DeploymentParameterValidationFailed' `
+            -Summary 'Azure deployment parameters are missing or invalid.' `
+            -Details $details `
+            -RetrySafe $false `
+            -Data @{
+                issues = @($parameterValidationIssues)
+                artifactPath = $artifactPath
+            }
+        return
+    }
+
     if (-not $PSCmdlet.ShouldProcess([string]$config.azure.resourceGroupName, 'Deploy PageMaker365 Azure resources')) {
         $artifactPath = ''
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {

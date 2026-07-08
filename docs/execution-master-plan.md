@@ -204,6 +204,10 @@ Needs customer: none for this slice. The v1 decision is now recorded.
 
 #### Slice 2.2 - Bicep Modularization And Naming Validation
 
+Status: completed in code and documentation.
+
+Decision: v1 deployments require a pre-existing customer resource group. The installer keeps a `resourceGroup` scoped Bicep entry point and does not attempt subscription-scope resource group creation in this slice.
+
 Scope:
 
 - Split `infra/main.bicep` into modules.
@@ -225,7 +229,7 @@ Acceptance criteria:
 - Bicep outputs include API URL, portal URL, Key Vault URI, resource IDs, managed identity principal ID, telemetry references, and storage ID.
 - Resource group behavior is unambiguous in preflight and deployment.
 
-Needs customer: resource group policy decision.
+Needs customer: none for this slice. Sandbox credentials are needed for Slice 2.3.
 
 #### Slice 2.3 - Sandbox What-If
 
@@ -567,34 +571,33 @@ Do not assign two workers to `InstallerWizardViewModel.cs`, `MainWindow.xaml`, o
 
 These decisions should be made before the related phase becomes blocking:
 
-1. Resource group behavior: installer creates the resource group or requires it to exist.
-2. Portal auth model: bearer key plus one-time code for alpha, or short-lived session token/device flow for production.
-3. Final portal package schema and alpha compatibility cutoff.
-4. App registration strategy: create, reuse, single app, or separate portal/API apps.
-5. SharePoint permission model: confirm `Sites.Selected` as default.
-6. Required runtime secrets and which are generated versus customer supplied.
-7. Assistant endpoint and attachment policy.
-8. Removal policy: auto-remove, approval-required, and never-remove categories.
-9. Distribution format and code-signing certificate strategy.
+1. Portal auth model: bearer key plus one-time code for alpha, or short-lived session token/device flow for production.
+2. Final portal package schema and alpha compatibility cutoff.
+3. App registration strategy: create, reuse, single app, or separate portal/API apps.
+4. SharePoint permission model: confirm `Sites.Selected` as default.
+5. Required runtime secrets and which are generated versus customer supplied.
+6. Assistant endpoint and attachment policy.
+7. Removal policy: auto-remove, approval-required, and never-remove categories.
+8. Distribution format and code-signing certificate strategy.
 
 ## Recommended Next Coding Slice
 
-Start with Phase 2, Slice 2.2: Bicep Modularization And Naming Validation.
+Start with Phase 2, Slice 2.3: Sandbox What-If.
 
 Reason:
 
-- Phase 2.1 is complete and Linux App Service is now the documented v1 hosting model.
-- The next blocker is converting that decision into modular Bicep resources, validated naming rules, explicit deployment outputs, and a clear resource group contract.
-- This work can be done before live sandbox deployment credentials are available.
+- Phase 2.2 is complete: Bicep is modularized, resource name validation is wired into PowerShell, and v1 resource group behavior is explicit.
+- The next blocker is proving the deployment plan against a real sandbox subscription.
+- Sandbox what-if will expose provider registration, policy, naming collision, permission, and quota issues before any live deployment.
 
 Suggested subagent use:
 
-- Bicep worker modularizes `infra/main.bicep`, adds validation, and exposes required outputs.
-- PowerShell worker updates parameter generation and build/verification wrappers only after the Bicep shape is stable.
-- Coordinator reviews resource group behavior and output names before sandbox what-if.
+- Sandbox runner executes `Invoke-PM365WhatIf` with the generated portal package and captures redacted evidence.
+- Reviewer analyzes the what-if artifact for blocked deletes, unexpected modifications, missing providers, policy denials, or permission gaps.
+- Coordinator turns findings into backlog items before moving to deployment execution.
 
 Definition of done:
 
-- `Invoke-PM365BicepBuild` passes locally.
-- Bicep outputs include API URL, portal URL, Key Vault URI, resource IDs, managed identity principal ID, telemetry references, and storage ID.
-- Resource group behavior is unambiguous in preflight and deployment.
+- `Invoke-PM365WhatIf` runs against a real sandbox subscription.
+- Redacted what-if evidence is saved in the support bundle.
+- Any sandbox blockers are documented as concrete backlog items.

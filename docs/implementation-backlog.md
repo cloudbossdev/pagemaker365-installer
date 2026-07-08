@@ -41,11 +41,11 @@ Acceptance criteria:
 Goal: replace the placeholder Bicep entry point with deployable customer runtime infrastructure.
 
 - [x] Confirm Linux App Service as the v1 runtime hosting model or choose an alternative.
-- [ ] Add resource modules for Key Vault, Log Analytics, Application Insights, storage, managed identity, runtime API host, and runtime frontend host.
-- [ ] Add naming rules and Azure name validation.
-- [ ] Add tags from the customer package.
-- [ ] Add deployment outputs consumed by smoke tests.
-- [ ] Decide whether installer creates the resource group or requires a pre-existing resource group.
+- [x] Add resource modules for Key Vault, Log Analytics, Application Insights, storage, managed identity, runtime API host, and runtime frontend host.
+- [x] Add naming rules and Azure name validation.
+- [x] Add tags from the customer package.
+- [x] Add deployment outputs consumed by smoke tests.
+- [x] Decide whether installer creates the resource group or requires a pre-existing resource group.
 - [ ] Run `Invoke-PM365WhatIf` against a real sandbox subscription.
 
 Acceptance criteria:

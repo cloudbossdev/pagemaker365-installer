@@ -95,10 +95,10 @@ function Test-PM365AzureContext {
             -Details $resourceGroup.ResourceGroupName
     } else {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'AzureResourceGroupMissing' `
-            -Summary 'Target resource group does not exist yet.' `
-            -Details 'The deployment step can create it if the signed-in account has permission.' `
+            -Summary 'Target resource group does not exist.' `
+            -Details 'Create the resource group in the customer subscription before running deployment. The v1 installer deploys into a pre-existing resource group.' `
             -RetrySafe $true
     }
 

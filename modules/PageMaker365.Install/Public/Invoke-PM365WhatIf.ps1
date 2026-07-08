@@ -40,6 +40,43 @@ function Invoke-PM365WhatIf {
         }
     }
 
+    $parameterValidationIssues = @(Get-PM365TemplateParameterValidationIssue -Config $config)
+    if ($parameterValidationIssues.Count -gt 0) {
+        $risk = Get-PM365WhatIfRisk -UnstructuredFallback
+        $artifactPath = ''
+        $details = @($parameterValidationIssues | ForEach-Object { "{0}: {1}" -f $_.field, $_.message }) -join [Environment]::NewLine
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365WhatIfArtifact `
+                -Config $config `
+                -TemplateFile $TemplateFile `
+                -Method 'ParameterValidation' `
+                -Risk $risk `
+                -Status 'Failed' `
+                -ErrorCode 'DeploymentParameterValidationFailed' `
+                -ErrorMessage $details
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-whatif.json' `
+                -InputObject $artifact
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code 'DeploymentParameterValidationFailed' `
+            -Summary 'Azure deployment parameters are missing or invalid.' `
+            -Details $details `
+            -RetrySafe $false `
+            -Data @{
+                issues = @($parameterValidationIssues)
+                artifactPath = $artifactPath
+            }
+        return
+    }
+
     $azResources = Get-Module -ListAvailable -Name Az.Resources | Select-Object -First 1
     if (-not $azResources) {
         $risk = Get-PM365WhatIfRisk -UnstructuredFallback

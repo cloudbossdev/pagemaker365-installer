@@ -5,6 +5,12 @@ function New-PM365TemplateParameterObject {
         [object] $Config
     )
 
+    $validationIssues = @(Get-PM365TemplateParameterValidationIssue -Config $Config)
+    if ($validationIssues.Count -gt 0) {
+        $details = @($validationIssues | ForEach-Object { "{0}: {1}" -f $_.field, $_.message }) -join '; '
+        throw "Customer install package has invalid Azure deployment parameters. $details"
+    }
+
     $resourceNames = @{}
     if ($Config.azure.resourceNames) {
         foreach ($property in $Config.azure.resourceNames.PSObject.Properties) {

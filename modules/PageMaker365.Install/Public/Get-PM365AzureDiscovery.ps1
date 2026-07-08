@@ -124,8 +124,8 @@ function Get-PM365AzureDiscovery {
             $findings += [ordered]@{
                 severity = 'Warning'
                 code = 'AzureResourceGroupMissing'
-                summary = 'Target resource group does not exist yet.'
-                details = 'The deployment step can create it if the signed-in account has permission.'
+                summary = 'Target resource group does not exist.'
+                details = 'Create the resource group before deployment. The v1 installer deploys into a pre-existing resource group.'
             }
         }
 
@@ -266,8 +266,8 @@ function Get-PM365AzureDiscovery {
                 $findings += [ordered]@{
                     severity = 'Warning'
                     code = 'AzureResourceGroupMissing'
-                    summary = 'Target resource group does not exist yet.'
-                    details = 'The deployment step can create it if the signed-in account has permission.'
+                    summary = 'Target resource group does not exist.'
+                    details = 'Create the resource group before deployment. The v1 installer deploys into a pre-existing resource group.'
                 }
             }
         } catch {

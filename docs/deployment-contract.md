@@ -108,7 +108,7 @@ The first production Bicep template should support these resources in the custom
 
 | Resource | Purpose |
 | --- | --- |
-| Resource group | Customer-owned deployment boundary. |
+| Resource group | Customer-owned, pre-existing deployment boundary. |
 | Log Analytics workspace | Central runtime logs and metrics. |
 | Application Insights | API/runtime telemetry. |
 | Key Vault | Runtime secrets and generated keys. |
@@ -118,14 +118,23 @@ The first production Bicep template should support these resources in the custom
 | Frontend App Service | v1 runtime frontend if deployed separately. |
 | Managed identity | Runtime access to Key Vault and Azure resources. |
 
+For v1, the installer deploys into a pre-existing customer resource group. The Bicep entry point remains `resourceGroup` scoped. Azure discovery and preflight report a missing target resource group before deployment instead of attempting subscription-scope creation.
+
 The Bicep output must include:
 
 - runtime API URL
 - runtime portal URL
 - Key Vault URI
+- Key Vault resource ID
 - managed identity principal ID
-- Application Insights connection string reference name
-- deployment resource IDs
+- managed identity resource ID
+- Application Insights connection string
+- Application Insights resource ID and instrumentation key
+- Log Analytics workspace resource ID
+- storage account resource ID
+- App Service plan resource ID
+- API and frontend App Service resource IDs
+- Key Vault role assignment resource ID
 
 ## Entra And Graph Contract
 

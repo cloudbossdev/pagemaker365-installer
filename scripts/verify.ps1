@@ -121,6 +121,20 @@ Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Nu
 Write-Host 'Checking deployment contract...'
 Test-PM365DeploymentContract -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
 
+Write-Host 'Checking deployment parameter validation...'
+$invalidConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$invalidConfig.azure.resourceNames.storageAccountName = 'Invalid-Storage-Name'
+$invalidConfigPath = Join-Path ([System.IO.Path]::GetTempPath()) ("pm365-invalid-config-{0}.json" -f ([guid]::NewGuid()))
+try {
+    $invalidConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidConfigPath -Encoding utf8
+    $invalidContractResults = @(Test-PM365DeploymentContract -ConfigPath $invalidConfigPath)
+    if ($invalidContractResults.code -notcontains 'DeploymentParametersInvalid') {
+        throw 'Invalid storage account name was not rejected by deployment contract validation.'
+    }
+} finally {
+    Remove-Item -LiteralPath $invalidConfigPath -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host 'Building Bicep template...'
 Invoke-PM365BicepBuild | ConvertTo-Json -Depth 12 | Out-Null
 
