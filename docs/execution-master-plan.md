@@ -233,6 +233,8 @@ Needs customer: none for this slice. Sandbox credentials are needed for Slice 2.
 
 #### Slice 2.3 - Sandbox What-If
 
+Status: blocked by sandbox readiness. See `docs/sandbox-whatif-readiness.md`.
+
 Scope:
 
 - Use a real sandbox package.
@@ -246,7 +248,7 @@ Acceptance criteria:
 - What-if output is saved and redacted.
 - Any blockers become concrete backlog items.
 
-Needs customer: sandbox tenant/subscription access and permission to run what-if.
+Needs customer: create the target sandbox resource group and provide a real CloudBoss installer package contract from the portal `install-package` endpoint.
 
 ### Phase 3 - Entra And SharePoint
 
@@ -588,7 +590,7 @@ Reason:
 
 - Phase 2.2 is complete: Bicep is modularized, resource name validation is wired into PowerShell, and v1 resource group behavior is explicit.
 - The next blocker is proving the deployment plan against a real sandbox subscription.
-- Sandbox what-if will expose provider registration, policy, naming collision, permission, and quota issues before any live deployment.
+- Phase 2.3 is currently blocked because the target sandbox resource group does not exist and no real CloudBoss installer package contract exists locally.
 
 Suggested subagent use:
 

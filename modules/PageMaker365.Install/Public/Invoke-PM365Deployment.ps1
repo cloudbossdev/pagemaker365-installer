@@ -160,6 +160,80 @@ function Invoke-PM365Deployment {
         return
     }
 
+    $expectedSubscriptionId = [string]$config.azure.subscriptionId
+    $actualSubscriptionId = [string]$context.Subscription.Id
+    if (-not [string]::IsNullOrWhiteSpace($expectedSubscriptionId) -and $expectedSubscriptionId -ne $actualSubscriptionId) {
+        $artifactPath = ''
+        $details = "Current Azure subscription '$actualSubscriptionId' does not match package subscription '$expectedSubscriptionId'. Select the package subscription before running deployment."
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365DeploymentArtifact `
+                -Config $config `
+                -Context $context `
+                -Status 'Failed' `
+                -ErrorCode 'AzureSubscriptionMismatch' `
+                -ErrorMessage $details
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-result.json' `
+                -InputObject $artifact
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        $data = @{}
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $data.artifactPath = $artifactPath
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzureSubscriptionMismatch' `
+            -Summary 'Azure subscription context does not match the customer package.' `
+            -Details $details `
+            -RetrySafe $true `
+            -Data $data
+        return
+    }
+
+    $resourceGroupName = [string]$config.azure.resourceGroupName
+    $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
+    if (-not $resourceGroup) {
+        $artifactPath = ''
+        $details = "Create resource group '$resourceGroupName' in subscription '$($context.Subscription.Id)' before running deployment. The v1 installer deploys into a pre-existing resource group."
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365DeploymentArtifact `
+                -Config $config `
+                -Context $context `
+                -Status 'Failed' `
+                -ErrorCode 'AzureResourceGroupMissing' `
+                -ErrorMessage $details
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-result.json' `
+                -InputObject $artifact
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        $data = @{}
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $data.artifactPath = $artifactPath
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzureResourceGroupMissing' `
+            -Summary 'Target resource group does not exist.' `
+            -Details $details `
+            -RetrySafe $true `
+            -Data $data
+        return
+    }
+
     $parameters = New-PM365TemplateParameterObject -Config $config
     $deployment = $null
 

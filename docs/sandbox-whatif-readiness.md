@@ -1,0 +1,62 @@
+# Sandbox What-If Readiness
+
+Last updated: 2026-07-08
+
+## Current Status
+
+Phase 2.3 sandbox what-if is blocked. The local installer code can build the modular Bicep template and can run the what-if command path, but the real sandbox inputs are not ready enough to run a meaningful Azure what-if.
+
+## Readiness Checks
+
+| Check | Status | Notes |
+| --- | --- | --- |
+| Azure modules installed | Ready | `Az.Accounts` and `Az.Resources` are installed locally. |
+| Azure account signed in | Ready | Current signed-in account is `jason@mycloudboss.com`. |
+| Sandbox subscription visible | Ready | Subscription `3de10659-9db8-4ab6-ae44-ac4b71b24751` is visible in tenant `edf280e3-9c1b-491c-8a0c-f3bf252761a3`. |
+| Sandbox resource group exists | Blocked | `rg-pagemaker365-cloudboss-sandbox` does not exist. V1 deploys into a pre-existing resource group. |
+| Real installer package contract exists locally | Blocked | No non-sample `customer-install` package for CloudBoss exists locally. |
+| Raw deployment export available | Not usable | `docs/cloudboss-sandbox-sandbox-deployment-export-2026-07-07T22-53-19-801Z.json` is a raw deployment export, not the installer package contract. Keep it untracked. |
+
+## Required Inputs
+
+Before running `Invoke-PM365WhatIf` against the sandbox, create or provide:
+
+- Target resource group: `rg-pagemaker365-cloudboss-sandbox`.
+- Real installer package from the portal endpoint:
+  - `GET /api/onboarding/installer/{sessionId}/install-package`
+  - Header `X-PM365-Onboarding-Session`
+  - Header `X-PM365-Onboarding-Code`
+- Real CloudBoss onboarding bootstrap values:
+  - `sessionId`
+  - `oneTimeCode`
+  - `apiBaseUrl`
+  - package readiness showing the package is ready for download
+- Optional portal bearer/API key if the endpoint requires `PM365_ONBOARDING_API_KEY`.
+
+## Runbook
+
+After the missing prerequisites are ready:
+
+```powershell
+Set-AzContext -SubscriptionId '3de10659-9db8-4ab6-ae44-ac4b71b24751' -Tenant 'edf280e3-9c1b-491c-8a0c-f3bf252761a3'
+Import-Module .\modules\PageMaker365.Install\PageMaker365.Install.psd1 -Force
+Invoke-PM365WhatIf -ConfigPath <path-to-real-cloudboss-customer-install-json> -OutputPath .\support-bundle\cloudboss-sandbox-whatif.json
+```
+
+Review the generated artifact for:
+
+- policy denials
+- missing provider registrations
+- missing permissions
+- resource naming collisions
+- quota or SKU restrictions
+- unexpected deletes or modifications
+
+## Tooling Behavior
+
+`Invoke-PM365WhatIf` and `Invoke-PM365Deployment` now fail early with:
+
+- `AzureSubscriptionMismatch` when the selected Azure subscription does not match the customer package.
+- `AzureResourceGroupMissing` when the configured target resource group does not exist.
+
+This keeps the installer UI aligned with the v1 deployment contract and avoids lower-level Azure deployment errors.

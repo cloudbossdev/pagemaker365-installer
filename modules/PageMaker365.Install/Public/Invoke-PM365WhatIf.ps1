@@ -224,6 +224,78 @@ function Invoke-PM365WhatIf {
         return
     }
 
+    $expectedSubscriptionId = [string]$config.azure.subscriptionId
+    $actualSubscriptionId = [string]$context.Subscription.Id
+    if (-not [string]::IsNullOrWhiteSpace($expectedSubscriptionId) -and $expectedSubscriptionId -ne $actualSubscriptionId) {
+        $risk = Get-PM365WhatIfRisk -UnstructuredFallback
+        $artifactPath = ''
+        $details = "Current Azure subscription '$actualSubscriptionId' does not match package subscription '$expectedSubscriptionId'. Select the package subscription before running sandbox what-if."
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365WhatIfArtifact `
+                -Config $config `
+                -Context $context `
+                -TemplateFile $TemplateFile `
+                -Method 'SubscriptionPreflight' `
+                -Risk $risk `
+                -Status 'Failed' `
+                -ErrorCode 'AzureSubscriptionMismatch' `
+                -ErrorMessage $details
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-whatif.json' `
+                -InputObject $artifact
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzureSubscriptionMismatch' `
+            -Summary 'Azure subscription context does not match the customer package.' `
+            -Details $details `
+            -RetrySafe $true `
+            -Data (New-PM365WhatIfResultData -Risk $risk -ArtifactPath $artifactPath)
+        return
+    }
+
+    $resourceGroupName = [string]$config.azure.resourceGroupName
+    $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
+    if (-not $resourceGroup) {
+        $risk = Get-PM365WhatIfRisk -UnstructuredFallback
+        $artifactPath = ''
+        $details = "Create resource group '$resourceGroupName' in subscription '$($context.Subscription.Id)' before running sandbox what-if. The v1 installer deploys into a pre-existing resource group."
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365WhatIfArtifact `
+                -Config $config `
+                -Context $context `
+                -TemplateFile $TemplateFile `
+                -Method 'ResourceGroupPreflight' `
+                -Risk $risk `
+                -Status 'Failed' `
+                -ErrorCode 'AzureResourceGroupMissing' `
+                -ErrorMessage $details
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-whatif.json' `
+                -InputObject $artifact
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzureResourceGroupMissing' `
+            -Summary 'Target resource group does not exist.' `
+            -Details $details `
+            -RetrySafe $true `
+            -Data (New-PM365WhatIfResultData -Risk $risk -ArtifactPath $artifactPath)
+        return
+    }
+
     $parameters = New-PM365TemplateParameterObject -Config $config
     $deploymentArguments = @{
         ResourceGroupName = [string]$config.azure.resourceGroupName
