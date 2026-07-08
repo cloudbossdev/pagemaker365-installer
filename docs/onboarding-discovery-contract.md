@@ -2,7 +2,7 @@
 
 Status: draft for first implementation.
 
-Last updated: 2026-07-07.
+Last updated: 2026-07-08.
 
 ## Purpose
 
@@ -339,6 +339,16 @@ Generated packages should include control-plane trust metadata before the portal
 - `controlPlane.publicKeyId`
 - `controlPlane.trustMode`
 
+Generated packages must also bind to the active installer session:
+
+- `controlPlane.onboardingSessionId` must match the active bootstrap `sessionId`.
+- `customer.tenantId` must match bootstrap `expectedTenantId` when the bootstrap provides a real tenant ID.
+- `azure.tenantId`, when present, must match the same expected tenant ID.
+- `controlPlane.discoveryId` must match the active discovery payload when discovery context exists.
+- `controlPlane.deploymentExportId` is required for generated/downloaded packages.
+
+The installer validates this provenance before a generated package can become active installer state. In portal mode, mismatched packages are rejected before being written to the generated-package support folder. In app/fake/offline paths, the wizard rejects mismatched packages before loading customer state or unlocking sign-in actions.
+
 During the alpha rollout, missing trust metadata produces warnings. A hash mismatch always fails local validation. If `controlPlane.trustMode` is `SignedRequired`, missing hash/signature/key metadata fails local validation.
 
 Portal errors, invalid responses, validation failures, and download failures are persisted in:
@@ -370,6 +380,7 @@ Implemented in this repo:
 - Mock generated package download and load into the installer.
 - Portal API client for connect, discovery sync, package readiness, and package download with fail-closed response validation.
 - Customer package export metadata and hash validation.
+- Generated package provenance validation for onboarding session, tenant, discovery ID, and deployment export ID.
 - Onboarding API configuration and environment override support.
 - Read-only Azure discovery command and engine integration.
 - Read-only Graph and SharePoint discovery command and engine integration.

@@ -182,20 +182,21 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         OnboardingBootstrapSession session,
         OnboardingPackageReadiness readiness,
         string workspaceRoot,
+        TenantDiscoveryResult? discovery = null,
         CancellationToken cancellationToken = default)
     {
         if (_options.UseMock)
         {
-            return await _mockClient.DownloadPackageAsync(session, readiness, workspaceRoot, cancellationToken);
+            return await _mockClient.DownloadPackageAsync(session, readiness, workspaceRoot, discovery, cancellationToken);
         }
 
         try
         {
-            return await DownloadPackageFromPortalAsync(session, readiness, workspaceRoot, cancellationToken);
+            return await DownloadPackageFromPortalAsync(session, readiness, workspaceRoot, discovery, cancellationToken);
         }
         catch (Exception exception) when (ShouldFallback(exception))
         {
-            var response = await _mockClient.DownloadPackageAsync(session, readiness, workspaceRoot, cancellationToken);
+            var response = await _mockClient.DownloadPackageAsync(session, readiness, workspaceRoot, discovery, cancellationToken);
             response.Message = $"Portal onboarding API package download failed; using local mock fallback. {response.Message}";
             return response;
         }
@@ -205,6 +206,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         OnboardingBootstrapSession session,
         OnboardingPackageReadiness readiness,
         string workspaceRoot,
+        TenantDiscoveryResult? discovery,
         CancellationToken cancellationToken)
     {
         if (!readiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase))
@@ -251,7 +253,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId);
         }
 
-        ValidateDownloadedPackage(body, endpoint, response.StatusCode, correlationId);
+        ValidateDownloadedPackage(body, session, discovery, endpoint, response.StatusCode, correlationId);
 
         var outputDirectory = Path.Combine(workspaceRoot, "support-bundle", "onboarding", session.SessionId, "generated-package");
         Directory.CreateDirectory(outputDirectory);
@@ -501,6 +503,8 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
 
     private static void ValidateDownloadedPackage(
         string body,
+        OnboardingBootstrapSession session,
+        TenantDiscoveryResult? discovery,
         Uri endpoint,
         HttpStatusCode statusCode,
         string correlationId)
@@ -529,7 +533,10 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId);
         }
 
-        var validation = ConfigService.Validate(config, body);
+        var validation = ConfigService.Validate(
+            config,
+            body,
+            PackageProvenanceContext.ForPortalDownload(session, discovery));
         if (!validation.IsValid)
         {
             throw new OnboardingApiException(

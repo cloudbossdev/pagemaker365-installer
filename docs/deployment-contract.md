@@ -2,7 +2,7 @@
 
 Status: first implementation contract.
 
-Last updated: 2026-07-07.
+Last updated: 2026-07-08.
 
 ## Purpose
 
@@ -82,6 +82,15 @@ Trust behavior:
 - `controlPlane.trustMode = SignedRequired` makes missing hash/signature/key metadata a failure.
 - A declared `packageHash` that does not match the package contents is always a failure.
 - Signature fields are recorded now; cryptographic signature verification is a later signing slice.
+
+Generated package provenance behavior:
+
+- `controlPlane.onboardingSessionId` must match the active installer bootstrap session ID.
+- `customer.tenantId` must match bootstrap `expectedTenantId` when that bootstrap value is known and not a placeholder.
+- `azure.tenantId`, when present, must match the same expected tenant ID.
+- `controlPlane.discoveryId` must match the active tenant discovery payload when discovery context exists.
+- `controlPlane.deploymentExportId` is required for packages downloaded from the PageMaker365 portal.
+- Mismatched generated packages fail before the installer loads customer state or unlocks deployment actions.
 
 ## Azure Runtime Resource Contract
 

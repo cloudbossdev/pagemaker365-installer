@@ -19,6 +19,7 @@ internal static class Program
             ("DownloadGeneratedPackageCommand blocks package download when operation is not allowed", DownloadGeneratedPackageCommandBlocksPackageDownloadWhenOperationIsNotAllowed),
             ("SyncDiscoveryCommand calls portal client when policy allows portal sync", SyncDiscoveryCommandCallsPortalClientWhenPolicyAllowsPortalSync),
             ("DownloadGeneratedPackageCommand loads downloaded portal package", DownloadGeneratedPackageCommandLoadsDownloadedPortalPackage),
+            ("DownloadGeneratedPackageCommand rejects provenance mismatch without loading package", DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage),
             ("DownloadGeneratedPackageCommand rejects invalid downloaded package", DownloadGeneratedPackageCommandRejectsInvalidDownloadedPackage)
         };
 
@@ -180,6 +181,32 @@ internal static class Program
         AssertEx.Equal("Downloaded", viewModel.PackageReadinessStatus);
         AssertEx.Equal("0.2-test", viewModel.PackageReadinessVersion);
         AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in should unlock after loading the generated package.");
+        AssertEx.True(File.Exists(viewModel.PackageDownloadPath), viewModel.PackageDownloadPath);
+        AssertEx.True(File.Exists(viewModel.PortalSyncReceipt.ReceiptOutputPath), viewModel.PortalSyncReceipt.ReceiptOutputPath);
+    }
+
+    private static async Task DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage()
+    {
+        using var scope = TestScope.Create();
+        var config = CreateConfig("Wrong Tenant Package");
+        config.Customer.TenantId = "tenant-wrong";
+        config.Azure.TenantId = "tenant-wrong";
+        config.ControlPlane.OnboardingSessionId = "onb_wrong_001";
+        var client = new FakeOnboardingApiClient
+        {
+            PackageJson = CustomerConfigService.ToJson(config)
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.CheckPackageReadinessCommand.ExecuteAsync();
+        await viewModel.DownloadGeneratedPackageCommand.ExecuteAsync();
+
+        AssertEx.Equal(1, client.DownloadCalls);
+        AssertEx.Equal("PackageInvalid", viewModel.PackageReadinessStatus);
+        AssertEx.NotEqual("Wrong Tenant Package", viewModel.CustomerName);
+        AssertEx.False(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in must not unlock after a provenance-mismatched generated package.");
         AssertEx.True(File.Exists(viewModel.PackageDownloadPath), viewModel.PackageDownloadPath);
         AssertEx.True(File.Exists(viewModel.PortalSyncReceipt.ReceiptOutputPath), viewModel.PortalSyncReceipt.ReceiptOutputPath);
     }
@@ -439,6 +466,7 @@ internal static class Program
             OnboardingBootstrapSession session,
             OnboardingPackageReadiness readiness,
             string workspaceRoot,
+            TenantDiscoveryResult? discovery = null,
             CancellationToken cancellationToken = default)
         {
             DownloadCalls++;

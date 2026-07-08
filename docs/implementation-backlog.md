@@ -27,7 +27,7 @@ Goal: make the customer install package deterministic enough for the installer a
 - [ ] Add cryptographic signature verification.
 - [x] Enforce bootstrap operation policy in installer commands.
 - [x] Add runtime schema validation for bootstrap, readiness/status, and generated packages.
-- [ ] Bind generated package provenance to onboarding session, discovery, tenant, and export metadata.
+- [x] Bind generated package provenance to onboarding session, discovery, tenant, and export metadata.
 
 Acceptance criteria:
 

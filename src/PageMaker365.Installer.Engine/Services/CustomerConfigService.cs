@@ -43,7 +43,10 @@ public sealed class CustomerConfigService
         return config ?? throw new InvalidOperationException("The customer install package could not be read.");
     }
 
-    public ConfigValidationResult Validate(CustomerInstallConfig config, string packageJson = "")
+    public ConfigValidationResult Validate(
+        CustomerInstallConfig config,
+        string packageJson = "",
+        PackageProvenanceContext? provenanceContext = null)
     {
         var result = new ConfigValidationResult();
 
@@ -84,6 +87,11 @@ public sealed class CustomerConfigService
 
         ValidateRequiredPackageProperties(packageJson, result);
         ValidatePackageTrust(config, packageJson, result);
+
+        if (provenanceContext is not null)
+        {
+            ValidatePackageProvenance(config, provenanceContext, result);
+        }
 
         return result;
     }
@@ -217,6 +225,110 @@ public sealed class CustomerConfigService
         result.PackageTrustSummary = "Package hash matches the package contents and signature metadata is present. Cryptographic signature verification will be wired in a later signing slice.";
     }
 
+    private static void ValidatePackageProvenance(
+        CustomerInstallConfig config,
+        PackageProvenanceContext context,
+        ConfigValidationResult result)
+    {
+        var originalErrorCount = result.Errors.Count;
+        var controlPlane = config.ControlPlane;
+
+        if (context.RequireDeploymentExportId &&
+            string.IsNullOrWhiteSpace(controlPlane.DeploymentExportId))
+        {
+            result.Errors.Add("controlPlane.deploymentExportId is required for generated packages.");
+        }
+
+        ValidateExpectedValue(
+            "onboarding session",
+            "controlPlane.onboardingSessionId",
+            controlPlane.OnboardingSessionId,
+            context.ExpectedOnboardingSessionId,
+            context.RequireOnboardingSessionId,
+            result);
+
+        var expectedTenantId = FirstUsableTenantId(context.ExpectedTenantId, context.ExpectedDiscoveryTenantId);
+        if (!string.IsNullOrWhiteSpace(expectedTenantId))
+        {
+            ValidateExpectedValue(
+                "tenant",
+                "customer.tenantId",
+                config.Customer.TenantId,
+                expectedTenantId,
+                required: true,
+                result);
+
+            if (!string.IsNullOrWhiteSpace(config.Azure.TenantId))
+            {
+                ValidateExpectedValue(
+                    "tenant",
+                    "azure.tenantId",
+                    config.Azure.TenantId,
+                    expectedTenantId,
+                    required: false,
+                    result);
+            }
+        }
+
+        ValidateExpectedValue(
+            "discovery",
+            "controlPlane.discoveryId",
+            controlPlane.DiscoveryId,
+            context.ExpectedDiscoveryId,
+            context.RequireDiscoveryId,
+            result);
+
+        if (!string.IsNullOrWhiteSpace(context.ExpectedSharePointSiteUrl) &&
+            !string.IsNullOrWhiteSpace(config.SharePoint.SiteUrl))
+        {
+            var expectedSite = NormalizeUrlForComparison(context.ExpectedSharePointSiteUrl);
+            var packageSite = NormalizeUrlForComparison(config.SharePoint.SiteUrl);
+            if (!expectedSite.Equals(packageSite, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Errors.Add(
+                    $"Generated package SharePoint site does not match active discovery. Expected '{context.ExpectedSharePointSiteUrl}', package declares '{config.SharePoint.SiteUrl}'.");
+            }
+        }
+
+        if (result.Errors.Count > originalErrorCount &&
+            result.PackageTrustStatus is "Verified" or "Hash verified" or "Legacy package" or "Missing signature" or "Not checked")
+        {
+            result.PackageTrustStatus = "Provenance mismatch";
+            result.PackageTrustSummary = "The generated package metadata does not match the active onboarding session, tenant, or discovery context.";
+        }
+    }
+
+    private static void ValidateExpectedValue(
+        string label,
+        string field,
+        string actual,
+        string expected,
+        bool required,
+        ConfigValidationResult result)
+    {
+        if (string.IsNullOrWhiteSpace(expected))
+        {
+            if (required && string.IsNullOrWhiteSpace(actual))
+            {
+                result.Errors.Add($"{field} is required for generated packages.");
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(actual))
+        {
+            result.Errors.Add($"{field} is required for generated packages.");
+            return;
+        }
+
+        if (!actual.Trim().Equals(expected.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            result.Errors.Add(
+                $"Generated package {label} does not match active context. Expected '{expected}', package declares '{actual}'.");
+        }
+    }
+
     private static void RequireOrWarn(
         string value,
         string field,
@@ -258,6 +370,29 @@ public sealed class CustomerConfigService
     private static string First(params string[] values)
     {
         return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+    }
+
+    private static string FirstUsableTenantId(params string[] values)
+    {
+        return values.FirstOrDefault(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            !IsEmptyGuid(value)) ?? "";
+    }
+
+    private static bool IsEmptyGuid(string value)
+    {
+        return Guid.TryParse(value, out var guid) && guid == Guid.Empty;
+    }
+
+    private static string NormalizeUrlForComparison(string value)
+    {
+        if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri))
+        {
+            return value.Trim().TrimEnd('/');
+        }
+
+        var path = uri.AbsolutePath.TrimEnd('/');
+        return $"{uri.Scheme.ToLowerInvariant()}://{uri.Host.ToLowerInvariant()}{path}";
     }
 
     private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)

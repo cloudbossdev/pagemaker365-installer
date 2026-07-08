@@ -1230,7 +1230,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         try
         {
-            var download = await _onboardingApiClient.DownloadPackageAsync(_bootstrapSession, _packageReadiness, GetWorkspaceRoot());
+            var download = await _onboardingApiClient.DownloadPackageAsync(
+                _bootstrapSession,
+                _packageReadiness,
+                GetWorkspaceRoot(),
+                _tenantDiscovery);
             PackageDownloadPath = download.PackagePath;
             PackageReadinessStatus = download.Status;
             PackageReadinessVersion = download.PackageVersion;
@@ -1250,7 +1254,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 return;
             }
 
-            var packageLoaded = await LoadPackageAsync(download.PackagePath);
+            var packageLoaded = await LoadPackageAsync(
+                download.PackagePath,
+                PackageProvenanceContext.ForPortalDownload(_bootstrapSession, _tenantDiscovery));
             if (!packageLoaded)
             {
                 var validationMessage = FooterStatus;
@@ -1312,7 +1318,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
     }
 
-    private async Task<bool> LoadPackageAsync(string path)
+    private async Task<bool> LoadPackageAsync(
+        string path,
+        PackageProvenanceContext? provenanceContext = null)
     {
         var packageJson = await File.ReadAllTextAsync(path);
         CustomerInstallConfig config;
@@ -1329,7 +1337,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return false;
         }
 
-        var validation = _configService.Validate(config, packageJson);
+        var validation = _configService.Validate(config, packageJson, provenanceContext);
         if (!validation.IsValid)
         {
             ApplyPackageTrustReview(validation);

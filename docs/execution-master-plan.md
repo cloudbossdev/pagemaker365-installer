@@ -50,10 +50,8 @@ The installer is not yet a production deployment tool. The remaining work is mai
 ## Main Production Gaps
 
 - Portal backend implementation is outside this repo and still needs final response schemas, package generation, signing, and evidence ingest.
-- Bootstrap policy fields are documented but not fully enforced by installer commands.
-- Runtime schema validation is mostly model/manual-rule based.
-- Onboarding status/readiness and portal error schemas are not fully pinned.
 - Customer install package schema still tolerates alpha compatibility.
+- Portal error response schemas are not fully pinned.
 - Cryptographic signature verification is not implemented.
 - Bicep is monolithic and the resource group creation contract is unclear.
 - Real sandbox what-if/deploy has not been proven.
@@ -150,6 +148,8 @@ Needs customer: no, unless portal agent has final schema decisions ready.
 
 #### Slice 1.3 - Package Provenance Binding
 
+Status: completed in engine download validation, app generated-package validation, and focused engine/app tests.
+
 Scope:
 
 - Bind generated package metadata to onboarding session, discovery ID, deployment export ID, and tenant.
@@ -168,7 +168,7 @@ Acceptance criteria:
 - Receipt records the mismatch without exposing secrets.
 - Tests cover valid, mismatched session, mismatched tenant, and missing metadata cases.
 
-Needs customer: final portal package metadata rules from the portal agent.
+Needs customer: no for installer enforcement. Portal package generation must continue returning the required metadata fields.
 
 ### Phase 2 - Deployment Infrastructure
 
@@ -576,26 +576,20 @@ These decisions should be made before the related phase becomes blocking:
 
 ## Recommended Next Coding Slice
 
-Start with Phase 1, Slice 1.3: Package Provenance Binding.
+Start with Phase 2, Slice 2.1: Runtime Hosting Decision.
 
 Reason:
 
-- It does not require production credentials.
-- It is the last local contract-hardening slice before Azure deployment work.
-- It prevents packages for the wrong session, tenant, or discovery export from being accepted.
-- It gives the portal agent exact metadata rules for generated install packages.
-- It can be tested locally with mismatched package fixtures and fake portal responses.
+- Phase 1 contract hardening is now complete enough to move toward sandbox deployment work.
+- The Bicep/runtime direction affects resource modules, installer preflight language, deployment outputs, and smoke tests.
+- This decision can be documented first, then converted into modular Bicep and PowerShell work without needing production credentials.
 
 Suggested subagent use:
 
-- Worker A owns engine tests for session, tenant, discovery, and export mismatches.
-- Coordinator owns package validation integration in `CustomerConfigService` and installer package-load paths.
-- Optional docs worker updates package provenance requirements after implementation.
+- Docs worker updates `docs/deployment-contract.md` and backlog wording for the selected v1 hosting model.
+- Coordinator confirms the decision with the user before implementation touches `infra/` or deployment modules.
 
 Definition of done:
 
-- Mismatched generated packages fail before package state changes.
-- Valid generated packages with matching provenance still load.
-- Valid sample payloads still work.
-- App tests and engine tests pass.
-- `scripts/verify.ps1` or equivalent test/build path passes.
+- The deployment contract states the selected v1 hosting model.
+- Follow-on Bicep and PowerShell slices have clear acceptance criteria.

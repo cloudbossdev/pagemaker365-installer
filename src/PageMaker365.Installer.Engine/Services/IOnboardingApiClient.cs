@@ -30,5 +30,6 @@ public interface IOnboardingApiClient
         OnboardingBootstrapSession session,
         OnboardingPackageReadiness readiness,
         string workspaceRoot,
+        TenantDiscoveryResult? discovery = null,
         CancellationToken cancellationToken = default);
 }

@@ -112,6 +112,7 @@ public sealed class MockOnboardingApiClient : IOnboardingApiClient
         OnboardingBootstrapSession session,
         OnboardingPackageReadiness readiness,
         string workspaceRoot,
+        TenantDiscoveryResult? discovery = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

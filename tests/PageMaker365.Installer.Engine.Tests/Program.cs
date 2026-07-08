@@ -34,6 +34,11 @@ internal static class Program
             ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
             ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
             ("DownloadPackageAsync rejects generated package missing required contract sections", DownloadPackageAsyncRejectsGeneratedPackageMissingRequiredContractSections),
+            ("DownloadPackageAsync accepts package bound to active provenance", DownloadPackageAsyncAcceptsPackageBoundToActiveProvenance),
+            ("DownloadPackageAsync rejects package with wrong onboarding session", DownloadPackageAsyncRejectsPackageWithWrongOnboardingSession),
+            ("DownloadPackageAsync rejects package with wrong tenant", DownloadPackageAsyncRejectsPackageWithWrongTenant),
+            ("DownloadPackageAsync rejects package with wrong discovery ID", DownloadPackageAsyncRejectsPackageWithWrongDiscoveryId),
+            ("DownloadPackageAsync rejects package missing deployment export ID", DownloadPackageAsyncRejectsPackageMissingDeploymentExportId),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
             ("ConnectAsync does not fall back to mock for invalid portal response", ConnectAsyncDoesNotFallBackToMockForInvalidPortalResponse),
             ("CustomerConfigService verifies matching package hash", CustomerConfigServiceVerifiesMatchingPackageHash),
@@ -645,6 +650,114 @@ internal static class Program
             AssertEx.StringContains(exception.Message, "failed validation");
             AssertEx.StringContains(exception.Message, "features is required");
             AssertEx.False(Directory.Exists(Path.Combine(workspaceRoot, "support-bundle", "onboarding", "onb_test_001", "generated-package")));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncAcceptsPackageBoundToActiveProvenance()
+    {
+        var packageJson = CreateProvenancePackageJson(_ => { });
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await DownloadPackageAsync(packageJson, workspaceRoot);
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
+            AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRejectsPackageWithWrongOnboardingSession()
+    {
+        var packageJson = CreateProvenancePackageJson(config =>
+        {
+            config.ControlPlane.OnboardingSessionId = "onb_other_001";
+        });
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                DownloadPackageAsync(packageJson, workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "onboarding session");
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot), "Mismatched generated package must not be written to support bundle.");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRejectsPackageWithWrongTenant()
+    {
+        var packageJson = CreateProvenancePackageJson(config =>
+        {
+            config.Customer.TenantId = "tenant-other";
+            config.Azure.TenantId = "tenant-other";
+        });
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                DownloadPackageAsync(packageJson, workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "tenant");
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot), "Wrong-tenant generated package must not be written to support bundle.");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRejectsPackageWithWrongDiscoveryId()
+    {
+        var packageJson = CreateProvenancePackageJson(config =>
+        {
+            config.ControlPlane.DiscoveryId = "disc_other_001";
+        });
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                DownloadPackageAsync(packageJson, workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "discovery");
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot), "Wrong-discovery generated package must not be written to support bundle.");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRejectsPackageMissingDeploymentExportId()
+    {
+        var packageJson = CreateProvenancePackageJson(config =>
+        {
+            config.ControlPlane.DeploymentExportId = "";
+        });
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                DownloadPackageAsync(packageJson, workspaceRoot));
+
+            AssertEx.StringContains(exception.Message, "deploymentExportId");
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot), "Generated package missing export metadata must not be written to support bundle.");
         }
         finally
         {
@@ -1336,6 +1449,8 @@ internal static class Program
                 ExportedAt = "2026-07-07T00:00:00Z",
                 Issuer = "PageMaker365 Control Plane",
                 IssuerEnvironment = "test",
+                OnboardingSessionId = "onb_test_001",
+                DiscoveryId = "disc_test_001",
                 SchemaId = "https://pagemaker365.com/schemas/customer-install.schema.json",
                 EnvironmentId = "env-001",
                 LicenseActivationId = "lic-001",
@@ -1368,6 +1483,41 @@ internal static class Program
             PackageVersion = "0.2-test",
             PackageDownloadUrl = "https://api.example.test/custom/download"
         };
+    }
+
+    private static string CreateProvenancePackageJson(Action<CustomerInstallConfig> mutate)
+    {
+        var session = CreateSession();
+        var discovery = CreateDiscovery();
+        var config = CreateConfig();
+        config.Customer.TenantId = session.ExpectedTenantId;
+        config.Azure.TenantId = session.ExpectedTenantId;
+        config.ControlPlane.OnboardingSessionId = session.SessionId;
+        config.ControlPlane.DiscoveryId = discovery.DiscoveryId;
+        mutate(config);
+        return CustomerConfigService.ToJson(config);
+    }
+
+    private static async Task<OnboardingPackageDownloadResult> DownloadPackageAsync(
+        string packageJson,
+        string workspaceRoot)
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(packageJson, Encoding.UTF8, "application/json")
+        });
+        var client = CreatePortalClient(handler);
+        return await client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot, CreateDiscovery());
+    }
+
+    private static bool GeneratedPackageDirectoryExists(string workspaceRoot)
+    {
+        return Directory.Exists(Path.Combine(
+            workspaceRoot,
+            "support-bundle",
+            "onboarding",
+            "onb_test_001",
+            "generated-package"));
     }
 
     private static HttpResponseMessage JsonResponse(string json)
