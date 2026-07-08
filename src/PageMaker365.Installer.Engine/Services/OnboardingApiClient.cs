@@ -345,7 +345,24 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
 
     private bool ShouldFallback(Exception exception)
     {
-        return _options.FallbackToMockOnFailure && exception is not OperationCanceledException;
+        if (!_options.FallbackToMockOnFailure || exception is OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (exception is OnboardingApiException apiException)
+        {
+            return apiException.StatusCode is not null && IsTransientStatusCode(apiException.StatusCode.Value);
+        }
+
+        return exception is HttpRequestException or TaskCanceledException or IOException;
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode)
+    {
+        var code = (int)statusCode;
+        return statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
+            code >= 500;
     }
 
     private static OnboardingPackageContext? CreatePackageContext(CustomerInstallConfig? config)

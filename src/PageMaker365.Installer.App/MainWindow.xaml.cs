@@ -60,7 +60,7 @@ public partial class MainWindow : Window
         WelcomeWorkflowInstallCard.Margin = compact ? new Thickness(0, 0, 0, 12) : medium ? new Thickness(0, 0, 8, 0) : new Thickness(4, 0, 4, 0);
         WelcomeWorkflowFinishCard.Margin = compact ? new Thickness(0) : medium ? new Thickness(8, 0, 0, 0) : new Thickness(8, 0, 0, 0);
 
-        OnboardingActionsGrid.Columns = compact ? 2 : 4;
+        OnboardingActionsGrid.Columns = compact || medium ? 2 : 4;
         CompactGuidanceActions.Columns = ActualWidth > 0 && ActualWidth < 820 ? 1 : 3;
         RemovalPreviewGrid.Columns = compact ? 1 : 3;
         DeploymentApprovalGrid.Columns = compact ? 1 : 3;

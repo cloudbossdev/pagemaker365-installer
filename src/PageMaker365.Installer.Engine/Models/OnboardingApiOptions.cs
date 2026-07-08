@@ -22,14 +22,16 @@ public sealed class OnboardingApiOptions
 
     public Uri PackageEndpoint(OnboardingBootstrapSession session, string? packageDownloadUrl)
     {
+        var path = PackageEndpointPathTemplate.Replace("{sessionId}", Uri.EscapeDataString(session.SessionId));
+        var defaultEndpoint = BuildEndpoint(session, path);
         if (!string.IsNullOrWhiteSpace(packageDownloadUrl) &&
-            Uri.TryCreate(packageDownloadUrl, UriKind.Absolute, out var packageUri))
+            Uri.TryCreate(packageDownloadUrl, UriKind.Absolute, out var packageUri) &&
+            SameOrigin(packageUri, defaultEndpoint))
         {
             return packageUri;
         }
 
-        var path = PackageEndpointPathTemplate.Replace("{sessionId}", Uri.EscapeDataString(session.SessionId));
-        return BuildEndpoint(session, path);
+        return defaultEndpoint;
     }
 
     private Uri BuildEndpoint(OnboardingBootstrapSession session, string path)
@@ -39,5 +41,12 @@ public sealed class OnboardingApiOptions
             : session.ApiBaseUrl;
         var baseUri = new Uri(baseUrl.TrimEnd('/') + "/", UriKind.Absolute);
         return new Uri(baseUri, path.TrimStart('/'));
+    }
+
+    private static bool SameOrigin(Uri left, Uri right)
+    {
+        return left.Scheme.Equals(right.Scheme, StringComparison.OrdinalIgnoreCase) &&
+            left.Host.Equals(right.Host, StringComparison.OrdinalIgnoreCase) &&
+            left.Port == right.Port;
     }
 }

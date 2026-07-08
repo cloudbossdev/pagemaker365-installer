@@ -19,15 +19,19 @@ internal static class Program
             ("SubmitDiscoveryAsync sends install-readiness discovery payload", SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload),
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
+            ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
             ("ConnectAsync rejects invalid portal response", ConnectAsyncRejectsInvalidPortalResponse),
             ("GetOnboardingStatusAsync rejects ready status without package URL", GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl),
             ("ConnectAsync surfaces portal API error details", ConnectAsyncSurfacesPortalApiErrorDetails),
             ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
             ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
+            ("ConnectAsync does not fall back to mock for invalid portal response", ConnectAsyncDoesNotFallBackToMockForInvalidPortalResponse),
             ("CustomerConfigService verifies matching package hash", CustomerConfigServiceVerifiesMatchingPackageHash),
             ("CustomerConfigService rejects package hash mismatch", CustomerConfigServiceRejectsPackageHashMismatch),
             ("CustomerConfigService enforces signed-required trust mode", CustomerConfigServiceEnforcesSignedRequiredTrustMode),
+            ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
+            ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
@@ -196,10 +200,44 @@ internal static class Program
             AssertEx.Equal("Downloaded", result.Status);
             AssertEx.Equal("0.2-test", result.PackageVersion);
             AssertEx.Equal("corr-package-001", result.CorrelationId);
+            AssertEx.Equal(HttpMethod.Get, handler.Requests[0].Method);
             AssertEx.Equal("https://api.example.test/custom/download", handler.Requests[0].RequestUri?.ToString());
+            AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Session"), "onb_test_001");
+            AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Code"), "TEST-CODE-001");
             AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
             AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
             AssertEx.StringContains(result.PackagePath, Path.Combine("support-bundle", "onboarding", "onb_test_001", "generated-package"));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncIgnoresExternalPackageDownloadUrl()
+    {
+        var packageJson = CustomerConfigService.ToJson(CreateConfig());
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(packageJson, Encoding.UTF8, "application/json")
+            };
+            return response;
+        });
+        var client = CreatePortalClient(handler);
+        var readiness = CreateReadyReadiness();
+        readiness.PackageDownloadUrl = "https://files.example.invalid/package.json";
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await client.DownloadPackageAsync(CreateSession(), readiness, workspaceRoot);
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.Equal("https://api.example.test/api/onboarding/installer/onb_test_001/install-package", handler.Requests[0].RequestUri?.ToString());
+            AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Session"), "onb_test_001");
+            AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Code"), "TEST-CODE-001");
         }
         finally
         {
@@ -327,6 +365,18 @@ internal static class Program
         AssertEx.Equal(1, handler.Requests.Count);
     }
 
+    private static async Task ConnectAsyncDoesNotFallBackToMockForInvalidPortalResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""{"status":"Connected"}"""));
+        var client = CreatePortalClient(handler, fallbackToMock: true);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.StringContains(exception.Message, "missing required field");
+        AssertEx.StringContains(exception.Message, "sessionId");
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
     private static Task CustomerConfigServiceVerifiesMatchingPackageHash()
     {
         var config = CreateConfig();
@@ -364,6 +414,48 @@ internal static class Program
         AssertEx.Equal("Missing signature", result.PackageTrustStatus);
         AssertEx.StringContains(string.Join(" ", result.Errors), "controlPlane.packageHash");
         AssertEx.StringContains(string.Join(" ", result.Errors), "controlPlane.signature");
+        return Task.CompletedTask;
+    }
+
+    private static async Task CustomerConfigServiceValidatesSamplePackageContract()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "samples", "contoso.customer.install.json");
+        var json = await File.ReadAllTextAsync(path);
+        var config = JsonSerializer.Deserialize<CustomerInstallConfig>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+        var result = new CustomerConfigService().Validate(config, json);
+
+        AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
+    }
+
+    private static Task CustomerConfigServiceRejectsPackageMissingRequiredContractFields()
+    {
+        var json = """
+            {
+              "contractVersion": "0.2",
+              "customer": { "tenantName": "Example", "tenantId": "tenant-001" },
+              "azure": { "subscriptionId": "sub-001", "location": "eastus", "resourceGroupName": "rg-test" },
+              "sharePoint": { "siteUrl": "https://example.sharepoint.com/sites/intranet" },
+              "app": { "appName": "PageMaker365" },
+              "features": { "knowledgeBase": true }
+            }
+            """;
+        var config = JsonSerializer.Deserialize<CustomerInstallConfig>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+        var result = new CustomerConfigService().Validate(config, json);
+        var errors = string.Join(" ", result.Errors);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(errors, "Customer primary contact is required");
+        AssertEx.StringContains(errors, "Azure environment is required");
+        AssertEx.StringContains(errors, "SharePoint default document library is required");
+        AssertEx.StringContains(errors, "Support email is required");
+        AssertEx.StringContains(errors, "features.customerPortal is required");
+        AssertEx.StringContains(errors, "features.billingIntegration is required");
         return Task.CompletedTask;
     }
 
@@ -915,7 +1007,8 @@ internal static class Program
                 TenantId = "tenant-001",
                 SubscriptionId = "sub-001",
                 Location = "eastus",
-                ResourceGroupName = "rg-pm365-example"
+                ResourceGroupName = "rg-pm365-example",
+                Environment = "test"
             },
             SharePoint =
             {
@@ -999,6 +1092,22 @@ internal static class Program
         var path = Path.Combine(Path.GetTempPath(), "pm365-installer-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "PageMaker365.Installer.sln")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate PageMaker365.Installer.sln from the test output directory.");
     }
 
     private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory) : HttpMessageHandler

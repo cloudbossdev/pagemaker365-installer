@@ -42,11 +42,15 @@ public sealed class CustomerConfigService
 
         Require(config.Customer.TenantName, "Customer tenant name is required.", result);
         Require(config.Customer.TenantId, "Customer tenant ID is required.", result);
+        Require(config.Customer.PrimaryContact, "Customer primary contact is required.", result);
         Require(config.Azure.SubscriptionId, "Azure subscription ID is required.", result);
         Require(config.Azure.Location, "Azure location is required.", result);
         Require(config.Azure.ResourceGroupName, "Azure resource group name is required.", result);
+        Require(config.Azure.Environment, "Azure environment is required.", result);
         Require(config.SharePoint.SiteUrl, "SharePoint site URL is required.", result);
+        Require(config.SharePoint.DefaultDocumentLibrary, "SharePoint default document library is required.", result);
         Require(config.App.AppName, "Application name is required.", result);
+        Require(config.App.SupportEmail, "Support email is required.", result);
 
         if (string.IsNullOrWhiteSpace(config.ContractVersion))
         {
@@ -59,11 +63,7 @@ public sealed class CustomerConfigService
             result.Errors.Add("SharePoint site URL must be an absolute URL.");
         }
 
-        if (string.IsNullOrWhiteSpace(config.App.SupportEmail))
-        {
-            result.Warnings.Add("Support email is not set.");
-        }
-
+        ValidateRequiredPackageProperties(packageJson, result);
         ValidateSecretContainers(packageJson, result);
         ValidatePackageTrust(config, packageJson, result);
 
@@ -114,6 +114,30 @@ public sealed class CustomerConfigService
         if (blocked.Length > 0)
         {
             result.Errors.Add("Customer install package must not contain raw secret containers: " + string.Join(", ", blocked) + ".");
+        }
+    }
+
+    private static void ValidateRequiredPackageProperties(string packageJson, ConfigValidationResult result)
+    {
+        if (string.IsNullOrWhiteSpace(packageJson))
+        {
+            return;
+        }
+
+        using var document = JsonDocument.Parse(packageJson);
+        var root = document.RootElement;
+        RequireJsonPath(root, "features", result);
+        RequireJsonPath(root, "features.knowledgeBase", result);
+        RequireJsonPath(root, "features.customerPortal", result);
+        RequireJsonPath(root, "features.billingIntegration", result);
+    }
+
+    private static void RequireJsonPath(JsonElement root, string path, ConfigValidationResult result)
+    {
+        if (!TryGetJsonPath(root, path, out var value) ||
+            value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            result.Errors.Add($"{path} is required.");
         }
     }
 
@@ -231,6 +255,22 @@ public sealed class CustomerConfigService
 
         value = default;
         return false;
+    }
+
+    private static bool TryGetJsonPath(JsonElement element, string path, out JsonElement value)
+    {
+        value = element;
+        foreach (var segment in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (value.ValueKind != JsonValueKind.Object ||
+                !TryGetProperty(value, segment, out value))
+            {
+                value = default;
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static void WriteCanonicalJson(Utf8JsonWriter writer, JsonElement element, string path)
