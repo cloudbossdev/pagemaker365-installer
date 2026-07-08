@@ -19,8 +19,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly FinalEvidenceService _finalEvidenceService = new();
     private readonly DeploymentApprovalManifestService _deploymentApprovalManifestService = new();
     private readonly TenantDiscoveryService _tenantDiscoveryService;
-    private readonly InstallerStateStore _stateStore = new();
+    private readonly InstallerStateStore _stateStore;
     private readonly IOnboardingApiClient _onboardingApiClient;
+    private readonly string _workspaceRoot;
     private CustomerInstallConfig? _config;
     private InstallerSession? _session;
     private OnboardingBootstrapSession? _bootstrapSession;
@@ -115,11 +116,23 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _deploymentConfirmationText = "";
 
     public InstallerWizardViewModel()
+        : this(null, null, null)
     {
+    }
+
+    public InstallerWizardViewModel(
+        IOnboardingApiClient? onboardingApiClient,
+        InstallerStateStore? stateStore,
+        string? workspaceRoot)
+    {
+        _workspaceRoot = string.IsNullOrWhiteSpace(workspaceRoot)
+            ? ResolveWorkspaceRoot()
+            : workspaceRoot;
+        _stateStore = stateStore ?? new InstallerStateStore();
         _engine = new InstallerEngine(new StructuredLogger(_redactionService));
         _supportBundleService = new SupportBundleService(_redactionService);
         _tenantDiscoveryService = new TenantDiscoveryService(_redactionService);
-        _onboardingApiClient = new OnboardingApiClient(new OnboardingApiOptionsService().Load(GetWorkspaceRoot()));
+        _onboardingApiClient = onboardingApiClient ?? new OnboardingApiClient(new OnboardingApiOptionsService().Load(GetWorkspaceRoot()));
 
         Steps = [];
 
@@ -3557,7 +3570,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
     }
 
-    private static string GetWorkspaceRoot()
+    private string GetWorkspaceRoot()
+    {
+        return _workspaceRoot;
+    }
+
+    private static string ResolveWorkspaceRoot()
     {
         return EnumerateCandidateRoots().FirstOrDefault(root => Directory.Exists(Path.Combine(root, "samples")))
             ?? Environment.CurrentDirectory;

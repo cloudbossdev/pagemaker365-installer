@@ -18,7 +18,10 @@ internal static class Program
             ("ConnectAsync sends expected session request and headers", ConnectAsyncSendsExpectedSessionRequestAndHeaders),
             ("SubmitDiscoveryAsync sends install-readiness discovery payload", SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload),
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
+            ("GetOnboardingStatusAsync accepts unknown readiness without making it downloadable", GetOnboardingStatusAsyncAcceptsUnknownReadinessWithoutMakingItDownloadable),
+            ("GetOnboardingStatusAsync carries missing field details", GetOnboardingStatusAsyncCarriesMissingFieldDetails),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
+            ("DownloadPackageAsync sanitizes unsafe content disposition filename", DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename),
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
             ("ConnectAsync rejects invalid portal response", ConnectAsyncRejectsInvalidPortalResponse),
             ("GetOnboardingStatusAsync rejects ready status without package URL", GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl),
@@ -207,6 +210,137 @@ internal static class Program
             AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
             AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
             AssertEx.StringContains(result.PackagePath, Path.Combine("support-bundle", "onboarding", "onb_test_001", "generated-package"));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task GetOnboardingStatusAsyncAcceptsUnknownReadinessWithoutMakingItDownloadable()
+    {
+        var statusHandler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "0.1",
+              "sessionId": "onb_test_001",
+              "customerName": "Example Customer",
+              "status": "Pending",
+              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "correlationId": "corr-status-unknown",
+              "message": "Waiting on package generation",
+              "missingFields": [],
+              "packageReadiness": {
+                "status": "QueuedForSignature",
+                "packageVersion": "0.2-test",
+                "packageDownloadUrl": "https://api.example.test/api/onboarding/installer/onb_test_001/install-package",
+                "message": "Package is not ready for installer download yet"
+              }
+            }
+            """));
+        var statusClient = CreatePortalClient(statusHandler);
+
+        var status = await statusClient.GetOnboardingStatusAsync(CreateSession(), CreateDiscovery(), CreateConfig());
+
+        AssertEx.Equal("Pending", status.Status);
+        AssertEx.Equal("QueuedForSignature", status.PackageReadiness.Status);
+        AssertEx.Equal("https://api.example.test/api/onboarding/installer/onb_test_001/install-package", status.PackageReadiness.PackageDownloadUrl);
+
+        var downloadHandler = new RecordingHttpMessageHandler(_ => throw new InvalidOperationException("Unknown readiness status must not trigger package download."));
+        var downloadClient = CreatePortalClient(downloadHandler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await downloadClient.DownloadPackageAsync(CreateSession(), status.PackageReadiness, workspaceRoot);
+
+            AssertEx.Equal("NotReady", result.Status);
+            AssertEx.Equal("0.2-test", result.PackageVersion);
+            AssertEx.Equal(0, downloadHandler.Requests.Count);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task GetOnboardingStatusAsyncCarriesMissingFieldDetails()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "0.1",
+              "sessionId": "onb_test_001",
+              "customerName": "Example Customer",
+              "status": "NeedsInput",
+              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "correlationId": "corr-status-missing-fields",
+              "message": "Additional package intake fields are required",
+              "missingFields": [
+                {
+                  "fieldKey": "azure.subscriptionId",
+                  "label": "Azure subscription",
+                  "required": true,
+                  "source": "Discovery",
+                  "notes": "Select the subscription for PageMaker365 resources."
+                },
+                {
+                  "fieldKey": "sharePoint.siteUrl",
+                  "label": "SharePoint site URL",
+                  "required": false,
+                  "source": "LoadedPackage",
+                  "notes": "Use the existing intranet site if available."
+                }
+              ],
+              "packageReadiness": {
+                "status": "Blocked",
+                "packageVersion": "0.2-test",
+                "message": "Required intake fields are missing"
+              }
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var status = await client.GetOnboardingStatusAsync(CreateSession(), CreateDiscovery(), CreateConfig());
+
+        AssertEx.Equal("NeedsInput", status.Status);
+        AssertEx.Equal(2, status.MissingFields.Count);
+        AssertEx.Equal("azure.subscriptionId", status.MissingFields[0].FieldKey);
+        AssertEx.Equal("Azure subscription", status.MissingFields[0].Label);
+        AssertEx.True(status.MissingFields[0].Required);
+        AssertEx.Equal("Discovery", status.MissingFields[0].Source);
+        AssertEx.Equal("Select the subscription for PageMaker365 resources.", status.MissingFields[0].Notes);
+        AssertEx.Equal("sharePoint.siteUrl", status.MissingFields[1].FieldKey);
+        AssertEx.Equal("SharePoint site URL", status.MissingFields[1].Label);
+        AssertEx.False(status.MissingFields[1].Required);
+        AssertEx.Equal("LoadedPackage", status.MissingFields[1].Source);
+        AssertEx.Equal("Use the existing intranet site if available.", status.MissingFields[1].Notes);
+    }
+
+    private static async Task DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename()
+    {
+        var packageJson = CustomerConfigService.ToJson(CreateConfig());
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(packageJson, Encoding.UTF8, "application/json")
+            };
+            response.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+            {
+                FileName = "customer:unsafe?package*.install.json"
+            };
+            return response;
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot);
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
+            AssertEx.Equal("customer_unsafe_package_.install.json", Path.GetFileName(result.PackagePath));
+            AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
         }
         finally
         {

@@ -61,6 +61,25 @@ public partial class MainWindow : Window
         WelcomeWorkflowFinishCard.Margin = compact ? new Thickness(0) : medium ? new Thickness(8, 0, 0, 0) : new Thickness(8, 0, 0, 0);
 
         OnboardingActionsGrid.Columns = compact || medium ? 2 : 4;
+        PackageTrustGrid.Columns = compact ? 1 : 2;
+        PackageTrustPanel.Margin = compact ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 0);
+        PackageHashPanel.Margin = compact ? new Thickness(0) : new Thickness(9, 0, 0, 0);
+        PackageTargetSummaryGrid.Columns = compact ? 1 : 2;
+        AzureSummaryCard.Margin = compact ? new Thickness(0, 0, 0, 10) : new Thickness(0, 0, 9, 0);
+        SharePointSummaryCard.Margin = compact ? new Thickness(0) : new Thickness(9, 0, 0, 0);
+        PortalSessionDetailsGrid.Columns = compact || medium ? 1 : 2;
+        PortalSessionIdentityPanel.Margin = compact || medium ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 0);
+        PortalSessionStatusPanel.Margin = compact || medium ? new Thickness(0) : new Thickness(9, 0, 0, 0);
+        PortalReadinessStripGrid.Columns = compact ? 1 : medium ? 2 : 3;
+        PortalReadinessCard.Margin = compact ? new Thickness(0, 0, 0, 10) : medium ? new Thickness(0, 0, 8, 10) : new Thickness(0, 0, 8, 0);
+        PortalVersionCard.Margin = compact ? new Thickness(0, 0, 0, 10) : medium ? new Thickness(8, 0, 0, 10) : new Thickness(4, 0, 4, 0);
+        PortalPackageDownloadCard.Margin = compact ? new Thickness(0) : medium ? new Thickness(0) : new Thickness(8, 0, 0, 0);
+        PortalReadinessDetailsGrid.Columns = compact || medium ? 1 : 2;
+        PortalReadinessSummaryPanel.Margin = compact || medium ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 0);
+        PortalReadinessOutputPanel.Margin = compact || medium ? new Thickness(0) : new Thickness(9, 0, 0, 0);
+        PortalSyncReceiptGrid.Columns = compact || medium ? 1 : 2;
+        PortalSyncReceiptSessionPanel.Margin = compact || medium ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 0);
+        PortalSyncReceiptStatusPanel.Margin = compact || medium ? new Thickness(0) : new Thickness(9, 0, 0, 0);
         CompactGuidanceActions.Columns = ActualWidth > 0 && ActualWidth < 820 ? 1 : 3;
         RemovalPreviewGrid.Columns = compact ? 1 : 3;
         DeploymentApprovalGrid.Columns = compact ? 1 : 3;

@@ -28,6 +28,11 @@ public sealed class RelayCommand : ICommand
 
     public async void Execute(object? parameter)
     {
+        await ExecuteAsync(parameter);
+    }
+
+    public async Task ExecuteAsync(object? parameter = null)
+    {
         if (!CanExecute(parameter))
         {
             return;
