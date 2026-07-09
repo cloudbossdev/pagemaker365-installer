@@ -115,6 +115,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Discovery command contract tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Testing what-if fallback contracts...'
+& (Join-Path $repoRoot 'scripts\test-whatif.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "What-if fallback contract tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Running preflight...'
 Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
 

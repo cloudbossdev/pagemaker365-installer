@@ -376,44 +376,27 @@ function Invoke-PM365WhatIf {
             return
         }
 
-        $method = 'New-AzResourceGroupDeployment -WhatIf'
-        $whatIf = New-AzResourceGroupDeployment @deploymentArguments -WhatIf 2>&1
-        $outputText = @($whatIf | ForEach-Object { [string]$_ })
-        $risk = Get-PM365WhatIfRisk -UnstructuredFallback
-        $artifactPath = ''
-        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
-            $artifact = New-PM365WhatIfArtifact `
+        Invoke-PM365UnstructuredWhatIf `
+            -Config $config `
+            -Context $context `
+            -TemplateFile $TemplateFile `
+            -DeploymentArguments $deploymentArguments `
+            -OutputPath $OutputPath `
+            -ReasonCode 'StructuredWhatIfUnavailable' `
+            -ReasonMessage 'Get-AzResourceGroupDeploymentWhatIfResult is unavailable; unstructured what-if output was captured.'
+    } catch {
+        if ($structuredWhatIfCommand) {
+            $structuredErrorMessage = $_.Exception.Message
+            return Invoke-PM365UnstructuredWhatIf `
                 -Config $config `
                 -Context $context `
                 -TemplateFile $TemplateFile `
-                -Method $method `
-                -Risk $risk `
-                -Status 'Warning' `
-                -Output $outputText `
-                -ErrorCode 'StructuredWhatIfUnavailable' `
-                -ErrorMessage 'Get-AzResourceGroupDeploymentWhatIfResult is unavailable; unstructured what-if output was captured.'
-            $artifactPath = Write-PM365JsonArtifact `
+                -DeploymentArguments $deploymentArguments `
                 -OutputPath $OutputPath `
-                -DefaultFileName 'deployment-whatif.json' `
-                -InputObject $artifact
+                -ReasonCode 'StructuredWhatIfFailedFallbackUsed' `
+                -ReasonMessage "Get-AzResourceGroupDeploymentWhatIfResult failed, so unstructured what-if output was captured. Structured error: $structuredErrorMessage"
         }
 
-        $details = ($outputText -join [Environment]::NewLine)
-        if ([string]::IsNullOrWhiteSpace($details)) {
-            $details = 'Get-AzResourceGroupDeploymentWhatIfResult is unavailable; unstructured what-if completed without captured text.'
-        }
-        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
-            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
-        }
-
-        New-PM365Result `
-            -Status 'Warning' `
-            -Code 'AzureWhatIfReady' `
-            -Summary 'Azure deployment preview completed without structured change data.' `
-            -Details $details `
-            -RetrySafe $true `
-            -Data (New-PM365WhatIfResultData -Risk $risk -ArtifactPath $artifactPath)
-    } catch {
         $risk = Get-PM365WhatIfRisk -UnstructuredFallback
         $artifactPath = ''
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
