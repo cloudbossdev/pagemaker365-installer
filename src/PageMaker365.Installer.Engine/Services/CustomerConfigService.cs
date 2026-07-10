@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Signers;
+using Org.BouncyCastle.Security;
 using PageMaker365.Installer.Engine.Models;
 
 namespace PageMaker365.Installer.Engine.Services;
@@ -46,7 +49,8 @@ public sealed class CustomerConfigService
     public ConfigValidationResult Validate(
         CustomerInstallConfig config,
         string packageJson = "",
-        PackageProvenanceContext? provenanceContext = null)
+        PackageProvenanceContext? provenanceContext = null,
+        PackageTrustOptions? trustOptions = null)
     {
         var result = new ConfigValidationResult();
 
@@ -86,7 +90,7 @@ public sealed class CustomerConfigService
         }
 
         ValidateRequiredPackageProperties(packageJson, result);
-        ValidatePackageTrust(config, packageJson, result);
+        ValidatePackageTrust(config, packageJson, result, trustOptions ?? PackageTrustOptions.FromEnvironment());
 
         if (provenanceContext is not null)
         {
@@ -100,6 +104,13 @@ public sealed class CustomerConfigService
 
     public static string ComputePackageHash(string packageJson)
     {
+        var payload = GetPackageTrustPayloadBytes(packageJson);
+        var hash = SHA256.HashData(payload);
+        return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    public static byte[] GetPackageTrustPayloadBytes(string packageJson)
+    {
         using var document = JsonDocument.Parse(packageJson);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false }))
@@ -107,8 +118,7 @@ public sealed class CustomerConfigService
             WriteCanonicalJson(writer, document.RootElement, path: "");
         }
 
-        var hash = SHA256.HashData(stream.ToArray());
-        return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
+        return stream.ToArray();
     }
 
     private static void Require(string value, string message, ConfigValidationResult result)
@@ -170,7 +180,8 @@ public sealed class CustomerConfigService
     private static void ValidatePackageTrust(
         CustomerInstallConfig config,
         string packageJson,
-        ConfigValidationResult result)
+        ConfigValidationResult result,
+        PackageTrustOptions trustOptions)
     {
         var controlPlane = config.ControlPlane;
         result.DeploymentExportId = controlPlane.DeploymentExportId;
@@ -185,6 +196,8 @@ public sealed class CustomerConfigService
         RequireOrWarn(controlPlane.SchemaId, "controlPlane.schemaId", signedRequired, result);
         RequireOrWarn(controlPlane.PublicKeyId, "controlPlane.publicKeyId", signedRequired, result);
         RequireOrWarn(controlPlane.PackageHash, "controlPlane.packageHash", signedRequired, result);
+        RequireOrWarn(controlPlane.PackageHashAlgorithm, "controlPlane.packageHashAlgorithm", signedRequired, result);
+        RequireOrWarn(controlPlane.Canonicalization, "controlPlane.canonicalization", signedRequired, result);
         RequireOrWarn(controlPlane.Signature, "controlPlane.signature", signedRequired, result);
         RequireOrWarn(controlPlane.SignatureAlgorithm, "controlPlane.signatureAlgorithm", signedRequired, result);
 
@@ -203,6 +216,12 @@ public sealed class CustomerConfigService
             result.Errors.Add($"Unsupported package hash algorithm '{controlPlane.PackageHashAlgorithm}'. Only SHA-256 is currently supported.");
         }
 
+        if (!string.IsNullOrWhiteSpace(controlPlane.Canonicalization) &&
+            !controlPlane.Canonicalization.Equals("json-c14n-v1", StringComparison.Ordinal))
+        {
+            result.Errors.Add($"Unsupported package canonicalization '{controlPlane.Canonicalization}'. Only json-c14n-v1 is currently supported.");
+        }
+
         var jsonForHash = string.IsNullOrWhiteSpace(packageJson) ? ToJson(config) : packageJson;
         result.ComputedPackageHash = ComputePackageHash(jsonForHash);
         var normalizedDeclaredHash = NormalizePackageHash(controlPlane.PackageHash);
@@ -216,13 +235,108 @@ public sealed class CustomerConfigService
 
         if (string.IsNullOrWhiteSpace(controlPlane.Signature))
         {
+            if (signedRequired)
+            {
+                result.PackageTrustStatus = "Missing signature";
+                result.PackageTrustSummary = "Signed package mode is required, but the package signature is missing.";
+                return;
+            }
+
             result.PackageTrustStatus = "Hash verified";
             result.PackageTrustSummary = "Package hash matches the package contents. Signature metadata is not present yet, so this is not a fully signed production package.";
             return;
         }
 
+        if (!controlPlane.SignatureAlgorithm.Equals("Ed25519", StringComparison.Ordinal))
+        {
+            result.PackageTrustStatus = "Unsupported signature";
+            result.PackageTrustSummary = "The package signature algorithm is not supported by this installer.";
+            result.Errors.Add($"Unsupported package signature algorithm '{controlPlane.SignatureAlgorithm}'. Only Ed25519 is currently supported.");
+            return;
+        }
+
+        var publicKeyId = controlPlane.PublicKeyId.Trim();
+        var trustedPublicKey = trustOptions.GetTrustedPublicKey(publicKeyId);
+        if (string.IsNullOrWhiteSpace(trustedPublicKey))
+        {
+            result.PackageTrustStatus = "Missing trusted key";
+            result.PackageTrustSummary = "The package declares a signing key, but this installer does not trust a matching public key.";
+            result.Errors.Add($"Trusted package signing public key '{publicKeyId}' is not configured for this installer.");
+            return;
+        }
+
+        if (!VerifyEd25519Signature(trustedPublicKey, GetPackageTrustPayloadBytes(jsonForHash), controlPlane.Signature, out var signatureError))
+        {
+            result.PackageTrustStatus = "Invalid signature";
+            result.PackageTrustSummary = "The package signature could not be verified against the trusted PageMaker365 public key.";
+            result.Errors.Add(signatureError);
+            return;
+        }
+
         result.PackageTrustStatus = "Verified";
-        result.PackageTrustSummary = "Package hash matches the package contents and signature metadata is present. Cryptographic signature verification will be wired in a later signing slice.";
+        result.PackageTrustSummary = "Package hash matches the package contents and the Ed25519 signature was verified with a trusted PageMaker365 public key.";
+    }
+
+    private static bool VerifyEd25519Signature(string publicKeyPem, byte[] payload, string signatureValue, out string error)
+    {
+        try
+        {
+            var publicKey = PublicKeyFactory.CreateKey(DecodePemOrBase64(publicKeyPem));
+            if (publicKey is not Ed25519PublicKeyParameters ed25519PublicKey)
+            {
+                error = "Trusted package signing public key is not an Ed25519 public key.";
+                return false;
+            }
+
+            var signature = DecodeBase64Url(signatureValue);
+            var verifier = new Ed25519Signer();
+            verifier.Init(false, ed25519PublicKey);
+            verifier.BlockUpdate(payload, 0, payload.Length);
+            if (verifier.VerifySignature(signature))
+            {
+                error = "";
+                return true;
+            }
+
+            error = "Customer package signature verification failed.";
+            return false;
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidDataException or IOException)
+        {
+            error = $"Customer package signature could not be verified: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static byte[] DecodePemOrBase64(string value)
+    {
+        var normalized = value.Trim().Replace("\\n", "\n", StringComparison.Ordinal);
+        if (!normalized.Contains("-----BEGIN", StringComparison.Ordinal))
+        {
+            return Convert.FromBase64String(normalized);
+        }
+
+        var body = string.Concat(
+            normalized
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(line => !line.StartsWith("-----BEGIN", StringComparison.Ordinal) &&
+                    !line.StartsWith("-----END", StringComparison.Ordinal)));
+        return Convert.FromBase64String(body);
+    }
+
+    private static byte[] DecodeBase64Url(string value)
+    {
+        var normalized = value.Trim()
+            .Replace('-', '+')
+            .Replace('_', '/');
+        normalized += (normalized.Length % 4) switch
+        {
+            2 => "==",
+            3 => "=",
+            0 => "",
+            _ => throw new FormatException("Invalid base64url length.")
+        };
+        return Convert.FromBase64String(normalized);
     }
 
     private static void ValidatePackageProvenance(

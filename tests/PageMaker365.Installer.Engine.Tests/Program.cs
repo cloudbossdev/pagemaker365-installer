@@ -3,6 +3,11 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Signers;
+using Org.BouncyCastle.Security;
+using Org.BouncyCastle.X509;
 using PageMaker365.Installer.Engine.Models;
 using PageMaker365.Installer.Engine.PowerShell;
 using PageMaker365.Installer.Engine.Services;
@@ -44,6 +49,10 @@ internal static class Program
             ("CustomerConfigService verifies matching package hash", CustomerConfigServiceVerifiesMatchingPackageHash),
             ("CustomerConfigService rejects package hash mismatch", CustomerConfigServiceRejectsPackageHashMismatch),
             ("CustomerConfigService enforces signed-required trust mode", CustomerConfigServiceEnforcesSignedRequiredTrustMode),
+            ("CustomerConfigService verifies Ed25519 signed package", CustomerConfigServiceVerifiesEd25519SignedPackage),
+            ("CustomerConfigService rejects signed package without trusted key", CustomerConfigServiceRejectsSignedPackageWithoutTrustedKey),
+            ("CustomerConfigService rejects invalid package signature", CustomerConfigServiceRejectsInvalidPackageSignature),
+            ("CustomerConfigService rejects unsupported signature algorithm", CustomerConfigServiceRejectsUnsupportedSignatureAlgorithm),
             ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
             ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
@@ -832,6 +841,65 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static Task CustomerConfigServiceVerifiesEd25519SignedPackage()
+    {
+        var package = CreateSignedPackage();
+        var result = new CustomerConfigService().Validate(
+            package.Config,
+            package.Json,
+            trustOptions: CreatePackageTrustOptions(package));
+
+        AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
+        AssertEx.Equal("Verified", result.PackageTrustStatus);
+        AssertEx.Equal(package.Config.ControlPlane.PackageHash, result.ComputedPackageHash);
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsSignedPackageWithoutTrustedKey()
+    {
+        var package = CreateSignedPackage();
+        var result = new CustomerConfigService().Validate(
+            package.Config,
+            package.Json,
+            trustOptions: PackageTrustOptions.Empty);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.Equal("Missing trusted key", result.PackageTrustStatus);
+        AssertEx.StringContains(string.Join(" ", result.Errors), package.PublicKeyId);
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsInvalidPackageSignature()
+    {
+        var package = CreateSignedPackage(config => config.Customer.TenantName = "Signed Package Before Tamper");
+        package.Config.Customer.TenantName = "Signed Package After Tamper";
+        package.Config.ControlPlane.PackageHash = CustomerConfigService.ComputePackageHash(CustomerConfigService.ToJson(package.Config));
+        var tamperedJson = CustomerConfigService.ToJson(package.Config);
+        var result = new CustomerConfigService().Validate(
+            package.Config,
+            tamperedJson,
+            trustOptions: CreatePackageTrustOptions(package));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.Equal("Invalid signature", result.PackageTrustStatus);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "signature verification failed");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsUnsupportedSignatureAlgorithm()
+    {
+        var package = CreateSignedPackage(config => config.ControlPlane.SignatureAlgorithm = "RS256");
+        var result = new CustomerConfigService().Validate(
+            package.Config,
+            package.Json,
+            trustOptions: CreatePackageTrustOptions(package));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.Equal("Unsupported signature", result.PackageTrustStatus);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "Only Ed25519");
+        return Task.CompletedTask;
+    }
+
     private static async Task CustomerConfigServiceValidatesSamplePackageContract()
     {
         var path = Path.Combine(FindRepositoryRoot(), "samples", "contoso.customer.install.json");
@@ -1355,6 +1423,73 @@ internal static class Program
             new HttpClient(handler));
     }
 
+    private static SignedPackageFixture CreateSignedPackage(Action<CustomerInstallConfig>? mutate = null)
+    {
+        var generator = new Ed25519KeyPairGenerator();
+        generator.Init(new Ed25519KeyGenerationParameters(new SecureRandom()));
+        var keyPair = generator.GenerateKeyPair();
+        var privateKey = (Ed25519PrivateKeyParameters)keyPair.Private;
+        var publicKey = (Ed25519PublicKeyParameters)keyPair.Public;
+        var publicKeyId = $"test-key-{Guid.NewGuid():N}";
+        var publicKeyPem = ToPem("PUBLIC KEY", SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(publicKey).GetDerEncoded());
+
+        var config = CreateConfig();
+        config.ControlPlane.TrustMode = "SignedRequired";
+        config.ControlPlane.PublicKeyId = publicKeyId;
+        config.ControlPlane.PackageHashAlgorithm = "SHA-256";
+        config.ControlPlane.Canonicalization = "json-c14n-v1";
+        config.ControlPlane.SignatureAlgorithm = "Ed25519";
+        config.ControlPlane.PackageHash = "";
+        config.ControlPlane.Signature = "";
+        mutate?.Invoke(config);
+
+        config.ControlPlane.PackageHash = CustomerConfigService.ComputePackageHash(CustomerConfigService.ToJson(config));
+        config.ControlPlane.Signature = SignPackage(CustomerConfigService.ToJson(config), privateKey);
+        return new SignedPackageFixture(config, CustomerConfigService.ToJson(config), publicKeyPem, publicKeyId);
+    }
+
+    private static PackageTrustOptions CreatePackageTrustOptions(SignedPackageFixture package)
+    {
+        return new PackageTrustOptions
+        {
+            TrustedPublicKeysById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [package.PublicKeyId] = package.PublicKeyPem
+            }
+        };
+    }
+
+    private static string SignPackage(string packageJson, Ed25519PrivateKeyParameters privateKey)
+    {
+        var payload = CustomerConfigService.GetPackageTrustPayloadBytes(packageJson);
+        var signer = new Ed25519Signer();
+        signer.Init(true, privateKey);
+        signer.BlockUpdate(payload, 0, payload.Length);
+        return Base64UrlEncode(signer.GenerateSignature());
+    }
+
+    private static string ToPem(string label, byte[] der)
+    {
+        var body = Convert.ToBase64String(der);
+        var builder = new StringBuilder();
+        builder.AppendLine($"-----BEGIN {label}-----");
+        for (var index = 0; index < body.Length; index += 64)
+        {
+            builder.AppendLine(body.Substring(index, Math.Min(64, body.Length - index)));
+        }
+
+        builder.AppendLine($"-----END {label}-----");
+        return builder.ToString();
+    }
+
+    private static string Base64UrlEncode(byte[] value)
+    {
+        return Convert.ToBase64String(value)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
     private static OnboardingBootstrapSession CreateSession()
     {
         return new OnboardingBootstrapSession
@@ -1614,6 +1749,12 @@ internal static class Program
             Environment.SetEnvironmentVariable(Name, _originalValue);
         }
     }
+
+    private sealed record SignedPackageFixture(
+        CustomerInstallConfig Config,
+        string Json,
+        string PublicKeyPem,
+        string PublicKeyId);
 }
 
 internal static class AssertEx
