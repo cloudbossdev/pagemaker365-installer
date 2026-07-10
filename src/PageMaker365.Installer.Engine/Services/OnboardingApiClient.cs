@@ -24,6 +24,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
 
     private readonly OnboardingApiOptions _options;
     private readonly HttpClient _httpClient;
+    private readonly PackageTrustKeyResolver _packageTrustKeyResolver;
     private readonly MockOnboardingApiClient _mockClient = new();
 
     public OnboardingApiClient(OnboardingApiOptions options, HttpClient? httpClient = null)
@@ -31,6 +32,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         _options = options;
         _httpClient = httpClient ?? new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
+        _packageTrustKeyResolver = new PackageTrustKeyResolver(_httpClient);
     }
 
     public string ConnectionLabel => _options.UseMock
@@ -253,7 +255,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId);
         }
 
-        ValidateDownloadedPackage(body, session, discovery, endpoint, response.StatusCode, correlationId);
+        await ValidateDownloadedPackageAsync(body, session, discovery, endpoint, response.StatusCode, correlationId, cancellationToken);
 
         var outputDirectory = Path.Combine(workspaceRoot, "support-bundle", "onboarding", session.SessionId, "generated-package");
         Directory.CreateDirectory(outputDirectory);
@@ -501,13 +503,14 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         }
     }
 
-    private static void ValidateDownloadedPackage(
+    private async Task ValidateDownloadedPackageAsync(
         string body,
         OnboardingBootstrapSession session,
         TenantDiscoveryResult? discovery,
         Uri endpoint,
         HttpStatusCode statusCode,
-        string correlationId)
+        string correlationId,
+        CancellationToken cancellationToken)
     {
         CustomerInstallConfig? config;
         try
@@ -533,10 +536,30 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId);
         }
 
+        PackageTrustOptions trustOptions;
+        try
+        {
+            trustOptions = await _packageTrustKeyResolver.ResolveAsync(
+                config,
+                PackageTrustOptions.FromEnvironment(),
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or HttpRequestException or JsonException ||
+            exception is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            throw new OnboardingApiException(
+                $"Generated package trust could not be resolved: {exception.Message}",
+                endpoint,
+                statusCode,
+                correlationId,
+                exception);
+        }
+
         var validation = ConfigService.Validate(
             config,
             body,
-            PackageProvenanceContext.ForPortalDownload(session, discovery));
+            PackageProvenanceContext.ForPortalDownload(session, discovery),
+            trustOptions);
         if (!validation.IsValid)
         {
             throw new OnboardingApiException(

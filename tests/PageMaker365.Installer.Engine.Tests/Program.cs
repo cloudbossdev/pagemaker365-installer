@@ -26,6 +26,8 @@ internal static class Program
             ("GetOnboardingStatusAsync accepts unknown readiness without making it downloadable", GetOnboardingStatusAsyncAcceptsUnknownReadinessWithoutMakingItDownloadable),
             ("GetOnboardingStatusAsync carries missing field details", GetOnboardingStatusAsyncCarriesMissingFieldDetails),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
+            ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
+            ("PackageTrustKeyResolver rejects untrusted JWKS host", PackageTrustKeyResolverRejectsUntrustedJwksHost),
             ("DownloadPackageAsync sanitizes unsafe content disposition filename", DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename),
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
             ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
@@ -235,6 +237,71 @@ internal static class Program
         {
             Directory.Delete(workspaceRoot, recursive: true);
         }
+    }
+
+    private static async Task DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks()
+    {
+        using var trustedKeysJson = new EnvironmentVariableScope("PAGEMAKER365_INSTALLER_TRUSTED_PUBLIC_KEYS_JSON", null);
+        using var trustedKeyId = new EnvironmentVariableScope("PAGEMAKER365_INSTALL_PACKAGE_PUBLIC_KEY_ID", null);
+        using var trustedKeyPem = new EnvironmentVariableScope("PAGEMAKER365_INSTALL_PACKAGE_PUBLIC_KEY_PEM", null);
+        var signedPackage = CreateSignedPackage(config =>
+        {
+            config.ControlPlane.JwksUrl = "https://api.pagemaker365.com/.well-known/pagemaker365-license-jwks.json";
+        });
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/.well-known/pagemaker365-license-jwks.json")
+            {
+                return JsonResponse(CreateJwksJson(signedPackage.PublicKeyId, signedPackage.PublicKeyJwkX));
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(signedPackage.Json, Encoding.UTF8, "application/json")
+            };
+            response.Headers.Add("X-Correlation-ID", "corr-package-jwks");
+            return response;
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await client.DownloadPackageAsync(
+                CreateSession(),
+                CreateReadyReadiness(),
+                workspaceRoot,
+                CreateDiscovery());
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.Equal("corr-package-jwks", result.CorrelationId);
+            AssertEx.Equal(2, handler.Requests.Count);
+            AssertEx.Equal("https://api.example.test/custom/download", handler.Requests[0].RequestUri?.ToString());
+            AssertEx.Equal(
+                "https://api.pagemaker365.com/.well-known/pagemaker365-license-jwks.json",
+                handler.Requests[1].RequestUri?.ToString());
+            AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task PackageTrustKeyResolverRejectsUntrustedJwksHost()
+    {
+        var signedPackage = CreateSignedPackage(config =>
+        {
+            config.ControlPlane.JwksUrl = "https://evil.example.com/.well-known/pagemaker365-license-jwks.json";
+        });
+        var handler = new RecordingHttpMessageHandler(_ => throw new InvalidOperationException("Untrusted JWKS hosts must not be fetched."));
+        var resolver = new PackageTrustKeyResolver(new HttpClient(handler));
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            resolver.ResolveAsync(signedPackage.Config, PackageTrustOptions.Empty));
+
+        AssertEx.StringContains(exception.Message, "not trusted");
+        AssertEx.Equal(0, handler.Requests.Count);
     }
 
     private static async Task GetOnboardingStatusAsyncAcceptsUnknownReadinessWithoutMakingItDownloadable()
@@ -1431,6 +1498,7 @@ internal static class Program
         var privateKey = (Ed25519PrivateKeyParameters)keyPair.Private;
         var publicKey = (Ed25519PublicKeyParameters)keyPair.Public;
         var publicKeyId = $"test-key-{Guid.NewGuid():N}";
+        var publicKeyJwkX = Base64UrlEncode(publicKey.GetEncoded());
         var publicKeyPem = ToPem("PUBLIC KEY", SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(publicKey).GetDerEncoded());
 
         var config = CreateConfig();
@@ -1445,7 +1513,7 @@ internal static class Program
 
         config.ControlPlane.PackageHash = CustomerConfigService.ComputePackageHash(CustomerConfigService.ToJson(config));
         config.ControlPlane.Signature = SignPackage(CustomerConfigService.ToJson(config), privateKey);
-        return new SignedPackageFixture(config, CustomerConfigService.ToJson(config), publicKeyPem, publicKeyId);
+        return new SignedPackageFixture(config, CustomerConfigService.ToJson(config), publicKeyPem, publicKeyId, publicKeyJwkX);
     }
 
     private static PackageTrustOptions CreatePackageTrustOptions(SignedPackageFixture package)
@@ -1488,6 +1556,24 @@ internal static class Program
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
+    }
+
+    private static string CreateJwksJson(string publicKeyId, string publicKeyJwkX)
+    {
+        return $$"""
+            {
+              "keys": [
+                {
+                  "kty": "OKP",
+                  "crv": "Ed25519",
+                  "x": "{{publicKeyJwkX}}",
+                  "kid": "{{publicKeyId}}",
+                  "use": "sig",
+                  "alg": "EdDSA"
+                }
+              ]
+            }
+            """;
     }
 
     private static OnboardingBootstrapSession CreateSession()
@@ -1735,7 +1821,7 @@ internal static class Program
     {
         private readonly string? _originalValue;
 
-        public EnvironmentVariableScope(string name, string value)
+        public EnvironmentVariableScope(string name, string? value)
         {
             Name = name;
             _originalValue = Environment.GetEnvironmentVariable(name);
@@ -1754,7 +1840,8 @@ internal static class Program
         CustomerInstallConfig Config,
         string Json,
         string PublicKeyPem,
-        string PublicKeyId);
+        string PublicKeyId,
+        string PublicKeyJwkX);
 }
 
 internal static class AssertEx
