@@ -4,7 +4,7 @@ Last updated: 2026-07-09
 
 ## Current Status
 
-Phase 2.3 sandbox what-if is partially unblocked. The target Azure subscription, resource group, and staging package download are ready, and the real CloudBoss installer package passes installer contract validation. The first real sandbox deployment should wait until the portal normalizes the remaining package fields listed below.
+Phase 2.3 sandbox what-if is almost unblocked. The target Azure subscription, resource group, and staging package download are ready. A locally generated normalized CloudBoss package passes installer contract validation and Azure what-if. The first real sandbox deployment should wait until the control-plane API changes are deployed to staging and the live endpoint returns the same normalized values.
 
 Portal package generation details are documented in `docs/portal-install-package-handoff.md`.
 
@@ -19,12 +19,13 @@ Portal package generation details are documented in `docs/portal-install-package
 | Real installer package contract exists locally | Ready | Staging package download succeeded from `GET /api/onboarding/installer/onb_cloudboss_sandbox_b1bf6699da57/install-package` using local bootstrap headers. |
 | Package contract validation | Ready with warning | `Test-PM365DeploymentContract` passes. Only warning is missing signature metadata while `trustMode` is `UnsignedAllowed`. |
 | Sandbox Azure what-if | Ready with warning | `Invoke-PM365WhatIf` reaches Azure and falls back to unstructured what-if when the structured Az cmdlet throws a local `System.Collections.IEnumerator` error. The fallback result is `AzureWhatIfReady`. |
-| Package normalization | Blocked | Portal output still needs the field cleanup listed in `Package Normalization Gate` before first real sandbox deployment. |
+| Local package normalization | Ready | Local control-plane package preview at `.tmp\cloudboss-sandbox.customer.install.local-normalized.json` has corrected values and passes installer validation. |
+| Live staging package normalization | Blocked | `api-staging.pagemaker365.com` still returns the old export until the control-plane API changes are deployed to staging. |
 | Raw deployment export available | Not usable | `docs/cloudboss-sandbox-sandbox-deployment-export-2026-07-07T22-53-19-801Z.json` is a raw deployment export, not the installer package contract. Keep it untracked. |
 
 ## Package Normalization Gate
 
-The fresh staging package downloaded on 2026-07-09 is valid, but still has these deployment-readiness issues:
+The fresh live staging package downloaded on 2026-07-09 is valid, but still has these deployment-readiness issues until the control-plane API redeploy completes:
 
 | Field | Current | Required before sandbox deploy |
 | --- | --- | --- |
@@ -37,6 +38,25 @@ The fresh staging package downloaded on 2026-07-09 is valid, but still has these
 | `controlPlane.jwksUrl` | `https://pagemaker365.com/.well-known/pagemaker365-license-jwks.json` | Staging JWKS URL unless production signing is intentional and documented. |
 | `controlPlane.revocationUrl` | `https://staging.pagemaker365.com/api/onboarding/exports/revocation` | Confirm staging API URL convention. |
 | `controlPlane.publicKeyId` | `pagemaker365-staging-20260629` | Keep if using staging signing metadata. |
+
+The local normalized preview already produces:
+
+| Field | Local normalized value |
+| --- | --- |
+| `azure.resourceNames.portalAppName` | `app-pm365-cloudboss-portal-sandbox` |
+| `azure.resourceNames.managedIdentityName` | `id-pm365-cloudboss-sandbox` |
+| `app.supportEmail` | `support@pagemaker365.com` |
+| `sharePoint.defaultDocumentLibrary` | `Documents` |
+| `controlPlane.baseUrl` | `https://api-staging.pagemaker365.com` |
+| `controlPlane.issuerEnvironment` | `staging` |
+| `controlPlane.entitlementSyncUrl` | `https://api-staging.pagemaker365.com/api/runtime/entitlements/sync` |
+| `controlPlane.jwksUrl` | `https://api-staging.pagemaker365.com/.well-known/pagemaker365-license-jwks.json` |
+| `controlPlane.revocationUrl` | `https://api-staging.pagemaker365.com/api/onboarding/exports/revocation` |
+
+Local normalized validation:
+
+- `Test-PM365DeploymentContract`: passed with only missing signature metadata warning while `trustMode` is `UnsignedAllowed`.
+- `Invoke-PM365WhatIf`: `AzureWhatIfReady` with unstructured fallback warning. What-if shows 9 resources to create, including `Microsoft.Web/sites/app-pm365-cloudboss-portal-sandbox` and `Microsoft.ManagedIdentity/userAssignedIdentities/id-pm365-cloudboss-sandbox`.
 
 ## Available Inputs
 
@@ -51,7 +71,7 @@ The following inputs are available locally for validation:
 
 ## Runbook
 
-After the portal package normalization gate is resolved:
+After the control-plane API changes are deployed to staging, redownload the live package to `.tmp\cloudboss-sandbox.customer.install.json`, confirm it matches the local normalized values, then run:
 
 ```powershell
 Set-AzContext -SubscriptionId '3de10659-9db8-4ab6-ae44-ac4b71b24751' -Tenant 'edf280e3-9c1b-491c-8a0c-f3bf252761a3'
