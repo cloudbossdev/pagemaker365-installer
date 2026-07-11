@@ -4,7 +4,7 @@ Last updated: 2026-07-10
 
 ## Current Status
 
-Phase 2.3 sandbox what-if is unblocked. The target Azure subscription, resource group, live staging package download, installer contract validation, package trust metadata, and Azure what-if are ready. The next step is an explicit approval decision for the first real sandbox deployment.
+Phase 2.3 sandbox what-if is unblocked. The target Azure subscription, resource group, live staging package download, installer contract validation, package trust verification, and Azure what-if are ready. The next step is an explicit approval decision for the first real sandbox deployment.
 
 Portal package generation details are documented in `docs/portal-install-package-handoff.md`.
 
@@ -18,6 +18,7 @@ Portal package generation details are documented in `docs/portal-install-package
 | Sandbox resource group exists | Ready | `rg-pagemaker365-cloudboss-sandbox` exists in `eastus2`. V1 deploys into this pre-existing resource group. |
 | Real installer package contract exists locally | Ready | Staging package download succeeded from `GET /api/onboarding/installer/onb_cloudboss_sandbox_b1bf6699da57/install-package` using local bootstrap headers. |
 | Package contract validation | Ready | `Test-PM365DeploymentContract` passes. Signature and signature algorithm metadata are present with `trustMode` set to `SignedRequired`. |
+| Engine package trust verification | Ready | Installer engine resolved `controlPlane.jwksUrl`, matched key `pagemaker365-staging-20260629`, matched the package hash, and verified the Ed25519 signature without a locally configured public key. |
 | Sandbox Azure what-if | Ready with warning | `Invoke-PM365WhatIf` reaches Azure and falls back to unstructured what-if when the structured Az cmdlet throws a local `System.Collections.IEnumerator` error. The fallback result is `AzureWhatIfReady` with no blocked changes. |
 | Live staging package normalization | Ready | Live staging package returns the normalized values listed below. |
 | Raw deployment export available | Not usable | `docs/cloudboss-sandbox-sandbox-deployment-export-2026-07-07T22-53-19-801Z.json` is a raw deployment export, not the installer package contract. Keep it untracked. |
@@ -30,7 +31,7 @@ The fresh live staging package downloaded on 2026-07-10 is valid and normalized:
 | --- | --- |
 | `controlPlane.deploymentExportId` | `ac962aa2-697a-424d-a2b1-7dfbcb817617` |
 | `controlPlane.trustMode` | `SignedRequired` |
-| `controlPlane.packageHash` | `sha256:dc1bae45d4d9b853f497c1ae0d28f02c1ec79f1836b73f4090d2b8a15e747dfd` |
+| `controlPlane.packageHash` | `sha256:ace503c5ab23af68874cc14af3c7f44e8183132bfb13c2a495317613755ca124` |
 | `azure.resourceNames.portalAppName` | `app-pm365-cloudboss-portal-sandbox` |
 | `azure.resourceNames.managedIdentityName` | `uami-pm365-cloudboss-sandbox` |
 | `app.supportEmail` | `support@pagemaker365.com` |
@@ -44,6 +45,7 @@ The fresh live staging package downloaded on 2026-07-10 is valid and normalized:
 Live staging validation:
 
 - `Test-PM365DeploymentContract`: all checks passed, including `DeploymentPackageTrustMetadataReady`.
+- Installer engine trust validation: `Verified`; declared and computed package hashes match; Ed25519 signature verified using the public key resolved from the staging JWKS endpoint.
 - `Invoke-PM365WhatIf`: `AzureWhatIfReady` with unstructured fallback warning. What-if shows 9 resources to create, including `Microsoft.Web/sites/app-pm365-cloudboss-portal-sandbox` and `Microsoft.ManagedIdentity/userAssignedIdentities/uami-pm365-cloudboss-sandbox`.
 - No blocked changes were reported.
 
