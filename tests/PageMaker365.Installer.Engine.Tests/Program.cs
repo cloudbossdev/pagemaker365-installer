@@ -27,6 +27,7 @@ internal static class Program
             ("GetOnboardingStatusAsync carries missing field details", GetOnboardingStatusAsyncCarriesMissingFieldDetails),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
+            ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
             ("PackageTrustKeyResolver rejects untrusted JWKS host", PackageTrustKeyResolverRejectsUntrustedJwksHost),
             ("DownloadPackageAsync sanitizes unsafe content disposition filename", DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename),
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
@@ -46,6 +47,7 @@ internal static class Program
             ("DownloadPackageAsync rejects package with wrong tenant", DownloadPackageAsyncRejectsPackageWithWrongTenant),
             ("DownloadPackageAsync rejects package with wrong discovery ID", DownloadPackageAsyncRejectsPackageWithWrongDiscoveryId),
             ("DownloadPackageAsync rejects package missing deployment export ID", DownloadPackageAsyncRejectsPackageMissingDeploymentExportId),
+            ("Live portal install package download loads with CustomerConfigService", LivePortalInstallPackageDownloadLoadsWithCustomerConfigService),
             ("ConnectAsync falls back to mock when portal fails", ConnectAsyncFallsBackToMockWhenPortalFails),
             ("ConnectAsync does not fall back to mock for invalid portal response", ConnectAsyncDoesNotFallBackToMockForInvalidPortalResponse),
             ("CustomerConfigService verifies matching package hash", CustomerConfigServiceVerifiesMatchingPackageHash),
@@ -288,6 +290,34 @@ internal static class Program
         }
     }
 
+    private static async Task DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage()
+    {
+        var packageJson = CustomerConfigService.ToJson(CreateConfig());
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(packageJson, Encoding.UTF8, "application/json")
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var readiness = CreateReadyReadiness();
+            readiness.Status = "Downloaded";
+            var result = await client.DownloadPackageAsync(
+                CreateSession(),
+                readiness,
+                workspaceRoot);
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
+            AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
     private static async Task PackageTrustKeyResolverRejectsUntrustedJwksHost()
     {
         var signedPackage = CreateSignedPackage(config =>
@@ -841,6 +871,82 @@ internal static class Program
         }
     }
 
+    private static async Task LivePortalInstallPackageDownloadLoadsWithCustomerConfigService()
+    {
+        var bootstrapPath = Environment.GetEnvironmentVariable("PM365_LIVE_ONBOARDING_BOOTSTRAP_PATH");
+        if (string.IsNullOrWhiteSpace(bootstrapPath))
+        {
+            Console.WriteLine("SKIP PM365_LIVE_ONBOARDING_BOOTSTRAP_PATH is not set.");
+            return;
+        }
+
+        var sessionService = new OnboardingSessionService();
+        var session = await sessionService.LoadBootstrapAsync(bootstrapPath);
+        var sessionValidation = sessionService.Validate(session);
+        AssertEx.True(sessionValidation.IsValid, string.Join(" ", sessionValidation.Errors));
+
+        var baseUri = new Uri(session.ApiBaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        var packageEndpoint = new Uri(baseUri, $"api/onboarding/installer/{Uri.EscapeDataString(session.SessionId)}/install-package");
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, packageEndpoint);
+        request.Headers.Add("X-PM365-Onboarding-Session", session.SessionId);
+        request.Headers.Add("X-PM365-Onboarding-Code", session.OneTimeCode);
+
+        var apiKeyVariable = Environment.GetEnvironmentVariable("PM365_LIVE_ONBOARDING_API_KEY_ENV") ?? "PM365_ONBOARDING_API_KEY";
+        var apiKey = Environment.GetEnvironmentVariable(apiKeyVariable);
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        using var response = await httpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Live portal package download failed with HTTP {(int)response.StatusCode}.");
+        }
+
+        AssertEx.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        using var document = JsonDocument.Parse(body);
+        foreach (var section in new[]
+        {
+            "contractVersion",
+            "customer",
+            "azure",
+            "sharePoint",
+            "app",
+            "entra",
+            "controlPlane",
+            "secrets",
+            "features",
+            "smokeTests"
+        })
+        {
+            AssertEx.True(document.RootElement.TryGetProperty(section, out _), $"Downloaded package missing top-level section '{section}'.");
+        }
+
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var packagePath = Path.Combine(workspaceRoot, "downloaded.customer.install.json");
+            await File.WriteAllTextAsync(packagePath, body);
+            var config = await new CustomerConfigService().LoadAsync(packagePath);
+
+            AssertEx.Equal(session.SessionId, config.ControlPlane.OnboardingSessionId);
+            AssertEx.False(string.IsNullOrWhiteSpace(config.ControlPlane.DeploymentExportId), "Downloaded package missing deployment export ID.");
+            AssertEx.False(string.IsNullOrWhiteSpace(config.Customer.TenantName), "Downloaded package missing customer tenant name.");
+            AssertEx.False(string.IsNullOrWhiteSpace(config.Customer.TenantId), "Downloaded package missing customer tenant ID.");
+            AssertEx.False(string.IsNullOrWhiteSpace(config.SharePoint.SiteUrl), "Downloaded package missing SharePoint site URL.");
+            AssertEx.False(string.IsNullOrWhiteSpace(config.App.AppName), "Downloaded package missing app name.");
+            AssertEx.True(config.Features.KnowledgeBase, "Downloaded package missing knowledge base feature flag.");
+            AssertEx.True(config.Features.CustomerPortal, "Downloaded package missing customer portal feature flag.");
+            AssertEx.True(config.Features.BillingIntegration, "Downloaded package missing billing integration feature flag.");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
     private static async Task ConnectAsyncFallsBackToMockWhenPortalFails()
     {
         var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)

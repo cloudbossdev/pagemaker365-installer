@@ -211,7 +211,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         TenantDiscoveryResult? discovery,
         CancellationToken cancellationToken)
     {
-        if (!readiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase))
+        if (!IsDownloadablePackageReadiness(readiness.Status))
         {
             return new OnboardingPackageDownloadResult
             {
@@ -274,6 +274,11 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         };
     }
 
+    private static bool IsDownloadablePackageReadiness(string status)
+    {
+        return status.Equals("Ready", StringComparison.OrdinalIgnoreCase) ||
+            status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase);
+    }
     private async Task<TResponse> PostJsonAsync<TRequest, TResponse>(
         string operation,
         Uri endpoint,
