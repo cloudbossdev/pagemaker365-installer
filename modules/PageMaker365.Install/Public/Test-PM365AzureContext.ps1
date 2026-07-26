@@ -114,49 +114,60 @@ function Test-PM365AzureContext {
 
     $subscriptionReady = $actualSubscriptionId -and ((-not $expectedSubscriptionId) -or ($expectedSubscriptionId -eq $actualSubscriptionId))
     if ($subscriptionReady) {
-        $targetScopes = @("/subscriptions/$actualSubscriptionId")
-        if ($resourceGroup) {
-            $targetScopes += "/subscriptions/$actualSubscriptionId/resourceGroups/$resourceGroupName"
-        }
-
         try {
             $accountId = [string]$context.Account.Id
-            $assignments = foreach ($scope in $targetScopes) {
-                Get-AzRoleAssignment -Scope $scope -ErrorAction Stop |
-                    Where-Object {
-                        $_.SignInName -eq $accountId -or
-                        $_.DisplayName -eq $accountId -or
-                        $_.ObjectId -eq $accountId
-                    }
+            $subscriptionScope = "/subscriptions/$actualSubscriptionId"
+            $roleCommand = Get-Command Get-AzRoleAssignment -ErrorAction Stop
+            $roleArguments = @{
+                Scope = $subscriptionScope
+                ErrorAction = 'Stop'
+            }
+            if ($roleCommand.Parameters.ContainsKey('ExpandPrincipalGroups')) {
+                $roleArguments.ExpandPrincipalGroups = $true
+            }
+
+            $parsedObjectId = [guid]::Empty
+            if ([guid]::TryParse($accountId, [ref]$parsedObjectId) -and $roleCommand.Parameters.ContainsKey('ObjectId')) {
+                $roleArguments.ObjectId = $accountId
+            } elseif ($roleCommand.Parameters.ContainsKey('SignInName')) {
+                $roleArguments.SignInName = $accountId
+            }
+
+            $assignments = @(Get-AzRoleAssignment @roleArguments)
+            if (-not $roleArguments.ContainsKey('ObjectId') -and -not $roleArguments.ContainsKey('SignInName')) {
+                $assignments = @($assignments | Where-Object {
+                    $_.SignInName -eq $accountId -or
+                    $_.DisplayName -eq $accountId -or
+                    $_.ObjectId -eq $accountId
+                })
             }
 
             $roleNames = @($assignments | Select-Object -ExpandProperty RoleDefinitionName -Unique)
-            $deploymentRoles = @('Owner', 'Contributor')
-            $matchingRoles = @($roleNames | Where-Object { $_ -in $deploymentRoles })
+            $roleCheck = Test-PM365AzureDeploymentRoleSet -RoleNames $roleNames
 
-            if ($matchingRoles.Count -gt 0) {
+            if ($roleCheck.ready) {
                 $results += New-PM365Result `
                     -Status 'Passed' `
                     -Code 'AzureRbacReady' `
-                    -Summary 'Azure RBAC appears sufficient for deployment.' `
-                    -Details ("Matched role assignments: " + ($matchingRoles -join ', ')) `
+                    -Summary 'Azure RBAC is sufficient for resource deployment and managed-identity role assignment.' `
+                    -Details ("Effective subscription roles: " + ($roleNames -join ', ')) `
                     -Data @{
                         account = $accountId
                         roles = ($roleNames -join ', ')
                     }
             } elseif ($roleNames.Count -gt 0) {
                 $results += New-PM365Result `
-                    -Status 'Warning' `
+                    -Status 'Failed' `
                     -Code 'AzureRbacInsufficient' `
-                    -Summary 'Azure RBAC may not allow deployment.' `
-                    -Details ("Current role assignments do not include Owner or Contributor: " + ($roleNames -join ', ')) `
+                    -Summary 'Azure RBAC cannot complete the PageMaker365 deployment.' `
+                    -Details ("Deployment requires Owner, or Contributor plus Role Based Access Control Administrator or User Access Administrator, effective at the subscription scope. Current roles: " + ($roleNames -join ', ')) `
                     -RetrySafe $true
             } else {
                 $results += New-PM365Result `
-                    -Status 'Warning' `
+                    -Status 'Failed' `
                     -Code 'AzureRbacNotFound' `
-                    -Summary 'Azure RBAC role assignments were not found for the signed-in account.' `
-                    -Details 'The account may inherit access through a group, or the installer may need an administrator to grant Contributor access.' `
+                    -Summary 'Required Azure RBAC role assignments were not found for the signed-in account.' `
+                    -Details 'Grant Owner, or Contributor plus Role Based Access Control Administrator or User Access Administrator, effective at the target subscription.' `
                     -RetrySafe $true
             }
         } catch {

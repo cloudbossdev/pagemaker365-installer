@@ -62,9 +62,10 @@ try {
   "accountId": "admin@contoso.com",
   "tenantId": "00000000-0000-0000-0000-000000000000",
   "scopes": [
-    "Directory.Read.All",
-    "Sites.Read.All",
-    "User.Read"
+    "User.Read",
+    "Domain.Read.All",
+    "RoleManagement.Read.Directory",
+    "Sites.Read.All"
   ],
   "verifiedDomains": [
     "contoso.com",

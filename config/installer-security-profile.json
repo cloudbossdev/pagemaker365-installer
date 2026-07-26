@@ -1,0 +1,175 @@
+{
+  "schemaVersion": "1.0",
+  "profileStatus": "implemented-baseline",
+  "graph": {
+    "authenticationFlow": "oauth2-device-authorization-grant",
+    "delegatedScopes": [
+      {
+        "name": "User.Read",
+        "purpose": "Read the signed-in operator identity and direct memberships used by the readiness check.",
+        "adminConsentRequired": false
+      },
+      {
+        "name": "Domain.Read.All",
+        "purpose": "Read verified tenant domains for tenant and SharePoint discovery.",
+        "adminConsentRequired": true
+      },
+      {
+        "name": "RoleManagement.Read.Directory",
+        "purpose": "Read the signed-in operator's directory-role membership and role display names.",
+        "adminConsentRequired": true
+      },
+      {
+        "name": "Sites.Read.All",
+        "purpose": "Resolve the configured SharePoint site and enumerate its document libraries.",
+        "adminConsentRequired": false
+      }
+    ],
+    "requests": [
+      "GET /v1.0/domains?$select=id,isVerified,isDefault",
+      "GET /v1.0/me/memberOf/microsoft.graph.directoryRole?$select=id,displayName,roleTemplateId",
+      "GET /v1.0/sites/{hostname}:{server-relative-path}",
+      "GET /v1.0/sites/{site-id}/drives"
+    ],
+    "writeScopesRequested": false,
+    "runtimeApplicationPermissionTarget": "Sites.Selected",
+    "runtimeApplicationProvisioningStatus": "not-implemented"
+  },
+  "azure": {
+    "deploymentScope": "subscription",
+    "acceptedRoleSets": [
+      [
+        "Owner"
+      ],
+      [
+        "Contributor",
+        "Role Based Access Control Administrator"
+      ],
+      [
+        "Contributor",
+        "User Access Administrator"
+      ]
+    ],
+    "roleRationale": "Contributor deploys subscription and resource-group resources but cannot create the managed-identity Key Vault role assignment. The second role supplies Microsoft.Authorization/roleAssignments/write. Owner supplies both capabilities.",
+    "resources": [
+      "Microsoft.Resources/resourceGroups",
+      "Microsoft.OperationalInsights/workspaces",
+      "Microsoft.Insights/components",
+      "Microsoft.KeyVault/vaults",
+      "Microsoft.Storage/storageAccounts",
+      "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "Microsoft.Web/serverfarms",
+      "Microsoft.Web/sites:api",
+      "Microsoft.Web/sites:portal",
+      "Microsoft.Authorization/roleAssignments:Key Vault Secrets User"
+    ],
+    "resourceOwnershipTags": [
+      "product=PageMaker365",
+      "managedBy=PageMaker365",
+      "appName={package app name}",
+      "environment={package environment}"
+    ]
+  },
+  "network": {
+    "transport": "HTTPS",
+    "defaultPort": 443,
+    "proxyBehavior": "Uses the Windows, .NET, MSAL, Az PowerShell, and Microsoft Graph PowerShell networking stacks; the installer has no independent proxy bypass or certificate-trust store.",
+    "destinations": [
+      {
+        "host": "login.microsoftonline.com",
+        "purpose": "Microsoft identity platform device-code and token requests"
+      },
+      {
+        "host": "microsoft.com",
+        "purpose": "Device sign-in verification page opened by the operator"
+      },
+      {
+        "host": "graph.microsoft.com",
+        "purpose": "Read-only Entra and SharePoint discovery and validation"
+      },
+      {
+        "host": "management.azure.com",
+        "purpose": "Azure context, What-If, deployment, inventory, validation, and removal"
+      },
+      {
+        "host": "pagemaker365.com",
+        "purpose": "Production portal handoff"
+      },
+      {
+        "host": "api.pagemaker365.com",
+        "purpose": "Production onboarding, package, JWKS, and evidence APIs"
+      },
+      {
+        "host": "staging.pagemaker365.com",
+        "purpose": "Staging portal handoff"
+      },
+      {
+        "host": "api-staging.pagemaker365.com",
+        "purpose": "Staging onboarding, package, JWKS, and evidence APIs"
+      },
+      {
+        "host": "{customer-tenant}.sharepoint.com",
+        "purpose": "Customer SharePoint URL validation and runtime target identification"
+      },
+      {
+        "host": "{deployed-app}.azurewebsites.net",
+        "purpose": "Post-deployment API and portal smoke tests"
+      }
+    ]
+  },
+  "localData": [
+    {
+      "path": "%LOCALAPPDATA%/PageMaker365/Installer/sessions/{state-id}/session-state.json",
+      "purpose": "Resumable workflow state, sanitized results, package metadata, and evidence outbox",
+      "automaticRetention": "none",
+      "deletion": "Forget Saved Session deletes the selected state directory; operators may delete completed state under the same root."
+    },
+    {
+      "path": "{installer-workspace}/logs/{session-id}",
+      "purpose": "Installer operation results and generated support bundle inputs",
+      "automaticRetention": "none",
+      "deletion": "Customer-controlled filesystem deletion after required support retention."
+    },
+    {
+      "path": "{installer-workspace}/support-bundle",
+      "purpose": "Preview, deployment, validation, removal, portal-status, outbox, report, and final-evidence artifacts",
+      "automaticRetention": "none",
+      "deletion": "Customer-controlled filesystem deletion after required audit or support retention."
+    }
+  ],
+  "dataBoundaries": {
+    "allowed": [
+      "tenant and subscription identifiers",
+      "resource names, IDs, locations, tags, states, and deployment outcomes",
+      "configured SharePoint site URL, site ID, and document-library metadata",
+      "package hashes, deployment export ID, event IDs, sequence, status, outcome, and sanitized error summaries"
+    ],
+    "prohibited": [
+      "secrets",
+      "access or refresh tokens",
+      "one-time onboarding codes in callbacks or support artifacts",
+      "document or mailbox content",
+      "user files",
+      "broad tenant or user-profile exports",
+      "unsanitized raw logs"
+    ]
+  },
+  "retention": {
+    "keyVaultSoftDeleteDays": 90,
+    "localAutomaticCleanupImplemented": false,
+    "portalEvidenceRetention": "controlled by the PageMaker365 portal service and not defined in this repository"
+  },
+  "implementationReferences": [
+    "src/PageMaker365.Installer.Engine/Services/GraphDeviceCodeAuthenticator.cs",
+    "src/PageMaker365.Installer.Engine/Services/TrustedPageMaker365EndpointPolicy.cs",
+    "src/PageMaker365.Installer.Engine/Services/InstallerStateStore.cs",
+    "src/PageMaker365.Installer.Engine/Services/OnboardingApiClient.cs",
+    "modules/PageMaker365.Install/Public/Test-PM365AzureContext.ps1",
+    "modules/PageMaker365.Install/Public/Test-PM365EntraPermissions.ps1",
+    "modules/PageMaker365.Install/Public/Get-PM365GraphDiscovery.ps1",
+    "infra/subscription.bicep",
+    "infra/main.bicep",
+    "infra/modules/key-vault.bicep",
+    "infra/modules/key-vault-role-assignment.bicep"
+  ]
+}

@@ -37,6 +37,8 @@ internal static class Program
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
             ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
             ("OnboardingSessionService rejects expired bootstrap", OnboardingSessionServiceRejectsExpiredBootstrap),
+            ("OnboardingSessionService rejects untrusted bootstrap endpoints", OnboardingSessionServiceRejectsUntrustedBootstrapEndpoints),
+            ("Graph device code requests only approved read scopes", GraphDeviceCodeRequestsOnlyApprovedReadScopes),
             ("OnboardingSessionService validates sample bootstrap contract", OnboardingSessionServiceValidatesSampleBootstrapContract),
             ("AuthenticationContextValidator accepts matching Azure context", AuthenticationContextValidatorAcceptsMatchingAzureContext),
             ("AuthenticationContextValidator rejects warning-only Azure sign-in", AuthenticationContextValidatorRejectsWarningOnlyAzureSignIn),
@@ -128,7 +130,7 @@ internal static class Program
         AssertEx.Equal("Connected", response.Status);
         AssertEx.Equal("corr-connect-001", response.CorrelationId);
         AssertEx.Equal(HttpMethod.Post, handler.Requests[0].Method);
-        AssertEx.Equal("https://api.example.test/api/onboarding/installer/connect", handler.Requests[0].RequestUri?.ToString());
+        AssertEx.Equal("https://localhost:5443/api/onboarding/installer/connect", handler.Requests[0].RequestUri?.ToString());
         AssertEx.Equal("Bearer", handler.Requests[0].Authorization?.Scheme);
         AssertEx.Equal("test-token", handler.Requests[0].Authorization?.Parameter);
         AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Session"), "onb_test_001");
@@ -235,7 +237,7 @@ internal static class Program
               "sessionId": "onb_test_001",
               "discoveryId": "disc_test_001",
               "correlationId": "corr-discovery-001",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_001",
               "message": "Accepted"
             }
             """));
@@ -245,7 +247,7 @@ internal static class Program
 
         AssertEx.Equal("Accepted", response.Status);
         AssertEx.Equal("disc_test_001", response.DiscoveryId);
-        AssertEx.Equal("https://api.example.test/api/onboarding/installer/discovery", handler.Requests[0].RequestUri?.ToString());
+        AssertEx.Equal("https://localhost:5443/api/onboarding/installer/discovery", handler.Requests[0].RequestUri?.ToString());
 
         using var body = JsonDocument.Parse(handler.RequestBodies[0]);
         AssertJsonString(body, "sessionId", "onb_test_001");
@@ -263,14 +265,14 @@ internal static class Program
               "sessionId": "onb_test_001",
               "customerName": "Example Customer",
               "status": "Ready",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_001",
               "correlationId": "corr-status-001",
               "message": "Ready",
               "missingFields": [],
               "packageReadiness": {
                 "status": "Ready",
                 "packageVersion": "0.2-test",
-                "packageDownloadUrl": "https://api.example.test/api/onboarding/installer/onb_test_001/install-package",
+                "packageDownloadUrl": "https://localhost:5443/api/onboarding/installer/onb_test_001/install-package",
                 "message": "Ready for download"
               }
             }
@@ -281,7 +283,7 @@ internal static class Program
 
         AssertEx.Equal("Ready", status.Status);
         AssertEx.Equal("Ready", status.PackageReadiness.Status);
-        AssertEx.Equal("https://api.example.test/api/onboarding/installer/status", handler.Requests[0].RequestUri?.ToString());
+        AssertEx.Equal("https://localhost:5443/api/onboarding/installer/status", handler.Requests[0].RequestUri?.ToString());
 
         using var body = JsonDocument.Parse(handler.RequestBodies[0]);
         var loadedPackage = body.RootElement.GetProperty("loadedPackage");
@@ -331,7 +333,7 @@ internal static class Program
             AssertEx.Equal("0.2-test", result.PackageVersion);
             AssertEx.Equal("corr-package-001", result.CorrelationId);
             AssertEx.Equal(HttpMethod.Get, handler.Requests[0].Method);
-            AssertEx.Equal("https://api.example.test/custom/download", handler.Requests[0].RequestUri?.ToString());
+            AssertEx.Equal("https://localhost:5443/custom/download", handler.Requests[0].RequestUri?.ToString());
             AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Session"), "onb_test_001");
             AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Code"), "TEST-CODE-001");
             AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
@@ -381,7 +383,7 @@ internal static class Program
             AssertEx.Equal("Downloaded", result.Status);
             AssertEx.Equal("corr-package-jwks", result.CorrelationId);
             AssertEx.Equal(2, handler.Requests.Count);
-            AssertEx.Equal("https://api.example.test/custom/download", handler.Requests[0].RequestUri?.ToString());
+            AssertEx.Equal("https://localhost:5443/custom/download", handler.Requests[0].RequestUri?.ToString());
             AssertEx.Equal(
                 "https://api.pagemaker365.com/.well-known/pagemaker365-license-jwks.json",
                 handler.Requests[1].RequestUri?.ToString());
@@ -434,7 +436,7 @@ internal static class Program
         var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
             resolver.ResolveAsync(signedPackage.Config, PackageTrustOptions.Empty));
 
-        AssertEx.StringContains(exception.Message, "not trusted");
+        AssertEx.StringContains(exception.Message, "not a trusted PageMaker365 endpoint");
         AssertEx.Equal(0, handler.Requests.Count);
     }
 
@@ -446,14 +448,14 @@ internal static class Program
               "sessionId": "onb_test_001",
               "customerName": "Example Customer",
               "status": "Pending",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_001",
               "correlationId": "corr-status-unknown",
               "message": "Waiting on package generation",
               "missingFields": [],
               "packageReadiness": {
                 "status": "QueuedForSignature",
                 "packageVersion": "0.2-test",
-                "packageDownloadUrl": "https://api.example.test/api/onboarding/installer/onb_test_001/install-package",
+                "packageDownloadUrl": "https://localhost:5443/api/onboarding/installer/onb_test_001/install-package",
                 "message": "Package is not ready for installer download yet"
               }
             }
@@ -464,7 +466,7 @@ internal static class Program
 
         AssertEx.Equal("Pending", status.Status);
         AssertEx.Equal("QueuedForSignature", status.PackageReadiness.Status);
-        AssertEx.Equal("https://api.example.test/api/onboarding/installer/onb_test_001/install-package", status.PackageReadiness.PackageDownloadUrl);
+        AssertEx.Equal("https://localhost:5443/api/onboarding/installer/onb_test_001/install-package", status.PackageReadiness.PackageDownloadUrl);
 
         var downloadHandler = new RecordingHttpMessageHandler(_ => throw new InvalidOperationException("Unknown readiness status must not trigger package download."));
         var downloadClient = CreatePortalClient(downloadHandler);
@@ -492,7 +494,7 @@ internal static class Program
               "sessionId": "onb_test_001",
               "customerName": "Example Customer",
               "status": "NeedsInput",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_001",
               "correlationId": "corr-status-missing-fields",
               "message": "Additional package intake fields are required",
               "missingFields": [
@@ -590,7 +592,7 @@ internal static class Program
             var result = await client.DownloadPackageAsync(CreateSession(), readiness, workspaceRoot);
 
             AssertEx.Equal("Downloaded", result.Status);
-            AssertEx.Equal("https://api.example.test/api/onboarding/installer/onb_test_001/install-package", handler.Requests[0].RequestUri?.ToString());
+            AssertEx.Equal("https://localhost:5443/api/onboarding/installer/onb_test_001/install-package", handler.Requests[0].RequestUri?.ToString());
             AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Session"), "onb_test_001");
             AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Code"), "TEST-CODE-001");
         }
@@ -632,6 +634,36 @@ internal static class Program
 
         AssertEx.False(result.IsValid);
         AssertEx.StringContains(string.Join(" ", result.Errors), "onboarding bootstrap session is expired");
+        return Task.CompletedTask;
+    }
+
+    private static Task OnboardingSessionServiceRejectsUntrustedBootstrapEndpoints()
+    {
+        var session = CreateSession();
+        session.PortalBaseUrl = "http://pagemaker365.com";
+        session.ApiBaseUrl = "https://attacker.example.test";
+
+        var result = new OnboardingSessionService().Validate(session);
+        var errors = string.Join(" ", result.Errors);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(errors, "Portal base URL must use HTTPS");
+        AssertEx.StringContains(errors, "API base URL host 'attacker.example.test' is not a trusted PageMaker365 endpoint");
+        return Task.CompletedTask;
+    }
+
+    private static Task GraphDeviceCodeRequestsOnlyApprovedReadScopes()
+    {
+        var expected = new[]
+        {
+            "User.Read",
+            "Domain.Read.All",
+            "RoleManagement.Read.Directory",
+            "Sites.Read.All"
+        };
+
+        AssertEx.Equal(string.Join("|", expected), string.Join("|", GraphDeviceCodeAuthenticator.RequiredScopes));
+        AssertEx.False(GraphDeviceCodeAuthenticator.RequiredScopes.Any(scope => scope.Contains("ReadWrite", StringComparison.OrdinalIgnoreCase)));
         return Task.CompletedTask;
     }
 
@@ -783,7 +815,7 @@ internal static class Program
               "sessionId": "onb_test_001",
               "customerName": "Example Customer",
               "status": "Pending",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_001",
               "correlationId": "corr-status-missing-readiness",
               "message": "Package generation is queued.",
               "missingFields": [],
@@ -810,7 +842,7 @@ internal static class Program
               "sessionId": "onb_test_001",
               "customerName": "Example Customer",
               "status": "Ready",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_001",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_001",
               "correlationId": "corr-status-002",
               "message": "Ready",
               "missingFields": [],
@@ -837,14 +869,14 @@ internal static class Program
               "sessionId": "onb_test_other",
               "customerName": "Example Customer",
               "status": "Ready",
-              "portalRecordUrl": "https://portal.example.test/admin/onboarding/onb_test_other",
+              "portalRecordUrl": "https://localhost:5444/admin/onboarding/onb_test_other",
               "correlationId": "corr-status-mismatch",
               "message": "Ready",
               "missingFields": [],
               "packageReadiness": {
                 "status": "Ready",
                 "packageVersion": "0.2-test",
-                "packageDownloadUrl": "https://api.example.test/api/onboarding/installer/onb_test_other/install-package",
+                "packageDownloadUrl": "https://localhost:5443/api/onboarding/installer/onb_test_other/install-package",
                 "message": "Ready for download"
               }
             }
@@ -1378,7 +1410,7 @@ internal static class Program
     {
         var workspaceRoot = CreateTempDirectory();
         using var mode = new EnvironmentVariableScope("PM365_ONBOARDING_MODE", "Portal");
-        using var baseUrl = new EnvironmentVariableScope("PM365_ONBOARDING_API_BASE_URL", "https://override.example.test");
+        using var baseUrl = new EnvironmentVariableScope("PM365_ONBOARDING_API_BASE_URL", "https://localhost:5555");
         using var statusPath = new EnvironmentVariableScope("PM365_ONBOARDING_STATUS_ENDPOINT_PATH", "/custom/status");
         using var fallback = new EnvironmentVariableScope("PM365_ONBOARDING_FALLBACK_TO_MOCK", "false");
         File.WriteAllText(
@@ -1398,13 +1430,13 @@ internal static class Program
             var options = new OnboardingApiOptionsService().Load(workspaceRoot);
 
             AssertEx.Equal("Portal", options.Mode);
-            AssertEx.Equal("https://override.example.test", options.ApiBaseUrl);
+            AssertEx.Equal("https://localhost:5555", options.ApiBaseUrl);
             AssertEx.Equal("/file/connect", options.ConnectEndpointPath);
             AssertEx.Equal("/custom/status", options.StatusEndpointPath);
             AssertEx.Equal(9, options.TimeoutSeconds);
             AssertEx.False(options.FallbackToMockOnFailure);
             AssertEx.Equal(
-                "https://override.example.test/file/connect",
+                "https://localhost:5555/file/connect",
                 options.ConnectEndpoint(new OnboardingBootstrapSession()).ToString());
         }
         finally
@@ -1727,12 +1759,20 @@ internal static class Program
         var workspaceRoot = CreateTempDirectory();
         try
         {
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var cancellation = new CancellationTokenSource();
+            var progress = new InlineProgress<string>(line =>
+            {
+                if (line.Contains("before-cancel", StringComparison.Ordinal))
+                {
+                    cancellation.Cancel();
+                }
+            });
             var result = await new PowerShellProcessRunner().RunAsync(
                 "-NoLogo -NoProfile -NonInteractive -Command \"Write-Output 'before-cancel'; Start-Sleep -Seconds 10\"",
                 workspaceRoot,
                 cancellation.Token,
-                timeout: TimeSpan.FromMinutes(1));
+                timeout: TimeSpan.FromSeconds(20),
+                outputProgress: progress);
 
             AssertEx.False(result.Succeeded);
             AssertEx.False(result.TimedOut);
@@ -1897,7 +1937,7 @@ internal static class Program
         {
             AccountId = "graph-admin@example.test",
             TenantId = "tenant-live",
-            Scopes = ["Directory.Read.All", "Sites.Read.All"],
+            Scopes = ["User.Read", "Domain.Read.All", "RoleManagement.Read.Directory", "Sites.Read.All"],
             DefaultDomain = "example.com",
             VerifiedDomains = ["example.com", "example.sharepoint.com"],
             TenantHostname = "example.sharepoint.com",
@@ -1948,7 +1988,7 @@ internal static class Program
         AssertEx.True(discovery.SharePoint.SiteResolved);
         AssertEx.Equal(1, discovery.SharePoint.AvailableDocumentLibraries.Count);
         AssertEx.Equal("graph-admin@example.test", discovery.Entra.AccountId);
-        AssertEx.Contains(discovery.Entra.Scopes, "Directory.Read.All");
+        AssertEx.Contains(discovery.Entra.Scopes, "RoleManagement.Read.Directory");
         AssertEx.Equal("AdminRoleReady", discovery.Entra.ConsentStatus);
         AssertEx.Equal("Sites.Selected", discovery.Entra.RequiredApplicationPermissions[0]);
         AssertEx.Equal("GraphDiscoveryReady", discovery.Findings.Last().Code);
@@ -1965,7 +2005,7 @@ internal static class Program
             new OnboardingApiOptions
             {
                 Mode = "Portal",
-                ApiBaseUrl = "https://api.example.test",
+                ApiBaseUrl = "https://localhost:5443",
                 ApiKeyEnvironmentVariable = apiKeyEnvironmentVariable,
                 FallbackToMockOnFailure = fallbackToMock
             },
@@ -2065,8 +2105,8 @@ internal static class Program
             SessionId = "onb_test_001",
             CustomerName = "Example Customer",
             ExpectedTenantId = "tenant-001",
-            PortalBaseUrl = "https://portal.example.test",
-            ApiBaseUrl = "https://api.example.test",
+            PortalBaseUrl = "https://localhost:5444",
+            ApiBaseUrl = "https://localhost:5443",
             OneTimeCode = "TEST-CODE-001",
             RequestedBy = "owner@example.test",
             ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
@@ -2176,7 +2216,7 @@ internal static class Program
                 SchemaId = "https://pagemaker365.com/schemas/customer-install.schema.json",
                 EnvironmentId = "env-001",
                 LicenseActivationId = "lic-001",
-                EntitlementSyncUrl = "https://api.example.test/api/runtime/entitlements/sync",
+                EntitlementSyncUrl = "https://localhost:5443/api/runtime/entitlements/sync",
                 PackageHashAlgorithm = "SHA-256",
                 Canonicalization = "json-c14n-v1",
                 TrustMode = "UnsignedAllowed"
@@ -2203,7 +2243,7 @@ internal static class Program
         {
             Status = "Ready",
             PackageVersion = "0.2-test",
-            PackageDownloadUrl = "https://api.example.test/custom/download"
+            PackageDownloadUrl = "https://localhost:5443/custom/download"
         };
     }
 

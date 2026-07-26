@@ -9,9 +9,9 @@ public sealed class GraphDeviceCodeAuthenticator
 
     public static readonly string[] RequiredScopes =
     [
-        "Application.ReadWrite.All",
-        "AppRoleAssignment.ReadWrite.All",
-        "Directory.Read.All",
+        "User.Read",
+        "Domain.Read.All",
+        "RoleManagement.Read.Directory",
         "Sites.Read.All"
     ];
 

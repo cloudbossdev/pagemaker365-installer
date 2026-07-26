@@ -4,12 +4,7 @@ function Connect-PM365Graph {
         [Parameter(Mandatory)]
         [string] $ConfigPath,
 
-        [string[]] $Scopes = @(
-            'Application.ReadWrite.All',
-            'AppRoleAssignment.ReadWrite.All',
-            'Directory.Read.All',
-            'Sites.Read.All'
-        ),
+        [string[]] $Scopes = (Get-PM365RequiredGraphScopes),
 
         [switch] $UseDeviceCode,
 

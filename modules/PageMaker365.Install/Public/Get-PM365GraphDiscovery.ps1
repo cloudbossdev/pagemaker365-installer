@@ -97,7 +97,7 @@ function Get-PM365GraphDiscovery {
             }
         }
 
-        $defaultDiscoveryScopes = @('Directory.Read.All', 'Sites.Read.All')
+        $defaultDiscoveryScopes = @(Get-PM365RequiredGraphScopes)
         $missingDiscoveryScopes = @($defaultDiscoveryScopes | Where-Object { $_ -notin $result.scopes })
         if ($missingDiscoveryScopes.Count -gt 0) {
             $findings += [ordered]@{
@@ -277,7 +277,7 @@ function Get-PM365GraphDiscovery {
         }
     }
 
-    $defaultDiscoveryScopes = @('Directory.Read.All', 'Sites.Read.All')
+    $defaultDiscoveryScopes = @(Get-PM365RequiredGraphScopes)
     $missingDiscoveryScopes = @($defaultDiscoveryScopes | Where-Object { $_ -notin $result.scopes })
     if ($missingDiscoveryScopes.Count -gt 0) {
         $findings += [ordered]@{

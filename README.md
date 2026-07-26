@@ -96,6 +96,8 @@ Start here before wiring the production payload:
 - `docs/install-uninstall-user-stories.md`
 - `docs/install-uninstall-test-matrix.md`
 - `docs/installer-requirements-traceability.md`
+- `config/installer-security-profile.json`
+- `docs/customer/installer-technical-security-guide.md`
 - `docs/deployment-contract.md`
 - `docs/onboarding-discovery-contract.md`
 - `docs/using-the-installer.md`

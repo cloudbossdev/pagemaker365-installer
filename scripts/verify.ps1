@@ -20,6 +20,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Documentation traceability checks failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Checking installer security contract...'
+& (Join-Path $repoRoot 'scripts\test-security-contract.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Security contract checks failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Checking JSON files...'
 Get-ChildItem -Path $repoRoot -Recurse -File -Include *.json |
     Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\|\\logs\\|\\support-bundle\\' } |
