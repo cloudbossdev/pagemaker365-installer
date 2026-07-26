@@ -47,9 +47,12 @@ public sealed class InstallerEvidenceReceipt
     public string ContractVersion { get; set; } = "";
     public string Status { get; set; } = "";
     public string SessionId { get; set; } = "";
+    public string Lifecycle { get; set; } = "";
+    public string AttemptId { get; set; } = "";
     public string EventId { get; set; } = "";
     public string EventType { get; set; } = "";
     public string InstallAttemptId { get; set; } = "";
+    public string UpgradeAttemptId { get; set; } = "";
     public int Sequence { get; set; }
     public string LifecycleStatus { get; set; } = "";
     public string Outcome { get; set; } = "";
@@ -75,6 +78,7 @@ public sealed class InstallerEvidenceOutboxState
     public int NextSequence { get; set; } = 1;
     public bool InstallStarted { get; set; }
     public bool IsTerminal { get; set; }
+    public string LastEventType { get; set; } = "";
     public List<PendingInstallerEvidenceEvent> PendingEvents { get; set; } = [];
 }
 

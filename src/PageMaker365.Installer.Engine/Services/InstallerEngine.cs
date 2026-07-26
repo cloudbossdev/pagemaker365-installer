@@ -64,7 +64,8 @@ public sealed class InstallerEngine
         string configPath,
         string graphAccessToken = "",
         IProgress<InstallerStepResult>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowUpgradeTargetStateResume = false)
     {
         var environmentVariables = string.IsNullOrWhiteSpace(graphAccessToken)
             ? null
@@ -78,6 +79,7 @@ public sealed class InstallerEngine
             "Start-PM365Preflight",
             progress,
             cancellationToken,
+            commandArguments: allowUpgradeTargetStateResume ? "-AllowUpgradeTargetStateResume:$true" : "",
             environmentVariables: environmentVariables);
     }
 
@@ -173,11 +175,18 @@ public sealed class InstallerEngine
         string configPath,
         string outputPath = "",
         IProgress<InstallerStepResult>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowUpgradeTargetStateResume = false)
     {
         var commandArguments = string.IsNullOrWhiteSpace(outputPath)
             ? ""
             : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        if (allowUpgradeTargetStateResume)
+        {
+            commandArguments = string.IsNullOrWhiteSpace(commandArguments)
+                ? "-AllowUpgradeTargetStateResume:$true"
+                : $"{commandArguments} -AllowUpgradeTargetStateResume:$true";
+        }
 
         return await RunPowerShellModuleCommandAsync(
             session,
@@ -196,11 +205,16 @@ public sealed class InstallerEngine
         string configPath,
         string outputPath = "",
         IProgress<InstallerStepResult>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowUpgradeTargetStateResume = false)
     {
         var commandArguments = string.IsNullOrWhiteSpace(outputPath)
             ? "-Confirm:$false"
             : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}' -Confirm:$false";
+        if (allowUpgradeTargetStateResume)
+        {
+            commandArguments += " -AllowUpgradeTargetStateResume:$true";
+        }
 
         return await RunPowerShellModuleCommandAsync(
             session,

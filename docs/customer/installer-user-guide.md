@@ -42,6 +42,10 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - An upgrade package clearly displays its source and target runtime versions before sign-in.
 - Clean-install packages cannot adopt a different existing PageMaker365 environment;
   the exact same immutable package can reconcile only its own matching deployment.
+- Editing or replacing the package, preview receipt, or What-If artifact clears approval
+  and requires a new preview before installation.
+- After a partial upgrade, forward-fix is available only from the original saved
+  session and only when Azure exactly matches its authorized target identity.
 - Unsupported, stale, or mismatched upgrades stop before Azure mutation and request a new package.
 - Removal never deletes SharePoint content or purges Key Vault.
 

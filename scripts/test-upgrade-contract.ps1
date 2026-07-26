@@ -22,6 +22,9 @@ Get-ChildItem -Path (Join-Path $moduleRoot 'Public') -Filter '*.ps1' -File |
 
 $script:resourceGroupExists = $false
 $script:activeDeployment = $false
+$script:resourceGroupRuntimeVersion = '1.4.2'
+$script:resourceGroupDeploymentExportId = 'export-source-1'
+$script:resourceGroupResourceNamesHash = ''
 $script:config = [pscustomobject]@{
     contractVersion = '0.3'
     customer = [pscustomobject]@{
@@ -104,9 +107,13 @@ function Get-AzResourceGroup {
             managedBy = 'PageMaker365'
             appName = 'pagemaker365-upgrade'
             installationId = 'inst-upgrade-1'
-            runtimeVersion = '1.4.2'
-            deploymentExportId = 'export-source-1'
-            resourceNamesHash = Get-PM365ResourceNamesHash -ResourceNames $script:config.azure.resourceNames
+            runtimeVersion = $script:resourceGroupRuntimeVersion
+            deploymentExportId = $script:resourceGroupDeploymentExportId
+            resourceNamesHash = if ([string]::IsNullOrWhiteSpace($script:resourceGroupResourceNamesHash)) {
+                Get-PM365ResourceNamesHash -ResourceNames $script:config.azure.resourceNames
+            } else {
+                $script:resourceGroupResourceNamesHash
+            }
         }
     }
 }
@@ -142,6 +149,20 @@ $script:config.deployment.targetRuntimeVersion = '1.4.3'
 $script:config.deployment.sourceDeploymentExportId = 'export-source-1'
 $upgradeReady = Test-PM365UpgradeContract -ConfigPath 'test.json'
 Assert-Equal 'UpgradeIntentReady' $upgradeReady.code 'Matching upgrade identity should pass.'
+
+$script:resourceGroupRuntimeVersion = '1.4.3'
+$script:resourceGroupDeploymentExportId = 'export-target-2'
+$targetWithoutSavedAuthorization = Test-PM365UpgradeContract -ConfigPath 'test.json'
+Assert-Equal 'UpgradeSourceIdentityMismatch' $targetWithoutSavedAuthorization.code 'Target identity must not authorize a fresh upgrade replay.'
+$targetWithSavedAuthorization = Test-PM365UpgradeContract -ConfigPath 'test.json' -AllowTargetStateResume
+Assert-Equal 'UpgradeForwardFixReady' $targetWithSavedAuthorization.code 'The saved session should reconcile the exact target identity after partial mutation.'
+Assert-True ([bool]$targetWithSavedAuthorization.data.forwardFixResume) 'Forward-fix evidence should identify the target-state resume path.'
+$script:resourceGroupResourceNamesHash = 'wrong-resource-map'
+$targetWithWrongNames = Test-PM365UpgradeContract -ConfigPath 'test.json' -AllowTargetStateResume
+Assert-Equal 'UpgradeSourceIdentityMismatch' $targetWithWrongNames.code 'Forward-fix must preserve the immutable resource-name map.'
+$script:resourceGroupResourceNamesHash = ''
+$script:resourceGroupRuntimeVersion = '1.4.2'
+$script:resourceGroupDeploymentExportId = 'export-source-1'
 
 $script:config.deployment.targetRuntimeVersion = '1.6.0'
 $unsupportedTransition = Test-PM365UpgradeContract -ConfigPath 'test.json'

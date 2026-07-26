@@ -227,6 +227,9 @@ public sealed class CustomerConfigService
         RequireOrWarn(controlPlane.Signature, "controlPlane.signature", signedRequired, result);
         RequireOrWarn(controlPlane.SignatureAlgorithm, "controlPlane.signatureAlgorithm", signedRequired, result);
 
+        var jsonForHash = string.IsNullOrWhiteSpace(packageJson) ? ToJson(config) : packageJson;
+        result.ComputedPackageHash = ComputePackageHash(jsonForHash);
+
         if (string.IsNullOrWhiteSpace(controlPlane.PackageHash))
         {
             result.PackageTrustStatus = signedRequired ? "Missing signature" : "Legacy package";
@@ -248,8 +251,6 @@ public sealed class CustomerConfigService
             result.Errors.Add($"Unsupported package canonicalization '{controlPlane.Canonicalization}'. Only json-c14n-v1 is currently supported.");
         }
 
-        var jsonForHash = string.IsNullOrWhiteSpace(packageJson) ? ToJson(config) : packageJson;
-        result.ComputedPackageHash = ComputePackageHash(jsonForHash);
         var normalizedDeclaredHash = NormalizePackageHash(controlPlane.PackageHash);
         if (!normalizedDeclaredHash.Equals(result.ComputedPackageHash, StringComparison.OrdinalIgnoreCase))
         {

@@ -20,6 +20,7 @@ internal static class Program
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Upgrade package displays source and target versions", UpgradePackageDisplaysSourceAndTargetVersions),
+            ("Terminal upgrade attempt disables duplicate final evidence", TerminalUpgradeAttemptDisablesDuplicateFinalEvidence),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
             ("Loaded bootstrap expiry blocks portal acquisition", LoadedBootstrapExpiryBlocksPortalAcquisition),
@@ -177,6 +178,38 @@ internal static class Program
         AssertEx.True(outbox?.InstallAttemptId.StartsWith("ua_", StringComparison.Ordinal) == true,
             "Upgrade evidence must use a distinct ua_ attempt identity even before the package becomes active state.");
         AssertEx.True(viewModel.IsSignInStep, "A valid upgrade package should advance to the standard dual sign-in gate.");
+    }
+
+    private static async Task TerminalUpgradeAttemptDisablesDuplicateFinalEvidence()
+    {
+        using var scope = TestScope.Create();
+        var config = CreateConfig("Terminal Upgrade Customer");
+        config.Deployment.Operation = UpgradeContractService.UpgradeOperation;
+        config.Deployment.SourceRuntimeVersion = "0.1.0";
+        config.Deployment.TargetRuntimeVersion = "0.2.0";
+        config.Deployment.SourceDeploymentExportId = "export-source-terminal";
+        scope.WritePackage(config);
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+
+        var type = typeof(InstallerWizardViewModel);
+        type.GetField("_currentStepNumber", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel, 8);
+        type.GetField("_lastValidationStatus", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(viewModel, InstallStatus.Passed);
+        var outbox = (InstallerEvidenceOutboxState)type
+            .GetField("_installerEvidenceOutbox", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(viewModel)!;
+        outbox.InstallAttemptId = "ua_terminal_001";
+        outbox.IsTerminal = true;
+        outbox.LastEventType = InstallerEvidenceEventType.UpgradeCompleted;
+
+        var canCreate = (bool)type
+            .GetMethod("CanCreateFinalEvidence", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(viewModel, null)!;
+        AssertEx.False(canCreate, "A terminal upgrade attempt must not emit a second upgrade_completed event.");
     }
 
     private static async Task BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession()

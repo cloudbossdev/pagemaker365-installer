@@ -121,6 +121,15 @@ public sealed class DeploymentApprovalPreviewEvidenceSummary
     [JsonPropertyName("evidenceFileFound")]
     public bool EvidenceFileFound { get; set; }
 
+    [JsonPropertyName("artifactPath")]
+    public string ArtifactPath { get; set; } = "";
+
+    [JsonPropertyName("artifactHash")]
+    public string ArtifactHash { get; set; } = "";
+
+    [JsonPropertyName("artifactFileFound")]
+    public bool ArtifactFileFound { get; set; }
+
     [JsonPropertyName("resultCount")]
     public int ResultCount { get; set; }
 

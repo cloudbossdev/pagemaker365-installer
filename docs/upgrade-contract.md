@@ -70,12 +70,19 @@ package resource-name map. Missing or mismatched identity, an absent source grou
 or an active Azure deployment blocks mutation. The installer never infers a source
 version from URLs, resource names, or portal status.
 
+Package validation computes a canonical package hash even for a controlled legacy
+package. Preview records that package hash plus SHA-256 hashes for the preview
+receipt and Azure What-If artifact. Immediately before mutation, the installer
+recomputes all three identities. A missing, replaced, or edited input clears preview
+and approval and requires the operator to run What-If again.
+
 ## Preview And Approval
 
 Azure What-If remains mandatory. It must show the exact create, modify, deploy,
 delete, ignore, unknown, and blocked counts for the target package. Approval is
-bound to that preview and package. `resourceNamePolicy=Immutable` means an upgrade
-cannot rename or replace package-owned resources through a new package identity.
+bound to the canonical package, preview receipt, and Azure What-If artifact.
+`resourceNamePolicy=Immutable` means an upgrade cannot rename or replace
+package-owned resources through a new package identity.
 
 The deployment writes the target runtime version and target deployment export only
 after Azure accepts the approved deployment. Smoke tests then verify the runtime
@@ -95,13 +102,16 @@ The v1 policy is `ForwardFix`:
 
 1. A failure before Azure mutation is corrected and previewed again.
 2. A failure during Azure deployment is reconciled against live deployment state.
-3. The same immutable upgrade package may be retried only after source/target state
-   still matches the package contract.
-4. If the original saved session already contains successful deployment evidence,
-   the operator resumes that session at validation. A fresh upgrade attempt still
-   requires the live Azure source identity to match and fails closed when Azure
-   already reports the target identity; it never replays a blind deployment.
-5. Automatic downgrade and automatic restoration of an older template are not
+3. Immediately before the first mutation, the saved session records forward-fix
+   authorization bound to the canonical package hash and target deployment export.
+4. If a partial deployment changes Azure tags to the exact target identity, only
+   that saved session may resume. Preflight, preview, and deployment accept the
+   target state only when product, owner, application, installation, target version,
+   target export, and immutable resource-name hash all match the saved authorization.
+5. A fresh session, changed package, changed resource map, active deployment, or
+   ambiguous Azure state fails closed. Successful deployment evidence resumes at
+   validation instead of replaying deployment.
+6. Automatic downgrade and automatic restoration of an older template are not
    supported.
 
 The previous package and evidence are retained for diagnosis, but possession of an
@@ -127,6 +137,15 @@ deployment export, stable event/attempt identity, sequence, and idempotency key.
 Portal sync failure remains in the installer outbox and never changes the Azure
 result. Install and upgrade state machines must not share ordering or terminal
 state.
+
+The installer validates lifecycle status and outcome for each event before it is
+queued. Sequence advances only after a valid transition, and no event can follow a
+terminal failure or completion. The idempotency key is exactly
+`<upgradeAttemptId>:<sequence>:<eventId>`. An HTTP success is not delivery proof:
+the response must say `Accepted` and exactly echo contract version `0.3`, lifecycle,
+attempt aliases, event identity, sequence, lifecycle status, and outcome. A rejected
+or mismatched response leaves the stable event available for outbox recovery.
+Secret-like callback fields are rejected before transport.
 
 Installations created before the version and ownership tags in this contract are
 not automatically upgrade eligible. They require a clean removal/reinstall or a

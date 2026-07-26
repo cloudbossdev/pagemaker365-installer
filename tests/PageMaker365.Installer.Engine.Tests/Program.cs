@@ -30,6 +30,10 @@ internal static class Program
             ("SubmitEvidenceAsync retries transient failure with stable identity", SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity),
             ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
             ("SubmitEvidenceAsync sends upgrade lifecycle identity", SubmitEvidenceAsyncSendsUpgradeLifecycleIdentity),
+            ("SubmitEvidenceAsync rejects mismatched upgrade receipt", SubmitEvidenceAsyncRejectsMismatchedUpgradeReceipt),
+            ("SubmitEvidenceAsync rejects non-accepted upgrade receipt", SubmitEvidenceAsyncRejectsNonAcceptedUpgradeReceipt),
+            ("SubmitEvidenceAsync rejects mismatched upgrade idempotency identity", SubmitEvidenceAsyncRejectsMismatchedUpgradeIdempotencyIdentity),
+            ("SubmitEvidenceAsync rejects secret-like upgrade error", SubmitEvidenceAsyncRejectsSecretLikeUpgradeError),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
             ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
@@ -79,11 +83,13 @@ internal static class Program
             ("UpgradeContractService accepts patch and adjacent minor upgrades", UpgradeContractServiceAcceptsSupportedTransitions),
             ("UpgradeContractService rejects unsafe version transitions", UpgradeContractServiceRejectsUnsafeTransitions),
             ("UpgradeContractService version matches PowerShell module", UpgradeContractServiceVersionMatchesPowerShellModule),
+            ("Upgrade evidence lifecycle enforces ordered terminal flow", UpgradeEvidenceLifecycleEnforcesOrderedTerminalFlow),
             ("CustomerConfigService requires deployment intent for signed packages", CustomerConfigServiceRequiresDeploymentIntentForSignedPackages),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
             ("DeploymentApprovalManifestService writes hash without raw confirmation", DeploymentApprovalManifestServiceWritesHashWithoutRawConfirmation),
+            ("Deployment execution binding rejects changed package and preview", DeploymentExecutionBindingRejectsChangedInputs),
             ("FinalEvidenceService copies approval and Azure artifacts", FinalEvidenceServiceCopiesApprovalAndAzureArtifacts),
             ("InstallerEngine parses JSON result from mixed PowerShell output", InstallerEngineParsesJsonResultFromMixedPowerShellOutput),
             ("InstallerEngine passes Graph token and deployment artifact to validation", InstallerEnginePassesGraphTokenToValidationProcess),
@@ -250,12 +256,15 @@ internal static class Program
               "contractVersion": "0.3",
               "status": "Accepted",
               "sessionId": "onb_test_001",
+              "lifecycle": "upgrade",
+              "attemptId": "{{evidence.AttemptId}}",
               "eventId": "{{evidence.EventId}}",
               "eventType": "{{evidence.EventType}}",
               "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "upgradeAttemptId": "{{evidence.UpgradeAttemptId}}",
               "sequence": 1,
               "lifecycleStatus": "provisioning",
-              "outcome": "started",
+              "outcome": "passed",
               "correlationId": "corr-upgrade-evidence-001"
             }
             """));
@@ -272,6 +281,103 @@ internal static class Program
         AssertJsonString(body, "sourceRuntimeVersion", "1.4.2");
         AssertJsonString(body, "targetRuntimeVersion", "1.5.0");
         AssertEx.Contains(handler.HeaderValues("Idempotency-Key"), idempotencyKey);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedUpgradeReceipt()
+    {
+        var evidence = CreateUpgradeEvidence(InstallerEvidenceEventType.UpgradeStarted, "provisioning", "passed");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "lifecycle": "upgrade",
+              "attemptId": "{{evidence.AttemptId}}",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "upgradeAttemptId": "{{evidence.UpgradeAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "provisioning",
+              "outcome": "warning",
+              "correlationId": "corr-upgrade-mismatch"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.AttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.StringContains(exception.Message, "did not match");
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsNonAcceptedUpgradeReceipt()
+    {
+        var evidence = CreateUpgradeEvidence(InstallerEvidenceEventType.UpgradeStarted, "provisioning", "passed");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Rejected",
+              "sessionId": "onb_test_001",
+              "lifecycle": "upgrade",
+              "attemptId": "{{evidence.AttemptId}}",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "upgradeAttemptId": "{{evidence.UpgradeAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "provisioning",
+              "outcome": "passed",
+              "correlationId": "corr-upgrade-rejected"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.AttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.StringContains(exception.Message, "did not match");
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedUpgradeIdempotencyIdentity()
+    {
+        var evidence = CreateUpgradeEvidence(InstallerEvidenceEventType.UpgradeStarted, "provisioning", "passed");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, "ua_wrong:1:evt_wrong"));
+
+        AssertEx.StringContains(exception.Message, "idempotency identity");
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsSecretLikeUpgradeError()
+    {
+        var evidence = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeFailed,
+            "failed",
+            "failed",
+            withError: true);
+        evidence.Error!.Message = "Authorization: Bearer secret-token-value";
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.AttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.StringContains(exception.Message, "prohibited secret-like content");
+        AssertEx.Equal(0, handler.Requests.Count);
     }
 
     private static async Task SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload()
@@ -1518,6 +1624,56 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static async Task UpgradeEvidenceLifecycleEnforcesOrderedTerminalFlow()
+    {
+        var service = new UpgradeEvidenceLifecycleService();
+        var state = new InstallerEvidenceOutboxState
+        {
+            InstallAttemptId = "ua_lifecycle_001"
+        };
+
+        var outOfOrder = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeStarted,
+            "provisioning",
+            "passed");
+        var outOfOrderException = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            Task.Run(() => service.Prepare(state, outOfOrder)));
+        AssertEx.StringContains(outOfOrderException.Message, "out of order");
+        AssertEx.Equal(1, state.NextSequence);
+
+        var packageValidated = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradePackageValidated,
+            "provisioning",
+            "passed");
+        service.Prepare(state, packageValidated);
+        AssertEx.Equal(1, packageValidated.Sequence);
+
+        var started = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeStarted,
+            "provisioning",
+            "passed");
+        service.Prepare(state, started);
+        AssertEx.Equal(2, started.Sequence);
+
+        var failed = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeFailed,
+            "failed",
+            "failed",
+            withError: true);
+        service.Prepare(state, failed);
+        AssertEx.True(state.IsTerminal);
+        AssertEx.Equal(3, failed.Sequence);
+
+        var postTerminal = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeCompleted,
+            "completed",
+            "passed");
+        var terminalException = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            Task.Run(() => service.Prepare(state, postTerminal)));
+        AssertEx.StringContains(terminalException.Message, "terminal");
+        AssertEx.Equal(4, state.NextSequence);
+    }
+
     private static Task CustomerConfigServiceRequiresDeploymentIntentForSignedPackages()
     {
         var config = CreateConfig();
@@ -1719,6 +1875,44 @@ internal static class Program
             AssertEx.True(result.Manifest.ConfirmationSummary.Approved);
             AssertEx.False(result.Manifest.ConfirmationSummary.RawConfirmationTextPersisted);
             AssertEx.False(manifestJson.Contains("do-not-store-typed-confirmation", StringComparison.OrdinalIgnoreCase), manifestJson);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DeploymentExecutionBindingRejectsChangedInputs()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var packagePath = Path.Combine(workspaceRoot, "customer.install.json");
+            var previewEvidencePath = Path.Combine(workspaceRoot, "deployment-preview.json");
+            var previewArtifactPath = Path.Combine(workspaceRoot, "azure-whatif.json");
+            await File.WriteAllTextAsync(packagePath, """{"customer":"one","controlPlane":{"packageHash":"ignored"}}""");
+            await File.WriteAllTextAsync(previewEvidencePath, """{"status":"Passed"}""");
+            await File.WriteAllTextAsync(previewArtifactPath, """{"artifactType":"PageMaker365.AzureWhatIf"}""");
+
+            var request = new DeploymentExecutionBindingRequest
+            {
+                PackagePath = packagePath,
+                ExpectedPackageHash = DeploymentExecutionBindingService.HashPackage(packagePath),
+                PreviewEvidencePath = previewEvidencePath,
+                ExpectedPreviewEvidenceHash = DeploymentExecutionBindingService.HashFile(previewEvidencePath),
+                PreviewArtifactPath = previewArtifactPath,
+                ExpectedPreviewArtifactHash = DeploymentExecutionBindingService.HashFile(previewArtifactPath)
+            };
+            var service = new DeploymentExecutionBindingService();
+            var valid = service.Validate(request);
+            AssertEx.True(valid.IsValid, string.Join(" ", valid.Errors));
+
+            await File.WriteAllTextAsync(packagePath, """{"customer":"two","controlPlane":{"packageHash":"ignored"}}""");
+            await File.WriteAllTextAsync(previewArtifactPath, """{"artifactType":"Changed"}""");
+            var changed = service.Validate(request);
+            AssertEx.False(changed.IsValid);
+            AssertEx.StringContains(string.Join(" ", changed.Errors), "customer package changed");
+            AssertEx.StringContains(string.Join(" ", changed.Errors), "Azure What-If artifact changed");
         }
         finally
         {
@@ -2262,6 +2456,43 @@ internal static class Program
             InstallerVersion = "test-version",
             PackageHash = "sha256:test-hash",
             Message = "Installer started provisioning."
+        };
+    }
+
+    private static InstallerEvidenceEvent CreateUpgradeEvidence(
+        string eventType,
+        string lifecycleStatus,
+        string outcome,
+        bool withError = false)
+    {
+        return new InstallerEvidenceEvent
+        {
+            Lifecycle = UpgradeContractService.UpgradeOperation,
+            AttemptId = "ua_lifecycle_001",
+            EventId = $"evt_{Guid.NewGuid():N}",
+            EventType = eventType,
+            InstallAttemptId = "ua_lifecycle_001",
+            UpgradeAttemptId = "ua_lifecycle_001",
+            Sequence = 1,
+            OnboardingSessionId = "onb_test_001",
+            DeploymentExportId = "export-target-001",
+            LifecycleStatus = lifecycleStatus,
+            Outcome = outcome,
+            Error = withError
+                ? new InstallerEvidenceError
+                {
+                    Code = "UPGRADE_FAILED",
+                    Message = "Upgrade validation failed.",
+                    Category = "upgrade",
+                    Retryable = true
+                }
+                : null,
+            InstallerVersion = "test-version",
+            PackageHash = "sha256:test-hash",
+            Operation = UpgradeContractService.UpgradeOperation,
+            SourceRuntimeVersion = "1.4.2",
+            TargetRuntimeVersion = "1.5.0",
+            Message = "Upgrade lifecycle event."
         };
     }
 

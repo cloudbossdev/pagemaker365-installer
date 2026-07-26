@@ -6,7 +6,9 @@ function Invoke-PM365WhatIf {
 
         [string] $TemplateFile = (Get-PM365DefaultTemplateFile),
 
-        [string] $OutputPath = ''
+        [string] $OutputPath = '',
+
+        [switch] $AllowUpgradeTargetStateResume
     )
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
@@ -260,7 +262,7 @@ function Invoke-PM365WhatIf {
         return
     }
 
-    $upgradeContract = Test-PM365UpgradeContract -ConfigPath $ConfigPath
+    $upgradeContract = Test-PM365UpgradeContract -ConfigPath $ConfigPath -AllowTargetStateResume:$AllowUpgradeTargetStateResume
     if ($upgradeContract.status -eq 'Failed') {
         return $upgradeContract
     }

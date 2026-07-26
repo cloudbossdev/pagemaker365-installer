@@ -99,10 +99,10 @@ Scenario status meanings:
 | U02 | Supported minor-version upgrade | Documented compatibility and migration path succeeds. | Automated contract; live pending |
 | U03 | Unsupported source/target version transition | Upgrade blocks before mutation with a supported path. | Automated |
 | U04 | Upgrade requires configuration migration | Sensitive values remain in Key Vault and migration is auditable. | Contract defined; live pending |
-| U05 | Upgrade fails after partial mutation | Recovery or rollback boundary is explicit and live state is reconciled. | Contract defined; live pending |
+| U05 | Upgrade fails after partial mutation | Only the package-bound saved session may forward-fix an exact target state; changed or ambiguous state blocks. | Automated contract; live pending |
 | U06 | SharePoint/customer data exists during upgrade | Customer-owned content remains unchanged. | Contract defined; live pending |
 | U07 | Installer, package, and runtime versions are incompatible | Compatibility validation blocks before preview or deployment. | Automated |
-| U08 | Upgrade completes | Evidence and portal state identify source version, target version, and outcome. | Automated installer contract; portal pending |
+| U08 | Upgrade completes | Ordered terminal evidence and an exact accepted receipt identify source version, target version, attempt, sequence, and outcome. | Automated installer contract; portal pending |
 
 ## Runtime Validation Scenarios
 
@@ -127,7 +127,7 @@ Scenario status meanings:
 | E05 | Lower or repeated invalid sequence arrives | Stale transition is rejected. | API contract verified externally |
 | E06 | Portal is offline after a successful local action | Local result is unchanged and event remains in outbox. | Automated |
 | E07 | Outbox event is retried | Payload, event ID, attempt ID, sequence, and idempotency key remain stable. | Automated |
-| E08 | Callback contains a token, secret, raw log, file, or prohibited tenant content | Payload is rejected or redacted before transport. | Partial |
+| E08 | Callback contains a token, secret, raw log, file, or prohibited tenant content | Payload is rejected or redacted before transport. | Automated |
 | E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Planned |
 | E10 | Removal inventory/preview completes | Portal receives sanitized removed/retained/blocked intent without raw inventory export. | Planned |
 | E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Planned |

@@ -405,6 +405,9 @@ Scope:
 - [x] Reconcile source runtime/export/installation identity against Azure tags.
 - [x] Preserve immutable resource names, SharePoint data, and Key Vault secret boundaries.
 - [x] Define forward-fix recovery and upgrade-only lifecycle evidence.
+- [x] Bind mutation to canonical package, preview receipt, and What-If artifact hashes.
+- [x] Restrict target-state forward-fix to the original package-bound saved session.
+- [x] Enforce ordered terminal upgrade evidence and exact accepted portal receipts.
 - [ ] Generate signed upgrade packages and accept upgrade callbacks in the portal.
 - [ ] Prove patch, minor, failure recovery, and preservation behavior in staging.
 
@@ -413,6 +416,8 @@ Acceptance criteria:
 - A clean-install package cannot adopt a different existing PageMaker365 environment;
   only exact same-package reconciliation is allowed.
 - Unsupported or mismatched upgrades fail before What-If and deployment.
+- Changed package or preview inputs clear approval and require a new What-If.
+- Partial target-state recovery fails closed without matching saved authorization.
 - Upgrade evidence identifies source, target, attempt, order, and outcome.
 
 Needs customer: two staged runtime versions and portal support for upgrade package/evidence contracts.

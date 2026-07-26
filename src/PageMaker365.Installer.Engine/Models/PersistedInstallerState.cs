@@ -60,6 +60,12 @@ public sealed class PersistedInstallerState
     public string PreviewSummary { get; set; } = "";
     public string PreviewOutputPath { get; set; } = "";
     public string PreviewArtifactPath { get; set; } = "";
+    public string PreviewPackageHash { get; set; } = "";
+    public string PreviewEvidenceHash { get; set; } = "";
+    public string PreviewArtifactHash { get; set; } = "";
+    public bool UpgradeForwardFixAuthorized { get; set; }
+    public string UpgradeForwardFixPackageHash { get; set; } = "";
+    public string UpgradeForwardFixDeploymentExportId { get; set; } = "";
     public string DeploymentStatus { get; set; } = "";
     public string DeploymentStatusBrush { get; set; } = "";
     public string DeploymentSummary { get; set; } = "";

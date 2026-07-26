@@ -2,7 +2,9 @@ function Test-PM365UpgradeContract {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string] $ConfigPath
+        [string] $ConfigPath,
+
+        [switch] $AllowTargetStateResume
     )
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
@@ -211,7 +213,29 @@ function Test-PM365UpgradeContract {
         }
     }
 
-    if ($mismatches.Count -gt 0) {
+    $forwardFixResume = $false
+    if ($mismatches.Count -gt 0 -and $AllowTargetStateResume) {
+        $expectedTarget = @{
+            product = 'PageMaker365'
+            managedBy = 'PageMaker365'
+            appName = [string]$config.app.appName
+            installationId = [string]$config.customer.installationId
+            runtimeVersion = [string]$config.deployment.targetRuntimeVersion
+            deploymentExportId = [string]$config.controlPlane.deploymentExportId
+            resourceNamesHash = Get-PM365ResourceNamesHash -ResourceNames $config.azure.resourceNames
+        }
+        $targetMismatches = @()
+        foreach ($name in $expectedTarget.Keys) {
+            $actual = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @($name))
+            if ([string]::IsNullOrWhiteSpace($expectedTarget[$name]) -or
+                -not [string]::Equals($actual, $expectedTarget[$name], [System.StringComparison]::OrdinalIgnoreCase)) {
+                $targetMismatches += $name
+            }
+        }
+        $forwardFixResume = $targetMismatches.Count -eq 0
+    }
+
+    if ($mismatches.Count -gt 0 -and -not $forwardFixResume) {
         return New-PM365Result `
             -Status 'Failed' `
             -Code 'UpgradeSourceIdentityMismatch' `
@@ -235,13 +259,22 @@ function Test-PM365UpgradeContract {
 
     New-PM365Result `
         -Status 'Passed' `
-        -Code 'UpgradeIntentReady' `
-        -Summary 'The upgrade package matches the existing PageMaker365 runtime identity.' `
-        -Details "Upgrade $([string]$config.deployment.sourceRuntimeVersion) to $([string]$config.deployment.targetRuntimeVersion) is ready for preview." `
+        -Code $(if ($forwardFixResume) { 'UpgradeForwardFixReady' } else { 'UpgradeIntentReady' }) `
+        -Summary $(if ($forwardFixResume) {
+            'The saved upgrade session matches the target identity created by its earlier deployment attempt.'
+        } else {
+            'The upgrade package matches the existing PageMaker365 runtime identity.'
+        }) `
+        -Details $(if ($forwardFixResume) {
+            'The same immutable package may reconcile the interrupted deployment. Preview and approval are required again before mutation.'
+        } else {
+            "Upgrade $([string]$config.deployment.sourceRuntimeVersion) to $([string]$config.deployment.targetRuntimeVersion) is ready for preview."
+        }) `
         -Data @{
             operation = 'upgrade'
             sourceRuntimeVersion = [string]$config.deployment.sourceRuntimeVersion
             targetRuntimeVersion = [string]$config.deployment.targetRuntimeVersion
             sourceDeploymentExportId = [string]$config.deployment.sourceDeploymentExportId
+            forwardFixResume = $forwardFixResume
         }
 }

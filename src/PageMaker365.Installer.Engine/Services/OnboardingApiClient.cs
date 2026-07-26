@@ -21,6 +21,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
     };
 
     private static readonly CustomerConfigService ConfigService = new();
+    private static readonly RedactionService EvidenceRedactionService = new();
 
     private readonly OnboardingApiOptions _options;
     private readonly HttpClient _httpClient;
@@ -218,8 +219,13 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                         "correlationId"),
                     request => request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey));
                 EnsureSessionMatches("installer evidence", endpoint, session, receipt.SessionId);
-                if (!receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
-                    receipt.Sequence != evidence.Sequence)
+                var attemptId = EvidenceAttemptId(evidence);
+                if (!receipt.Status.Equals("Accepted", StringComparison.OrdinalIgnoreCase) ||
+                    !receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
+                    !receipt.EventType.Equals(evidence.EventType, StringComparison.Ordinal) ||
+                    receipt.Sequence != evidence.Sequence ||
+                    !receipt.InstallAttemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal) ||
+                    (IsUpgradeEvidence(evidence) && !IsMatchingUpgradeReceipt(receipt, evidence, attemptId)))
                 {
                     throw new OnboardingApiException(
                         "Portal onboarding API installer evidence response did not match the submitted event.",
@@ -456,10 +462,11 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         InstallerEvidenceEvent evidence,
         string idempotencyKey)
     {
+        var attemptId = EvidenceAttemptId(evidence);
         if (string.IsNullOrWhiteSpace(idempotencyKey) ||
             string.IsNullOrWhiteSpace(evidence.EventId) ||
             string.IsNullOrWhiteSpace(evidence.EventType) ||
-            string.IsNullOrWhiteSpace(evidence.InstallAttemptId) ||
+            string.IsNullOrWhiteSpace(attemptId) ||
             evidence.Sequence <= 0 ||
             string.IsNullOrWhiteSpace(evidence.OnboardingSessionId) ||
             string.IsNullOrWhiteSpace(evidence.DeploymentExportId) ||
@@ -469,9 +476,71 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             throw new InvalidDataException("Installer evidence is missing required hardened contract fields.");
         }
 
+        var expectedIdempotencyKey = $"{attemptId}:{evidence.Sequence}:{evidence.EventId}";
+        if (!idempotencyKey.Equals(expectedIdempotencyKey, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Installer evidence idempotency identity does not match its persisted event identity.");
+        }
+
+        if (IsUpgradeEvidence(evidence))
+        {
+            UpgradeEvidenceLifecycleService.ValidatePayload(evidence);
+        }
+
         if (!evidence.OnboardingSessionId.Equals(session.SessionId, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("Installer evidence does not match the active onboarding session.");
+        }
+
+        ValidateSanitizedEvidenceText(evidence.Message, "message");
+        ValidateSanitizedEvidenceText(evidence.RuntimeUrl, "runtimeUrl");
+        ValidateSanitizedEvidenceText(evidence.ApiUrl, "apiUrl");
+        ValidateSanitizedEvidenceText(evidence.AzureResourceGroup, "azureResourceGroup");
+        if (evidence.Error is not null)
+        {
+            ValidateSanitizedEvidenceText(evidence.Error.Code, "error.code");
+            ValidateSanitizedEvidenceText(evidence.Error.Message, "error.message");
+            ValidateSanitizedEvidenceText(evidence.Error.Category, "error.category");
+            ValidateSanitizedEvidenceText(evidence.Error.Detail, "error.detail");
+        }
+
+        foreach (var smokeTest in evidence.SmokeTests)
+        {
+            ValidateSanitizedEvidenceText(smokeTest.Name, "smokeTests.name");
+            ValidateSanitizedEvidenceText(smokeTest.Status, "smokeTests.status");
+        }
+    }
+
+    private static bool IsMatchingUpgradeReceipt(
+        InstallerEvidenceReceipt receipt,
+        InstallerEvidenceEvent evidence,
+        string attemptId)
+    {
+        return receipt.ContractVersion.Equals("0.3", StringComparison.Ordinal) &&
+            receipt.Lifecycle.Equals(UpgradeContractService.UpgradeOperation, StringComparison.Ordinal) &&
+            receipt.AttemptId.Equals(attemptId, StringComparison.Ordinal) &&
+            receipt.UpgradeAttemptId.Equals(attemptId, StringComparison.Ordinal) &&
+            receipt.InstallAttemptId.Equals(attemptId, StringComparison.Ordinal) &&
+            receipt.LifecycleStatus.Equals(evidence.LifecycleStatus, StringComparison.Ordinal) &&
+            receipt.Outcome.Equals(evidence.Outcome, StringComparison.Ordinal);
+    }
+
+    private static bool IsUpgradeEvidence(InstallerEvidenceEvent evidence)
+    {
+        return evidence.Lifecycle.Equals(UpgradeContractService.UpgradeOperation, StringComparison.Ordinal) ||
+            evidence.EventType.StartsWith("upgrade_", StringComparison.Ordinal);
+    }
+
+    private static string EvidenceAttemptId(InstallerEvidenceEvent evidence)
+    {
+        return First(evidence.AttemptId, evidence.UpgradeAttemptId, evidence.InstallAttemptId);
+    }
+
+    private static void ValidateSanitizedEvidenceText(string value, string field)
+    {
+        if (!string.Equals(value, EvidenceRedactionService.Redact(value), StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"Installer evidence {field} contains prohibited secret-like content.");
         }
     }
 
