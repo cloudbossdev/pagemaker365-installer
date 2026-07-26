@@ -1,0 +1,67 @@
+# PageMaker365 Removal Policy
+
+Status: approved Azure-only v1 policy for implementation and sandbox testing.
+
+## Policy Principles
+
+1. Inventory before deletion.
+2. Fail closed when ownership or activity is ambiguous.
+3. Require explicit local approval for every destructive run.
+4. Delete only the dedicated PageMaker365 resource group proven by the customer package and resource tags.
+5. Never delete SharePoint content or perform SharePoint cleanup.
+6. Never purge Key Vault through the installer.
+7. Use a newly generated package and new Key Vault name for a later reinstall.
+8. Make cleanup idempotent and safe to resume or rerun.
+9. Preserve sanitized evidence of removed, retained, skipped, blocked, and failed items.
+
+## Ownership Evidence
+
+Automatic removal requires all of the following:
+
+- The signed or hash-verified package identifies the active Azure subscription and resource group.
+- The signed-in Azure context matches the package tenant and subscription.
+- The resource group carries the expected PageMaker365 ownership tags.
+- Every resource in the group carries the expected package application tag.
+- No Azure deployment is active in the resource group.
+
+Missing or conflicting evidence blocks removal. The operator cannot override an ownership blocker from the installer UI.
+
+## Removal Categories
+
+### Remove After Approval
+
+- The dedicated PageMaker365 Azure resource group and resources contained in it when all ownership checks pass.
+
+### Retain
+
+- Soft-deleted Key Vault and its recoverability metadata.
+- Customer SharePoint sites, libraries, documents, lists, and other content.
+- Local and control-plane audit/evidence records.
+- Any shared or ambiguous Azure resource.
+
+### Not Managed In V1
+
+- Entra app registrations and enterprise applications.
+- Microsoft Graph consent and tenant-wide grants.
+- Customer DNS and certificates outside the dedicated resource group.
+- Customer portal account deletion or commercial offboarding.
+
+## Approval
+
+Removal requires:
+
+- A current inventory and preview from the same package and resource group.
+- An inventory result marked safe to remove.
+- A checked destructive-action approval.
+- The exact resource-group name typed by the operator.
+- Standard PowerShell `ShouldProcess` behavior for command-line execution.
+
+Approval is not restored after the installer restarts.
+
+## Reinstall Policy
+
+The control plane must generate a new deployment export and a package with a new Key Vault name. Testing names are disposable identifiers and must not contain customer secrets or business data. The installer must not purge the old vault to make its name reusable.
+
+## Control-Plane Reporting
+
+The v1 installer writes local removal inventory, execution, validation, report, manifest, and bundle artifacts. It must not reuse install lifecycle event types for removal. Portal removal callbacks remain disabled until the control plane defines hardened removal event types, ordering, terminal-state rules, and idempotent outbox behavior under the existing `RemovalStatusSync` authorization operation.

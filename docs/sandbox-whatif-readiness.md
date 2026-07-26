@@ -1,10 +1,10 @@
 # Sandbox What-If Readiness
 
-Last updated: 2026-07-10
+Last updated: 2026-07-25
 
 ## Current Status
 
-Phase 2.3 sandbox what-if is unblocked. The target Azure subscription, resource group, live staging package download, installer contract validation, package trust verification, and Azure what-if are ready. The next step is an explicit approval decision for the first real sandbox deployment.
+Phase 2.3 sandbox what-if and Azure resource deployment are complete. The target resource group and expected Azure resources were created. Runtime application deployment remains blocked: the API and portal App Services currently return Azure default content, so the installer must not report runtime validation or final completion yet.
 
 Portal package generation details are documented in `docs/portal-install-package-handoff.md`.
 
@@ -15,13 +15,14 @@ Portal package generation details are documented in `docs/portal-install-package
 | Azure modules installed | Ready | `Az.Accounts` and `Az.Resources` are installed locally. |
 | Azure account signed in | Ready | Current signed-in account is `jason@mycloudboss.com`. |
 | Sandbox subscription visible | Ready | Subscription `3de10659-9db8-4ab6-ae44-ac4b71b24751` is visible in tenant `edf280e3-9c1b-491c-8a0c-f3bf252761a3`. |
-| Sandbox resource group exists | Ready | `rg-pagemaker365-cloudboss-sandbox` exists in `eastus2`. V1 deploys into this pre-existing resource group. |
+| Sandbox resource group | Ready | `rg-pagemaker365-cloudboss-sandbox` is absent and is included in the subscription-scope clean-install preview. |
 | Real installer package contract exists locally | Ready | Staging package download succeeded from `GET /api/onboarding/installer/onb_cloudboss_sandbox_b1bf6699da57/install-package` using local bootstrap headers. |
 | Package contract validation | Ready | `Test-PM365DeploymentContract` passes. Signature and signature algorithm metadata are present with `trustMode` set to `SignedRequired`. |
 | Engine package trust verification | Ready | Installer engine resolved `controlPlane.jwksUrl`, matched key `pagemaker365-staging-20260629`, matched the package hash, and verified the Ed25519 signature without a locally configured public key. |
-| Sandbox Azure what-if | Ready with warning | `Invoke-PM365WhatIf` reaches Azure and falls back to unstructured what-if when the structured Az cmdlet throws a local `System.Collections.IEnumerator` error. The fallback result is `AzureWhatIfReady` with no blocked changes. |
+| Sandbox Azure what-if | Ready | The 2026-07-25 structured subscription-scope preview reports 10 creates, including the resource group, with no modifies, deletes, unknowns, or blocked changes. |
 | Live staging package normalization | Ready | Live staging package returns the normalized values listed below. |
-| Raw deployment export available | Not usable | `docs/cloudboss-sandbox-sandbox-deployment-export-2026-07-07T22-53-19-801Z.json` is a raw deployment export, not the installer package contract. Keep it untracked. |
+| Raw deployment export available | Not usable | The raw customer export is quarantined under ignored `.tmp` evidence. It is not an installer package and must not be committed or distributed. |
+| Runtime application identity | Blocked | Azure resources exist, but the deployed API and portal application content does not yet satisfy the PageMaker365 deployment identity contract. |
 
 ## Live Staging Package
 
@@ -48,6 +49,7 @@ Live staging validation:
 - Installer engine trust validation: `Verified`; declared and computed package hashes match; Ed25519 signature verified using the public key resolved from the staging JWKS endpoint.
 - `Invoke-PM365WhatIf`: `AzureWhatIfReady` with unstructured fallback warning. What-if shows 9 resources to create, including `Microsoft.Web/sites/app-pm365-cloudboss-portal-sandbox` and `Microsoft.ManagedIdentity/userAssignedIdentities/uami-pm365-cloudboss-sandbox`.
 - No blocked changes were reported.
+- Post-deployment validation now reads `apiUrl` and `portalUrl` from Azure deployment evidence. It requires a matching PageMaker365 deployment export ID and rejects Azure default App Service content.
 
 ## Available Inputs
 
@@ -88,9 +90,9 @@ Invoke-PM365Deployment -ConfigPath .\.tmp\cloudboss-sandbox.customer.install.jso
 
 ## Tooling Behavior
 
-`Invoke-PM365WhatIf` and `Invoke-PM365Deployment` now fail early with:
+`Invoke-PM365WhatIf` and `Invoke-PM365Deployment` now use a subscription-scope wrapper that includes the dedicated resource group in preview and creates it during the approved deployment. They fail early with:
 
 - `AzureSubscriptionMismatch` when the selected Azure subscription does not match the customer package.
-- `AzureResourceGroupMissing` when the configured target resource group does not exist.
+- `AzureResourceGroupOwnershipMismatch` when the configured target resource group already exists without the required PageMaker365 ownership tags.
 
-This keeps the installer UI aligned with the v1 deployment contract and avoids lower-level Azure deployment errors.
+This keeps clean installs self-contained while preventing the installer from adopting an unrelated existing resource group.

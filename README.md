@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/cloudbossdev/pagemaker365-installer/actions/workflows/ci.yml/badge.svg)](https://github.com/cloudbossdev/pagemaker365-installer/actions/workflows/ci.yml)
 
-This repository contains the first-build scaffold for the PageMaker365 Windows desktop installer.
+This repository contains the functional alpha build of the PageMaker365 Windows desktop installer.
 
 The installer is intended to provide a polished customer-facing setup experience while keeping deployment logic deterministic and auditable.
 
@@ -15,7 +15,7 @@ AI explains failures and suggests safe next actions.
 
 ## Current Status
 
-This is a Milestone 1 scaffold.
+This is a functional alpha intended for controlled sandbox installation and removal testing.
 
 Implemented:
 
@@ -23,7 +23,7 @@ Implemented:
 - Reusable installer engine project.
 - Customer install config model.
 - Sample customer package.
-- Desktop Azure and Microsoft Graph sign-in command wiring.
+- Desktop Azure and Microsoft Graph device-code sign-in.
 - Deployment contract documentation and package schema.
 - Deployment contract preflight check.
 - Onboarding bootstrap session contract.
@@ -32,7 +32,9 @@ Implemented:
 - Mock tenant discovery payload generation.
 - Redacted local tenant discovery export.
 - Fail-closed portal onboarding client with response, error, and package download validation.
-- Customer package export metadata and hash validation.
+- Customer package export metadata, SHA-256 hash, and Ed25519 signature validation.
+- One-action portal setup-file handoff, package polling, download, and validation.
+- Hardened installer lifecycle evidence callbacks with an offline retry outbox.
 - Read-only Azure, Microsoft Graph, and SharePoint discovery commands.
 - Discovery command contract tests with mockable Azure and Graph contexts.
 - Local active-session resume state.
@@ -42,29 +44,28 @@ Implemented:
 - Microsoft Graph / Entra scope and admin-role readiness checks.
 - SharePoint URL, site, and document-library readiness checks.
 - Bicep template build check.
-- What-if/deployment command scaffolding.
-- Smoke-test command scaffolding.
+- Subscription-scope Bicep deployment, Azure what-if, and deployment evidence.
+- Deployment-bound runtime and portal identity smoke-test contracts.
+- Dedicated resource-group removal with ownership, tenant, subscription, and active-deployment guards.
+- Key Vault soft-delete recovery preflight and no-purge removal policy.
 - Install report generation.
 - Structured session logging.
 - Redaction service.
-- Support bundle stub.
+- Final install/removal evidence and support bundles.
 - PowerShell module skeleton.
 - Headless support script.
-- Package/signing script scaffold.
-- Placeholder Bicep entry point.
+- Release packaging with customer-safe documentation and package hygiene checks.
 - Known error and remediation rule files.
 - AI diagnostic instruction files.
 
 Not implemented yet:
 
 - Production app registration and consent contract validation.
-- Full Azure deployment against the final production infrastructure template.
-- Production Bicep resource modules.
-- Real app configuration.
+- Deployment of the PageMaker365 API and portal application code into the provisioned App Services.
+- Production runtime `/health` identity response containing the deployment export ID.
+- Production custom-domain binding and certificate automation.
 - Live AI call.
-- Live production PageMaker365 API endpoint implementation.
-- Cryptographic package signature verification.
-- Installer packaging/signing.
+- Production installer code signing and customer distribution.
 
 ## Repository Layout
 
@@ -118,10 +119,12 @@ GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and man
 The workflow runs:
 
 - JSON parsing checks.
+- Repository and package hygiene checks for generated handoffs and secret-shaped values.
 - PowerShell syntax checks.
 - .NET restore and solution build.
+- Installer engine/API contract tests and WPF workflow tests.
 - Installer module export checks.
-- Preflight, deployment contract, what-if guard, smoke test scaffold, and report generation.
+- Preflight, deployment contract, what-if, runtime identity, cleanup, Key Vault, and report contracts.
 - Release-mode package smoke build.
 
 Successful runs upload a short-retention package artifact named `pagemaker365-installer-ci-package`.
@@ -138,7 +141,7 @@ Other modes:
 pwsh .\scripts\install.ps1 -Config .\samples\contoso.customer.install.json -Mode AzureSignIn
 pwsh .\scripts\install.ps1 -Config .\samples\contoso.customer.install.json -Mode GraphSignIn
 pwsh .\scripts\install.ps1 -Config .\samples\contoso.customer.install.json -Mode WhatIfOnly
-pwsh .\scripts\install.ps1 -Config .\samples\contoso.customer.install.json -Mode SmokeTests
+pwsh .\scripts\install.ps1 -Config .\samples\contoso.customer.install.json -Mode SmokeTests -DeploymentArtifactPath .\support-bundle\install\azure-deployment.json
 pwsh .\scripts\verify.ps1
 ```
 
@@ -158,7 +161,7 @@ pwsh .\scripts\package.ps1 -CodeSigningCertificatePath C:\certs\pagemaker365.pfx
 
 1. Launch the WPF app.
 2. Choose `Use Setup Workflow`.
-3. Load the customer package.
+3. Choose the PageMaker365 setup file supplied by the customer portal. The installer retrieves and validates the customer package automatically.
 4. Sign in to Azure and Microsoft Graph.
 5. Run preflight checks.
 6. Run deployment preview.
@@ -170,4 +173,4 @@ See `docs/using-the-installer.md` for the detailed step-by-step guide and eviden
 
 ## Next Development Step
 
-Wire the production PageMaker365 API endpoints documented in `docs/onboarding-discovery-contract.md`, then align the control-plane deployment export with `schemas/customer-install.schema.json`.
+Deploy the PageMaker365 API and portal application code into the provisioned App Services, implement the deployment-bound `/health` identity contract, and complete the clean install/remove/reinstall staging matrix before a customer release.
