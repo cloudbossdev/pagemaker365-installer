@@ -7,6 +7,7 @@ public sealed class OnboardingApiOptions
     public string ConnectEndpointPath { get; set; } = "/api/onboarding/installer/connect";
     public string DiscoveryEndpointPath { get; set; } = "/api/onboarding/installer/discovery";
     public string StatusEndpointPath { get; set; } = "/api/onboarding/installer/status";
+    public string EvidenceEndpointPath { get; set; } = "/api/onboarding/installer/evidence";
     public string PackageEndpointPathTemplate { get; set; } = "/api/onboarding/installer/{sessionId}/install-package";
     public string ApiKeyEnvironmentVariable { get; set; } = "PM365_ONBOARDING_API_KEY";
     public int TimeoutSeconds { get; set; } = 30;
@@ -19,6 +20,8 @@ public sealed class OnboardingApiOptions
     public Uri DiscoveryEndpoint(OnboardingBootstrapSession session) => BuildEndpoint(session, DiscoveryEndpointPath);
 
     public Uri StatusEndpoint(OnboardingBootstrapSession session) => BuildEndpoint(session, StatusEndpointPath);
+
+    public Uri EvidenceEndpoint(OnboardingBootstrapSession session) => BuildEndpoint(session, EvidenceEndpointPath);
 
     public Uri PackageEndpoint(OnboardingBootstrapSession session, string? packageDownloadUrl)
     {

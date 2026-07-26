@@ -9,7 +9,12 @@ function Connect-PM365Graph {
             'AppRoleAssignment.ReadWrite.All',
             'Directory.Read.All',
             'Sites.Read.All'
-        )
+        ),
+
+        [switch] $UseDeviceCode,
+
+        [ValidateSet('Process', 'CurrentUser')]
+        [string] $ContextScope = 'CurrentUser'
     )
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
@@ -41,9 +46,27 @@ function Connect-PM365Graph {
         $connectArgs.NoWelcome = $true
     }
 
+    if ($connectCommand.Parameters.ContainsKey('ContextScope')) {
+        $connectArgs.ContextScope = $ContextScope
+    }
+
+    if ($UseDeviceCode) {
+        if (-not $connectCommand.Parameters.ContainsKey('UseDeviceCode')) {
+            return New-PM365Result `
+                -Status 'Failed' `
+                -Code 'GraphDeviceCodeUnavailable' `
+                -Summary 'Microsoft Graph device-code sign-in is not available.' `
+                -Details 'Update Microsoft.Graph.Authentication to a version that supports the UseDeviceCode parameter.' `
+                -RetrySafe $true
+        }
+
+        $connectArgs.UseDeviceCode = $true
+    }
+
     try {
         Connect-MgGraph @connectArgs | Out-Null
         $context = Get-MgContext -ErrorAction Stop
+        $authMode = if ($UseDeviceCode) { 'DeviceCode' } else { 'Interactive' }
 
         return New-PM365Result `
             -Status 'Passed' `
@@ -54,6 +77,8 @@ function Connect-PM365Graph {
                 tenantId = [string]$context.TenantId
                 account = [string]$context.Account
                 scopes = ($context.Scopes -join ', ')
+                authMode = $authMode
+                contextScope = $ContextScope
             }
     } catch {
         return New-PM365Result `
@@ -64,4 +89,3 @@ function Connect-PM365Graph {
             -RetrySafe $true
     }
 }
-

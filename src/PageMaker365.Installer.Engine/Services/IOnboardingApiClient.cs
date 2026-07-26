@@ -26,6 +26,12 @@ public interface IOnboardingApiClient
         string outputRoot,
         CancellationToken cancellationToken = default);
 
+    Task<InstallerEvidenceReceipt> SubmitEvidenceAsync(
+        OnboardingBootstrapSession session,
+        InstallerEvidenceEvent evidence,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
     Task<OnboardingPackageDownloadResult> DownloadPackageAsync(
         OnboardingBootstrapSession session,
         OnboardingPackageReadiness readiness,

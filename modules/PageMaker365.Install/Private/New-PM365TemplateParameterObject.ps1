@@ -19,6 +19,7 @@ function New-PM365TemplateParameterObject {
     }
 
     @{
+        resourceGroupName = [string]$Config.azure.resourceGroupName
         appName = [string]$Config.app.appName
         environment = [string]$Config.azure.environment
         location = [string]$Config.azure.location

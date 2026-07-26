@@ -64,6 +64,9 @@ module logAnalytics 'modules/log-analytics.bicep' = {
     location: location
     tags: mergedTags
   }
+  dependsOn: [
+    appServicePlan
+  ]
 }
 
 module appInsights 'modules/application-insights.bicep' = {
@@ -84,6 +87,9 @@ module keyVault 'modules/key-vault.bicep' = {
     tags: mergedTags
     tenantId: customerTenantId
   }
+  dependsOn: [
+    appServicePlan
+  ]
 }
 
 module storage 'modules/storage-account.bicep' = {
@@ -93,6 +99,9 @@ module storage 'modules/storage-account.bicep' = {
     location: location
     tags: mergedTags
   }
+  dependsOn: [
+    appServicePlan
+  ]
 }
 
 module managedIdentity 'modules/managed-identity.bicep' = {
@@ -102,6 +111,9 @@ module managedIdentity 'modules/managed-identity.bicep' = {
     location: location
     tags: mergedTags
   }
+  dependsOn: [
+    appServicePlan
+  ]
 }
 
 module appServicePlan 'modules/linux-app-service-plan.bicep' = {

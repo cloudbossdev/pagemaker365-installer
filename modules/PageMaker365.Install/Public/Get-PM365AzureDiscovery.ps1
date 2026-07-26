@@ -122,10 +122,10 @@ function Get-PM365AzureDiscovery {
 
         if (-not $result.resourceGroupExists -and $result.targetResourceGroupName) {
             $findings += [ordered]@{
-                severity = 'Warning'
-                code = 'AzureResourceGroupMissing'
-                summary = 'Target resource group does not exist.'
-                details = 'Create the resource group before deployment. The v1 installer deploys into a pre-existing resource group.'
+                severity = 'Info'
+                code = 'AzureResourceGroupWillBeCreated'
+                summary = 'The dedicated PageMaker365 resource group will be created during deployment.'
+                details = 'Subscription-scope preview includes the resource group, and the approved install creates it before deploying PageMaker365 resources.'
             }
         }
 
@@ -264,10 +264,10 @@ function Get-PM365AzureDiscovery {
                 }
             } else {
                 $findings += [ordered]@{
-                    severity = 'Warning'
-                    code = 'AzureResourceGroupMissing'
-                    summary = 'Target resource group does not exist.'
-                    details = 'Create the resource group before deployment. The v1 installer deploys into a pre-existing resource group.'
+                    severity = 'Info'
+                    code = 'AzureResourceGroupWillBeCreated'
+                    summary = 'The dedicated PageMaker365 resource group will be created during deployment.'
+                    details = 'Subscription-scope preview includes the resource group, and the approved install creates it before deploying PageMaker365 resources.'
                 }
             }
         } catch {

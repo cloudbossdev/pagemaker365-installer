@@ -9,7 +9,7 @@ param location string
 @description('Tags applied to the Linux App Service plan.')
 param tags object
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+resource appServicePlan 'Microsoft.Web/serverfarms@2024-11-01' = {
   name: name
   location: location
   kind: 'linux'
@@ -21,6 +21,7 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
   properties: {
     reserved: true
+    asyncScalingEnabled: true
   }
 }
 

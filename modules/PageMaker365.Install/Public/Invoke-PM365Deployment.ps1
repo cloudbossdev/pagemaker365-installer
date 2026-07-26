@@ -199,15 +199,19 @@ function Invoke-PM365Deployment {
 
     $resourceGroupName = [string]$config.azure.resourceGroupName
     $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
-    if (-not $resourceGroup) {
+    if ($resourceGroup) {
+        $productTag = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @('product'))
+        $managedByTag = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @('managedBy'))
+    }
+    if ($resourceGroup -and ($productTag -ne 'PageMaker365' -or $managedByTag -ne 'PageMaker365')) {
         $artifactPath = ''
-        $details = "Create resource group '$resourceGroupName' in subscription '$($context.Subscription.Id)' before running deployment. The v1 installer deploys into a pre-existing resource group."
+        $details = "Resource group '$resourceGroupName' exists but does not have the required product=PageMaker365 and managedBy=PageMaker365 ownership tags."
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
             $artifact = New-PM365DeploymentArtifact `
                 -Config $config `
                 -Context $context `
                 -Status 'Failed' `
-                -ErrorCode 'AzureResourceGroupMissing' `
+                -ErrorCode 'AzureResourceGroupOwnershipMismatch' `
                 -ErrorMessage $details
             $artifactPath = Write-PM365JsonArtifact `
                 -OutputPath $OutputPath `
@@ -226,10 +230,10 @@ function Invoke-PM365Deployment {
 
         New-PM365Result `
             -Status 'Failed' `
-            -Code 'AzureResourceGroupMissing' `
-            -Summary 'Target resource group does not exist.' `
+            -Code 'AzureResourceGroupOwnershipMismatch' `
+            -Summary 'The existing target resource group is not owned by PageMaker365.' `
             -Details $details `
-            -RetrySafe $true `
+            -RetrySafe $false `
             -Data $data
         return
     }
@@ -238,12 +242,23 @@ function Invoke-PM365Deployment {
     $deployment = $null
 
     try {
-        $deployment = New-AzResourceGroupDeployment `
-            -ResourceGroupName ([string]$config.azure.resourceGroupName) `
+        $deployment = New-AzSubscriptionDeployment `
+            -Location ([string]$config.azure.location) `
             -TemplateFile $TemplateFile `
             -TemplateParameterObject $parameters `
             -ErrorAction Stop
     } catch {
+        $rawErrorMessage = $_.Exception.Message
+        $isAppServiceCapacityFailure = (
+            $rawErrorMessage -match '(?i)No available instances to satisfy this request' -or
+            $rawErrorMessage -match '(?i)ExtendedCode[\"''\s:]+03029'
+        )
+        $errorCode = if ($isAppServiceCapacityFailure) { 'AppServiceCapacityUnavailable' } else { 'AzureDeploymentFailed' }
+        $errorSummary = if ($isAppServiceCapacityFailure) {
+            'Azure App Service capacity is temporarily unavailable.'
+        } else {
+            'Azure deployment failed.'
+        }
         $artifactPath = ''
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
             $artifact = New-PM365DeploymentArtifact `
@@ -251,15 +266,26 @@ function Invoke-PM365Deployment {
                 -Context $context `
                 -Deployment $deployment `
                 -Status 'Failed' `
-                -ErrorCode 'AzureDeploymentFailed' `
-                -ErrorMessage $_.Exception.Message
+                -ErrorCode $errorCode `
+                -ErrorMessage $rawErrorMessage
             $artifactPath = Write-PM365JsonArtifact `
                 -OutputPath $OutputPath `
                 -DefaultFileName 'deployment-result.json' `
                 -InputObject $artifact
         }
 
-        $details = $_.Exception.Message
+        $details = $rawErrorMessage
+        if ($isAppServiceCapacityFailure) {
+            $correlationId = ''
+            if ($rawErrorMessage -match '(?i)CorrelationId:\s*([0-9a-f-]{36})') {
+                $correlationId = $Matches[1]
+            }
+
+            $details = "Azure could not allocate the requested App Service plan in $([string]$config.azure.location). The plan now requests asynchronous allocation. Run Deployment Preview again, approve the updated preview, and retry Install. Existing successfully created resources will be reused."
+            if (-not [string]::IsNullOrWhiteSpace($correlationId)) {
+                $details = "$details$([Environment]::NewLine)Azure correlation ID: $correlationId"
+            }
+        }
         if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
             $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
         }
@@ -270,8 +296,8 @@ function Invoke-PM365Deployment {
 
         New-PM365Result `
             -Status 'Failed' `
-            -Code 'AzureDeploymentFailed' `
-            -Summary 'Azure deployment failed.' `
+            -Code $errorCode `
+            -Summary $errorSummary `
             -Details $details `
             -RetrySafe $true `
             -Data $data
@@ -279,12 +305,11 @@ function Invoke-PM365Deployment {
     }
 
     $operations = @()
-    $operationCommand = Get-Command -Name Get-AzResourceGroupDeploymentOperation -ErrorAction SilentlyContinue
+    $operationCommand = Get-Command -Name Get-AzSubscriptionDeploymentOperation -ErrorAction SilentlyContinue
     if ($operationCommand -and -not [string]::IsNullOrWhiteSpace([string]$deployment.DeploymentName)) {
         try {
             $operations = @(
-                Get-AzResourceGroupDeploymentOperation `
-                    -ResourceGroupName ([string]$config.azure.resourceGroupName) `
+                Get-AzSubscriptionDeploymentOperation `
                     -DeploymentName ([string]$deployment.DeploymentName) `
                     -ErrorAction Stop
             )

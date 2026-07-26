@@ -1,6 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
+using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using PageMaker365.Installer.App;
 using Microsoft.Win32;
@@ -11,9 +16,12 @@ namespace PageMaker365.Installer.App.ViewModels;
 
 public sealed class InstallerWizardViewModel : ViewModelBase
 {
+    private static readonly Regex AnsiEscapeSequenceRegex = new(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
+
     private readonly CustomerConfigService _configService = new();
     private readonly OnboardingSessionService _onboardingSessionService = new();
     private readonly RedactionService _redactionService = new();
+    private readonly PackageTrustKeyResolver _packageTrustKeyResolver;
     private readonly InstallerEngine _engine;
     private readonly SupportBundleService _supportBundleService;
     private readonly FinalEvidenceService _finalEvidenceService = new();
@@ -28,12 +36,36 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private TenantDiscoveryResult? _tenantDiscovery;
     private OnboardingPortalStatus? _onboardingPortalStatus;
     private OnboardingPackageReadiness? _packageReadiness;
+    private InstallerEvidenceOutboxState _installerEvidenceOutbox = new();
     private AssistantWorkspaceWindow? _assistantWindow;
+    private PackageTrustOptions _packageTrustOptions = PackageTrustOptions.FromEnvironment();
     private string _stateId = InstallerStateStore.CreateStateId();
     private DateTimeOffset _stateCreatedAt = DateTimeOffset.UtcNow;
     private string _bootstrapSourcePath = "";
+    private string _lastGraphSignInPrompt = "";
+    private string _graphAccessToken = "";
+    private string _graphDeviceCode = "";
+    private string _graphDeviceCodeStatus = "";
+    private string _graphVerificationUrl = "https://microsoft.com/devicelogin";
+    private bool _isAzureSignedIn;
+    private bool _isGraphSignedIn;
+    private string _azureSignInStatus = "Required";
+    private string _azureSignInStatusBrush = "#FFB84D";
+    private string _graphSignInStatus = "Required";
+    private string _graphSignInStatusBrush = "#FFB84D";
+    private int _postSignInResumeStepNumber;
+    private int _postSignInResumeMaxAccessibleStepNumber;
     private bool _stateCompleted;
     private bool _isRestoringState;
+    private bool _isPowerShellActionRunning;
+    private bool _isPreviewRunning;
+    private bool _isDeploymentRunning;
+    private bool _isRemovalRunning;
+    private bool _isPortalPackageAcquisitionRunning;
+    private bool _isPortalDiscoveryRequired;
+    private bool _isOperationRunning;
+    private bool _isValidationRunning;
+    private int _activeOperationCount;
 
     private string _packagePath = "No customer package loaded.";
     private string _customerName = "Load a customer package";
@@ -110,10 +142,24 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _resumeSessionSummary = "No saved installer session found.";
     private string _resumeSessionDetails = "Start a new setup workflow to begin.";
     private string _removalAvailabilityText = RemovalWorkflowEnabled()
-        ? "Removal workflow is enabled for this environment. Review inventory and preview output before approving cleanup."
+        ? "Azure-only removal is available. Inventory and preview the dedicated resource group before approving cleanup. SharePoint is not changed."
         : "Removal workflow is a design preview in this build and is disabled until backend cleanup commands are implemented.";
     private string _removalWorkflowButtonText = RemovalWorkflowEnabled() ? "Use Removal Workflow" : "Removal Unavailable";
     private string _deploymentConfirmationText = "";
+    private string _removalInventoryStatus = "Not run";
+    private string _removalInventorySummary = "Run read-only inventory before previewing removal.";
+    private string _removalInventoryOutputPath = "Not saved";
+    private string _removalStatus = "Waiting for approval";
+    private string _removalSummary = "Inventory and approve the Azure-only removal plan.";
+    private string _removalOutputPath = "Not saved";
+    private string _removalValidationStatus = "Waiting for removal";
+    private string _removalValidationSummary = "Complete removal before validating cleanup.";
+    private string _removalValidationOutputPath = "Not saved";
+    private string _removalConfirmationText = "";
+    private bool _removalApprovalConfirmed;
+    private InstallStatus _lastRemovalInventoryStatus = InstallStatus.NotStarted;
+    private InstallStatus _lastRemovalStatus = InstallStatus.NotStarted;
+    private InstallStatus _lastRemovalValidationStatus = InstallStatus.NotStarted;
 
     public InstallerWizardViewModel()
         : this(null, null, null)
@@ -123,7 +169,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public InstallerWizardViewModel(
         IOnboardingApiClient? onboardingApiClient,
         InstallerStateStore? stateStore,
-        string? workspaceRoot)
+        string? workspaceRoot,
+        PackageTrustKeyResolver? packageTrustKeyResolver = null)
     {
         _workspaceRoot = string.IsNullOrWhiteSpace(workspaceRoot)
             ? ResolveWorkspaceRoot()
@@ -132,38 +179,47 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _engine = new InstallerEngine(new StructuredLogger(_redactionService));
         _supportBundleService = new SupportBundleService(_redactionService);
         _tenantDiscoveryService = new TenantDiscoveryService(_redactionService);
+        _packageTrustKeyResolver = packageTrustKeyResolver ?? new PackageTrustKeyResolver();
         _onboardingApiClient = onboardingApiClient ?? new OnboardingApiClient(new OnboardingApiOptionsService().Load(GetWorkspaceRoot()));
 
         Steps = [];
 
         SelectSetupModeCommand = new RelayCommand(SelectSetupModeAsync);
         SelectRemovalModeCommand = new RelayCommand(SelectRemovalModeAsync);
-        LoadSampleBootstrapCommand = new RelayCommand(LoadSampleBootstrapAsync);
-        BrowseBootstrapCommand = new RelayCommand(BrowseBootstrapAsync);
-        ConnectOnboardingCommand = new RelayCommand(ConnectOnboardingAsync, () => _bootstrapSession is not null);
-        RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, CanRunTenantDiscovery);
-        SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, CanSyncDiscovery);
-        SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null);
-        CheckPackageReadinessCommand = new RelayCommand(CheckPackageReadinessAsync, () => _bootstrapSession is not null);
-        DownloadGeneratedPackageCommand = new RelayCommand(DownloadGeneratedPackageAsync, CanDownloadGeneratedPackage);
-        LoadSamplePackageCommand = new RelayCommand(LoadSamplePackageAsync);
-        BrowsePackageCommand = new RelayCommand(BrowsePackageAsync);
-        ConnectAzureCommand = new RelayCommand(ConnectAzureAsync, () => _config is not null);
-        ConnectGraphCommand = new RelayCommand(ConnectGraphAsync, () => _config is not null);
-        RunPreflightCommand = new RelayCommand(RunPreflightAsync, () => _config is not null);
-        RunPreviewCommand = new RelayCommand(RunPreviewAsync, CanRunPreview);
-        RunInstallCommand = new RelayCommand(RunInstallAsync, CanRunInstall);
-        RunValidationCommand = new RelayCommand(RunValidationAsync, CanRunValidation);
-        CreateFinalEvidenceCommand = new RelayCommand(CreateFinalEvidenceAsync, CanCreateFinalEvidence);
-        ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null);
-        GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null);
-        CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null);
+        LoadSampleBootstrapCommand = new RelayCommand(LoadSampleBootstrapAsync, runningChanged: OnOperationRunningChanged);
+        BrowseBootstrapCommand = new RelayCommand(BrowseBootstrapAsync, runningChanged: OnOperationRunningChanged);
+        AcquirePortalPackageCommand = new RelayCommand(AcquirePortalPackageAsync, CanAcquirePortalPackage, OnOperationRunningChanged);
+        ConnectOnboardingCommand = new RelayCommand(ConnectOnboardingAsync, () => _bootstrapSession is not null, OnOperationRunningChanged);
+        RunDiscoveryCommand = new RelayCommand(RunDiscoveryAsync, CanRunTenantDiscovery, OnOperationRunningChanged);
+        SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, CanSyncDiscovery, OnOperationRunningChanged);
+        SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null, OnOperationRunningChanged);
+        CheckPackageReadinessCommand = new RelayCommand(CheckPackageReadinessAsync, () => _bootstrapSession is not null, OnOperationRunningChanged);
+        RetryEvidenceSyncCommand = new RelayCommand(FlushInstallerEvidenceOutboxAsync, CanRetryInstallerEvidenceSync, OnOperationRunningChanged);
+        DownloadGeneratedPackageCommand = new RelayCommand(DownloadGeneratedPackageAsync, CanDownloadGeneratedPackage, OnOperationRunningChanged);
+        LoadSamplePackageCommand = new RelayCommand(LoadSamplePackageAsync, runningChanged: OnOperationRunningChanged);
+        BrowsePackageCommand = new RelayCommand(BrowsePackageAsync, runningChanged: OnOperationRunningChanged);
+        ConnectAzureCommand = new RelayCommand(ConnectAzureAsync, () => _config is not null, OnOperationRunningChanged);
+        ConnectGraphCommand = new RelayCommand(ConnectGraphAsync, () => _config is not null, OnOperationRunningChanged);
+        CopyGraphDeviceCodeCommand = new RelayCommand(CopyGraphDeviceCodeAsync, () => HasGraphDeviceCode);
+        RunPreflightCommand = new RelayCommand(RunPreflightAsync, CanRunPreflight, OnOperationRunningChanged);
+        RunPreviewCommand = new RelayCommand(RunPreviewAsync, CanRunPreview, OnOperationRunningChanged);
+        RunInstallCommand = new RelayCommand(RunInstallAsync, CanRunInstall, OnOperationRunningChanged);
+        RunValidationCommand = new RelayCommand(RunValidationAsync, CanRunValidation, OnOperationRunningChanged);
+        CreateFinalEvidenceCommand = new RelayCommand(CreateFinalEvidenceAsync, CanCreateFinalEvidence, OnOperationRunningChanged);
+        RunRemovalInventoryCommand = new RelayCommand(RunRemovalInventoryAsync, CanRunRemovalInventory, OnOperationRunningChanged);
+        RunRemovalCommand = new RelayCommand(RunRemovalAsync, CanRunRemoval, OnOperationRunningChanged);
+        RunRemovalValidationCommand = new RelayCommand(RunRemovalValidationAsync, CanRunRemovalValidation, OnOperationRunningChanged);
+        CreateRemovalEvidenceCommand = new RelayCommand(CreateRemovalEvidenceAsync, CanCreateRemovalEvidence, OnOperationRunningChanged);
+        ExplainIssueCommand = new RelayCommand(ExplainIssueAsync, () => _session is not null, OnOperationRunningChanged);
+        GenerateAdminMessageCommand = new RelayCommand(GenerateAdminMessageAsync, () => _session is not null, OnOperationRunningChanged);
+        CreateSupportBundleCommand = new RelayCommand(CreateSupportBundleAsync, () => _session is not null, OnOperationRunningChanged);
         OpenAssistantCommand = new RelayCommand(OpenAssistantAsync);
+        OpenDeployedSiteCommand = new RelayCommand(OpenDeployedSiteAsync, () => HasDeployedSiteUrl);
         BackCommand = new RelayCommand(GoBackAsync, () => CanGoBack);
         NextCommand = new RelayCommand(GoNextAsync, () => CanGoNext);
         GoToStepCommand = new RelayCommand(GoToStepAsync, CanGoToStep);
         GoHomeCommand = new RelayCommand(GoHomeAsync);
-        ResumeSessionCommand = new RelayCommand(ResumeSessionAsync, () => HasRestorableSession);
+        ResumeSessionCommand = new RelayCommand(ResumeSessionAsync, () => HasRestorableSession, OnOperationRunningChanged);
         StartNewSessionCommand = new RelayCommand(StartNewSessionAsync);
         ForgetResumeSessionCommand = new RelayCommand(ForgetResumeSessionAsync, () => HasRestorableSession);
         ConfigureSetupWorkflow();
@@ -172,7 +228,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RefreshStepNavigation();
     }
 
-    public string InstallerVersion => "Alpha scaffold 0.1";
+    public string InstallerVersion => "Alpha scaffold 0.1-dev";
     public ObservableCollection<StepViewModel> Steps { get; }
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
     public ObservableCollection<PreviewResultViewModel> PreviewResults { get; } = [];
@@ -188,25 +244,33 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand SelectRemovalModeCommand { get; }
     public RelayCommand LoadSampleBootstrapCommand { get; }
     public RelayCommand BrowseBootstrapCommand { get; }
+    public RelayCommand AcquirePortalPackageCommand { get; }
     public RelayCommand ConnectOnboardingCommand { get; }
     public RelayCommand RunDiscoveryCommand { get; }
     public RelayCommand SyncDiscoveryCommand { get; }
     public RelayCommand SaveDiscoveryCommand { get; }
     public RelayCommand CheckPackageReadinessCommand { get; }
+    public RelayCommand RetryEvidenceSyncCommand { get; }
     public RelayCommand DownloadGeneratedPackageCommand { get; }
     public RelayCommand LoadSamplePackageCommand { get; }
     public RelayCommand BrowsePackageCommand { get; }
     public RelayCommand ConnectAzureCommand { get; }
     public RelayCommand ConnectGraphCommand { get; }
+    public RelayCommand CopyGraphDeviceCodeCommand { get; }
     public RelayCommand RunPreflightCommand { get; }
     public RelayCommand RunPreviewCommand { get; }
     public RelayCommand RunInstallCommand { get; }
     public RelayCommand RunValidationCommand { get; }
     public RelayCommand CreateFinalEvidenceCommand { get; }
+    public RelayCommand RunRemovalInventoryCommand { get; }
+    public RelayCommand RunRemovalCommand { get; }
+    public RelayCommand RunRemovalValidationCommand { get; }
+    public RelayCommand CreateRemovalEvidenceCommand { get; }
     public RelayCommand ExplainIssueCommand { get; }
     public RelayCommand GenerateAdminMessageCommand { get; }
     public RelayCommand CreateSupportBundleCommand { get; }
     public RelayCommand OpenAssistantCommand { get; }
+    public RelayCommand OpenDeployedSiteCommand { get; }
     public RelayCommand BackCommand { get; }
     public RelayCommand NextCommand { get; }
     public RelayCommand GoToStepCommand { get; }
@@ -242,6 +306,63 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _sharePointSite;
         set => SetProperty(ref _sharePointSite, value);
+    }
+
+    public string GraphDeviceCode
+    {
+        get => _graphDeviceCode;
+        private set
+        {
+            if (!SetProperty(ref _graphDeviceCode, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(HasGraphDeviceCode));
+            CopyGraphDeviceCodeCommand?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string GraphDeviceCodeStatus
+    {
+        get => _graphDeviceCodeStatus;
+        private set => SetProperty(ref _graphDeviceCodeStatus, value);
+    }
+
+    public string GraphVerificationUrl
+    {
+        get => _graphVerificationUrl;
+        private set => SetProperty(ref _graphVerificationUrl, value);
+    }
+
+    public bool HasGraphDeviceCode => !string.IsNullOrWhiteSpace(GraphDeviceCode);
+
+    public bool IsAzureSignedIn => _isAzureSignedIn;
+
+    public bool IsGraphSignedIn => _isGraphSignedIn;
+
+    public string AzureSignInStatus
+    {
+        get => _azureSignInStatus;
+        private set => SetProperty(ref _azureSignInStatus, value);
+    }
+
+    public string AzureSignInStatusBrush
+    {
+        get => _azureSignInStatusBrush;
+        private set => SetProperty(ref _azureSignInStatusBrush, value);
+    }
+
+    public string GraphSignInStatus
+    {
+        get => _graphSignInStatus;
+        private set => SetProperty(ref _graphSignInStatus, value);
+    }
+
+    public string GraphSignInStatusBrush
+    {
+        get => _graphSignInStatusBrush;
+        private set => SetProperty(ref _graphSignInStatusBrush, value);
     }
 
     public string OnboardingSessionId
@@ -289,7 +410,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string PackageReadinessStatus
     {
         get => _packageReadinessStatus;
-        set => SetProperty(ref _packageReadinessStatus, value);
+        set
+        {
+            if (SetProperty(ref _packageReadinessStatus, value))
+            {
+                NotifyPackageAcquisitionStateChanged();
+            }
+        }
     }
 
     public string PackageReadinessVersion
@@ -337,13 +464,25 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string PackageReadinessStatusBrush
     {
         get => _packageReadinessStatusBrush;
-        set => SetProperty(ref _packageReadinessStatusBrush, value);
+        set
+        {
+            if (SetProperty(ref _packageReadinessStatusBrush, value))
+            {
+                OnPropertyChanged(nameof(SetupAcquisitionStatusBrush));
+            }
+        }
     }
 
     public string PackageReadinessSummary
     {
         get => _packageReadinessSummary;
-        set => SetProperty(ref _packageReadinessSummary, value);
+        set
+        {
+            if (SetProperty(ref _packageReadinessSummary, value))
+            {
+                OnPropertyChanged(nameof(SetupAcquisitionSummary));
+            }
+        }
     }
 
     public string PackageTrustStatus
@@ -412,6 +551,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         set => SetProperty(ref _previewArtifactPath, string.IsNullOrWhiteSpace(value) ? "Not created" : value);
     }
 
+    public bool IsPreviewRunning
+    {
+        get => _isPreviewRunning;
+        private set
+        {
+            if (SetProperty(ref _isPreviewRunning, value))
+            {
+                RunPreviewCommand?.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
     public string DeploymentStatus
     {
         get => _deploymentStatus;
@@ -422,6 +573,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _deploymentStatusBrush;
         set => SetProperty(ref _deploymentStatusBrush, value);
+    }
+
+    public bool IsDeploymentRunning
+    {
+        get => _isDeploymentRunning;
+        private set => SetProperty(ref _isDeploymentRunning, value);
     }
 
     public string DeploymentSummary
@@ -495,6 +652,94 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public string DeploymentTargetDetails => _config is null
         ? "Load the customer package and complete deployment preview before installing."
         : $"SharePoint site: {_config.SharePoint.SiteUrl}";
+
+    public string RemovalInventoryStatus
+    {
+        get => _removalInventoryStatus;
+        private set => SetProperty(ref _removalInventoryStatus, value);
+    }
+
+    public string RemovalInventorySummary
+    {
+        get => _removalInventorySummary;
+        private set => SetProperty(ref _removalInventorySummary, value);
+    }
+
+    public string RemovalInventoryOutputPath
+    {
+        get => _removalInventoryOutputPath;
+        private set => SetProperty(ref _removalInventoryOutputPath, value);
+    }
+
+    public string RemovalStatus
+    {
+        get => _removalStatus;
+        private set => SetProperty(ref _removalStatus, value);
+    }
+
+    public string RemovalSummary
+    {
+        get => _removalSummary;
+        private set => SetProperty(ref _removalSummary, value);
+    }
+
+    public string RemovalOutputPath
+    {
+        get => _removalOutputPath;
+        private set => SetProperty(ref _removalOutputPath, value);
+    }
+
+    public string RemovalValidationStatus
+    {
+        get => _removalValidationStatus;
+        private set => SetProperty(ref _removalValidationStatus, value);
+    }
+
+    public string RemovalValidationSummary
+    {
+        get => _removalValidationSummary;
+        private set => SetProperty(ref _removalValidationSummary, value);
+    }
+
+    public string RemovalValidationOutputPath
+    {
+        get => _removalValidationOutputPath;
+        private set => SetProperty(ref _removalValidationOutputPath, value);
+    }
+
+    public bool RemovalApprovalConfirmed
+    {
+        get => _removalApprovalConfirmed;
+        set
+        {
+            if (SetProperty(ref _removalApprovalConfirmed, value))
+            {
+                RefreshRemovalApprovalReadiness();
+                RunRemovalCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public string RemovalConfirmationText
+    {
+        get => _removalConfirmationText;
+        set
+        {
+            if (SetProperty(ref _removalConfirmationText, value))
+            {
+                RefreshRemovalApprovalReadiness();
+                RunRemovalCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public string RemovalConfirmationPrompt => $"Type {DeploymentConfirmationTarget} to enable removal.";
+
+    public bool IsRemovalRunning
+    {
+        get => _isRemovalRunning;
+        private set => SetProperty(ref _isRemovalRunning, value);
+    }
 
     public string ValidationStatus
     {
@@ -578,6 +823,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ? "Complete validation before generating final evidence."
         : $"Validation evidence: {ValidationOutputPath}";
 
+    public string DeployedSiteUrl
+    {
+        get
+        {
+            var customDomain = NormalizeSiteUrl(_config?.App.CustomDomain ?? "");
+            return string.IsNullOrWhiteSpace(customDomain)
+                ? NormalizeSiteUrl(_config?.App.RuntimeBaseUrl ?? "")
+                : customDomain;
+        }
+    }
+
+    public bool HasDeployedSiteUrl => !string.IsNullOrWhiteSpace(DeployedSiteUrl);
+
     public string AiTitle
     {
         get => _aiTitle;
@@ -606,6 +864,24 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         get => _footerStatus;
         set => SetProperty(ref _footerStatus, value);
+    }
+
+    public bool IsOperationRunning
+    {
+        get => _isOperationRunning;
+        private set => SetProperty(ref _isOperationRunning, value);
+    }
+
+    public bool IsValidationRunning
+    {
+        get => _isValidationRunning;
+        private set
+        {
+            if (SetProperty(ref _isValidationRunning, value))
+            {
+                RunValidationCommand?.RaiseCanExecuteChanged();
+            }
+        }
     }
 
     public bool CanContinue
@@ -655,6 +931,76 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public bool IsSetupMode => _workflowMode == "Setup";
     public bool IsRemovalMode => _workflowMode == "Removal";
     public bool IsWorkflowSelected => _workflowSelected;
+    public bool HasValidatedPackage => _config is not null;
+    public bool HasSetupFile => _bootstrapSession is not null;
+    public bool ShowChooseSetupAction => !IsPortalPackageAcquisitionRunning && !HasValidatedPackage && !HasSetupFile;
+    public bool ShowPackageRecoveryActions => !IsPortalPackageAcquisitionRunning && !HasValidatedPackage && HasSetupFile;
+    public bool IsDevelopmentBuild => InstallerVersion.Contains("dev", StringComparison.OrdinalIgnoreCase);
+    public string SetupFileDisplayName => string.IsNullOrWhiteSpace(_bootstrapSourcePath)
+        ? "Not selected"
+        : Path.GetFileName(_bootstrapSourcePath);
+    public string SetupAcquisitionTitle => HasValidatedPackage
+        ? "Installation package verified"
+        : IsPortalPackageAcquisitionRunning
+            ? PackageReadinessStatus
+            : HasSetupFile
+                ? "Installation package needs attention"
+                : PackageReadinessStatus.Equals("Setup file not accepted", StringComparison.OrdinalIgnoreCase)
+                    ? "Setup file not accepted"
+                    : "Choose your setup file";
+    public string SetupAcquisitionSummary => HasValidatedPackage
+        ? "The approved customer package passed integrity and contract validation."
+        : IsPortalPackageAcquisitionRunning || HasSetupFile ||
+          PackageReadinessStatus.Equals("Setup file not accepted", StringComparison.OrdinalIgnoreCase)
+            ? PackageReadinessSummary
+            : "Select the PageMaker365 setup file provided by the customer portal. The installer will retrieve and verify the approved installation package.";
+    public string SetupAcquisitionStatusBrush => HasValidatedPackage
+        ? "#42D8A0"
+        : IsPortalPackageAcquisitionRunning
+            ? "#19D8E9"
+            : PackageReadinessStatusBrush;
+
+    public bool IsPortalPackageAcquisitionRunning
+    {
+        get => _isPortalPackageAcquisitionRunning;
+        private set
+        {
+            if (SetProperty(ref _isPortalPackageAcquisitionRunning, value))
+            {
+                AcquirePortalPackageCommand.RaiseCanExecuteChanged();
+                NotifyPackageAcquisitionStateChanged(refreshNavigation: true);
+            }
+        }
+    }
+
+    public bool IsPortalDiscoveryRequired
+    {
+        get => _isPortalDiscoveryRequired;
+        private set => SetProperty(ref _isPortalDiscoveryRequired, value);
+    }
+
+    private void OnOperationRunningChanged(bool running)
+    {
+        _activeOperationCount = Math.Max(0, _activeOperationCount + (running ? 1 : -1));
+        IsOperationRunning = _activeOperationCount > 0;
+    }
+
+    private void NotifyPackageAcquisitionStateChanged(bool refreshNavigation = false)
+    {
+        OnPropertyChanged(nameof(HasValidatedPackage));
+        OnPropertyChanged(nameof(HasSetupFile));
+        OnPropertyChanged(nameof(ShowChooseSetupAction));
+        OnPropertyChanged(nameof(ShowPackageRecoveryActions));
+        OnPropertyChanged(nameof(SetupFileDisplayName));
+        OnPropertyChanged(nameof(SetupAcquisitionTitle));
+        OnPropertyChanged(nameof(SetupAcquisitionSummary));
+        OnPropertyChanged(nameof(SetupAcquisitionStatusBrush));
+        if (refreshNavigation)
+        {
+            RefreshStepNavigation();
+        }
+    }
+
     public bool HasRestorableSession
     {
         get => _hasRestorableSession;
@@ -738,52 +1084,122 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        await LoadBootstrapAsync(path);
+        await LoadBootstrapFileAsync(path);
     }
 
     private async Task BrowseBootstrapAsync()
     {
         var dialog = new OpenFileDialog
         {
-            Title = "Select PageMaker365 onboarding bootstrap session",
-            Filter = "PageMaker365 bootstrap (*.pm365bootstrap;*.json)|*.pm365bootstrap;*.json|JSON files (*.json)|*.json|All files (*.*)|*.*"
+            Title = "Select PageMaker365 setup file",
+            Filter = "PageMaker365 setup file (*.onboarding.bootstrap.json;*.pm365bootstrap)|*.onboarding.bootstrap.json;*.pm365bootstrap|JSON files (*.json)|*.json|All files (*.*)|*.*"
         };
 
         if (dialog.ShowDialog() == true)
         {
-            await LoadBootstrapAsync(dialog.FileName);
+            if (await LoadBootstrapFileAsync(dialog.FileName) && IsSetupMode)
+            {
+                await AcquirePortalPackageAsync();
+            }
         }
     }
 
-    private async Task LoadBootstrapAsync(string path)
+    public async Task<bool> LoadBootstrapFileAsync(string path)
     {
-        var session = await _onboardingSessionService.LoadBootstrapAsync(path);
+        OnboardingBootstrapSession session;
+        try
+        {
+            session = await _onboardingSessionService.LoadBootstrapAsync(path);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or IOException or JsonException or UnauthorizedAccessException)
+        {
+            var fileName = Path.GetFileName(path);
+            var wrongArtifactHint = fileName.Contains(".customer.install.", StringComparison.OrdinalIgnoreCase)
+                ? "This is a downloaded installation package. Use Alternative installation options to load it, or choose the matching PageMaker365 setup file here."
+                : fileName.Contains("deployment-export", StringComparison.OrdinalIgnoreCase)
+                    ? "This is a deployment export. Choose the matching PageMaker365 setup file instead."
+                    : "Choose the PageMaker365 setup file provided by the customer portal.";
+            var message = $"'{fileName}' is not a valid PageMaker365 setup file. {wrongArtifactHint}";
+            FooterStatus = message;
+            OnboardingStatus = message;
+            PortalSyncStatus = "Setup file not loaded";
+            PackageReadinessStatus = "Setup file not accepted";
+            PackageReadinessStatusBrush = "#FF5C7A";
+            PackageReadinessSummary = message;
+            AiTitle = "Setup file not accepted";
+            AiSummary = message;
+            SaveWizardState();
+            return false;
+        }
+
         var validation = _onboardingSessionService.Validate(session);
         if (!validation.IsValid)
         {
-            FooterStatus = string.Join(" ", validation.Errors);
-            return;
+            var message = $"Setup file was not accepted. {string.Join(" ", validation.Errors)}";
+            FooterStatus = message;
+            OnboardingStatus = message;
+            PortalSyncStatus = "Setup file not loaded";
+            PackageReadinessStatus = "Setup file not accepted";
+            PackageReadinessStatusBrush = "#FF5C7A";
+            PackageReadinessSummary = message;
+            AiTitle = "Setup file not accepted";
+            AiSummary = message;
+            SaveWizardState();
+            return false;
         }
 
         LoadBootstrapSession(session, path);
         _bootstrapSourcePath = path;
+        NotifyPackageAcquisitionStateChanged();
         if (validation.Warnings.Count > 0)
         {
             FooterStatus = string.Join(" ", validation.Warnings);
         }
 
         SaveWizardState();
+        return true;
+    }
+
+    private void ClearLoadedPackageForNewSetupFile()
+    {
+        if (_config is null)
+        {
+            return;
+        }
+
+        _config = null;
+        _session = null;
+        _bootstrapSourcePath = "";
+        PackagePath = "No customer package loaded.";
+        AzureSubscription = "Not loaded";
+        SharePointSite = "Not loaded";
+        ClearPackageTrustReview();
+        ResetSignInState();
+        ClearPreviewReview();
+        ClearDeploymentReview();
+        ClearValidationReview();
+        ClearFinalEvidenceReview();
+        _maxAccessibleStepNumber = Math.Min(_maxAccessibleStepNumber, 2);
+        _currentStepNumber = Math.Min(_currentStepNumber, 2);
+        SetStepStatus(2, "Action required", "#FFB84D");
+        SetStepStatus(3, "Pending", "#2A355E");
+        OnPropertyChanged(nameof(DeployedSiteUrl));
+        OnPropertyChanged(nameof(HasDeployedSiteUrl));
+        OpenDeployedSiteCommand.RaiseCanExecuteChanged();
+        NotifyPackageAcquisitionStateChanged(refreshNavigation: true);
     }
 
     private void LoadBootstrapSession(OnboardingBootstrapSession session, string source)
     {
+        ClearLoadedPackageForNewSetupFile();
         _bootstrapSession = session;
         _tenantDiscovery = null;
         _onboardingPortalStatus = null;
         _packageReadiness = null;
+        IsPortalDiscoveryRequired = false;
         OnboardingSessionId = session.SessionId;
         OnboardingApiBaseUrl = session.ApiBaseUrl;
-        OnboardingStatus = $"Bootstrap loaded from {source}.";
+        OnboardingStatus = $"Setup file loaded from {source}.";
         PortalSyncStatus = "Not synced";
         DiscoverySummary = "No discovery snapshot created.";
         DiscoveryOutputPath = "Not saved";
@@ -799,21 +1215,29 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             CustomerName = session.CustomerName;
         }
 
-        FooterStatus = $"Onboarding bootstrap loaded. Client: {_onboardingApiClient.ConnectionLabel}.";
+        FooterStatus = $"PageMaker365 setup file loaded. Connecting through {_onboardingApiClient.ConnectionLabel}.";
         ConnectOnboardingCommand.RaiseCanExecuteChanged();
         RunDiscoveryCommand.RaiseCanExecuteChanged();
         SyncDiscoveryCommand.RaiseCanExecuteChanged();
         SaveDiscoveryCommand.RaiseCanExecuteChanged();
         CheckPackageReadinessCommand.RaiseCanExecuteChanged();
+        RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+        AcquirePortalPackageCommand.RaiseCanExecuteChanged();
+        NotifyPackageAcquisitionStateChanged(refreshNavigation: true);
     }
 
     private async Task ConnectOnboardingAsync()
     {
+        await ConnectOnboardingSessionAsync();
+    }
+
+    private async Task<bool> ConnectOnboardingSessionAsync()
+    {
         if (_bootstrapSession is null)
         {
             FooterStatus = "Load an onboarding bootstrap session first.";
-            return;
+            return false;
         }
 
         if (!await EnsureBootstrapOperationAllowedAsync(
@@ -822,7 +1246,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "Blocked",
                 requirePortalSync: true))
         {
-            return;
+            return false;
         }
 
         try
@@ -837,11 +1261,150 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             PortalSyncReceipt.SyncedAt = DateTimeOffset.UtcNow.ToString("u");
             FooterStatus = $"{_onboardingApiClient.ConnectionLabel} session connected.";
             SaveWizardState();
+            return true;
         }
         catch (Exception exception)
         {
             await HandlePortalOperationFailureAsync("Portal connect", "Connection failed", exception, saveReceipt: false);
+            return false;
         }
+    }
+
+    private bool CanAcquirePortalPackage()
+    {
+        return IsSetupMode &&
+            _bootstrapSession is not null &&
+            !IsPortalPackageAcquisitionRunning &&
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallPackageGeneration,
+                requirePortalSync: true,
+                out _) &&
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallStatusSync,
+                requirePortalSync: true,
+                out _);
+    }
+
+    public async Task AcquirePortalPackageAsync()
+    {
+        if (_bootstrapSession is null)
+        {
+            FooterStatus = "Choose the PageMaker365 setup file first.";
+            return;
+        }
+
+        if (!await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallPackageGeneration,
+                "Portal package acquisition",
+                "Blocked",
+                requirePortalSync: true) ||
+            !await EnsureBootstrapOperationAllowedAsync(
+                OnboardingOperation.InstallStatusSync,
+                "Portal package acquisition",
+                "Blocked",
+                requirePortalSync: true))
+        {
+            return;
+        }
+
+        IsPortalPackageAcquisitionRunning = true;
+        IsPortalDiscoveryRequired = false;
+        PackageReadinessStatus = "Connecting";
+        PackageReadinessStatusBrush = "#19D8E9";
+        PackageReadinessSummary = "Connecting to the PageMaker365 portal.";
+        FooterStatus = "Connecting to the portal and locating the approved customer package.";
+
+        try
+        {
+            if (!await ConnectOnboardingSessionAsync())
+            {
+                return;
+            }
+
+            var retryDelays = new[]
+            {
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(4),
+                TimeSpan.FromSeconds(8),
+                TimeSpan.FromSeconds(15),
+                TimeSpan.FromSeconds(30)
+            };
+
+            for (var attempt = 0; attempt < retryDelays.Length; attempt++)
+            {
+                if (retryDelays[attempt] > TimeSpan.Zero)
+                {
+                    var seconds = (int)retryDelays[attempt].TotalSeconds;
+                    PackageReadinessStatus = "Generating";
+                    PackageReadinessStatusBrush = "#19D8E9";
+                    PackageReadinessSummary = $"The portal is preparing the package. Checking again in {seconds} seconds.";
+                    FooterStatus = PackageReadinessSummary;
+                    await Task.Delay(retryDelays[attempt]);
+                }
+
+                await RefreshOnboardingPortalStatusAsync("Portal package status checked.");
+                if (IsDownloadablePackageReadiness(_packageReadiness?.Status))
+                {
+                    FooterStatus = "Approved package is ready. Downloading and validating it now.";
+                    await DownloadGeneratedPackageAsync();
+                    if (_config is not null)
+                    {
+                        FooterStatus = "Customer package loaded. Continue with Azure and Microsoft Graph sign-in.";
+                        AiTitle = "Customer package ready";
+                        AiSummary = "The portal package was downloaded and verified. Continue with the normal sign-in step.";
+                    }
+
+                    return;
+                }
+
+                if ((_onboardingPortalStatus?.MissingFields.Count ?? 0) > 0 ||
+                    IsTerminalPackageReadiness(_packageReadiness?.Status))
+                {
+                    IsPortalDiscoveryRequired = (_onboardingPortalStatus?.MissingFields.Count ?? 0) > 0;
+                    FooterStatus = IsPortalDiscoveryRequired
+                        ? "The portal needs additional onboarding values before it can generate the package. Complete the listed fields in the customer portal, then retry."
+                        : $"The portal could not provide the package. {PackageReadinessSummary}";
+                    AiTitle = IsPortalDiscoveryRequired ? "Portal information required" : "Portal package unavailable";
+                    AiSummary = FooterStatus;
+                    return;
+                }
+            }
+
+            PackageReadinessStatus = "Still generating";
+            PackageReadinessStatusBrush = "#FFB84D";
+            PackageReadinessSummary = "The portal is still preparing the package. Retry this action in a few minutes.";
+            FooterStatus = PackageReadinessSummary;
+        }
+        catch (Exception exception)
+        {
+            await HandlePortalOperationFailureAsync("Portal package acquisition", "Package acquisition failed", exception);
+        }
+        finally
+        {
+            IsPortalPackageAcquisitionRunning = false;
+            AcquirePortalPackageCommand.RaiseCanExecuteChanged();
+            SaveWizardState();
+        }
+    }
+
+    private static bool IsTerminalPackageReadiness(string? status)
+    {
+        return status is not null &&
+            (status.Equals("NeedsCustomerInput", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("Failed", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("Blocked", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("Unauthorized", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("InvalidResponse", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("DownloadFailed", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("PackageInvalid", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsDownloadablePackageReadiness(string? status)
+    {
+        return status is not null &&
+            (status.Equals("Ready", StringComparison.OrdinalIgnoreCase) ||
+             status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task RunDiscoveryAsync()
@@ -1144,7 +1707,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private void ApplyPackageGenerationPolicyReview()
     {
         if (_packageReadiness is null ||
-            !_packageReadiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase) ||
+            !IsDownloadablePackageReadiness(_packageReadiness.Status) ||
             IsBootstrapOperationAllowed(
                 OnboardingOperation.InstallPackageGeneration,
                 requirePortalSync: true,
@@ -1185,7 +1748,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         return _bootstrapSession is not null
             && _packageReadiness is not null
-            && _packageReadiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase)
+            && IsDownloadablePackageReadiness(_packageReadiness.Status)
             && IsBootstrapOperationAllowed(
                 OnboardingOperation.InstallPackageGeneration,
                 requirePortalSync: true,
@@ -1309,7 +1872,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var dialog = new OpenFileDialog
         {
             Title = "Select PageMaker365 customer install package",
-            Filter = "PageMaker365 package (*.pm365install;*.json)|*.pm365install;*.json|JSON files (*.json)|*.json|All files (*.*)|*.*"
+            Filter = "PageMaker365 package (*.customer.install.json;*.pm365install)|*.customer.install.json;*.pm365install|JSON files (*.json)|*.json|All files (*.*)|*.*"
         };
 
         if (dialog.ShowDialog() == true)
@@ -1337,15 +1900,33 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return false;
         }
 
-        var validation = _configService.Validate(config, packageJson, provenanceContext);
+        PackageTrustOptions trustOptions;
+        try
+        {
+            trustOptions = await ResolvePackageTrustOptionsAsync(config);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or HttpRequestException or JsonException ||
+            exception is TaskCanceledException)
+        {
+            var failedValidation = _configService.Validate(config, packageJson, provenanceContext);
+            ApplyPackageTrustReview(failedValidation);
+            FooterStatus = $"Package signing key could not be resolved. {exception.Message}";
+            await ReportPackageValidationFailureAsync(config, "PACKAGE_SIGNATURE_INVALID");
+            return false;
+        }
+
+        var validation = _configService.Validate(config, packageJson, provenanceContext, trustOptions);
         if (!validation.IsValid)
         {
             ApplyPackageTrustReview(validation);
             FooterStatus = string.Join(" ", validation.Errors);
+            await ReportPackageValidationFailureAsync(config, MapPackageValidationError(validation));
             return false;
         }
 
+        _packageTrustOptions = trustOptions;
         LoadConfig(config, path, validation);
+        await BeginPackageEvidenceAttemptAsync(config);
         if (validation.Warnings.Count > 0)
         {
             FooterStatus = string.Join(" ", validation.Warnings);
@@ -1355,11 +1936,86 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return true;
     }
 
+    private async Task BeginPackageEvidenceAttemptAsync(CustomerInstallConfig config)
+    {
+        if (!IsSetupMode || !CanUseInstallerEvidence(config))
+        {
+            return;
+        }
+
+        StartNewInstallerEvidenceAttempt();
+        await QueueInstallerEvidenceAsync(
+            InstallerEvidenceEventType.PackageValidated,
+            "provisioning",
+            "passed",
+            "Installer verified the customer deployment package.",
+            config: config);
+    }
+
+    private async Task ReportPackageValidationFailureAsync(CustomerInstallConfig config, string errorCode)
+    {
+        if (!IsSetupMode || !CanUseInstallerEvidence(config))
+        {
+            return;
+        }
+
+        StartNewInstallerEvidenceAttempt();
+        await QueueInstallerEvidenceAsync(
+            InstallerEvidenceEventType.PackageValidationFailed,
+            "needs_attention",
+            "warning",
+            "Installer rejected the deployment package before provisioning.",
+            new InstallerEvidenceError
+            {
+                Code = errorCode,
+                Message = PackageValidationMessage(errorCode),
+                Category = "package",
+                Retryable = true
+            },
+            config: config);
+    }
+
+    private static string MapPackageValidationError(ConfigValidationResult validation)
+    {
+        if (validation.PackageTrustStatus.Contains("hash", StringComparison.OrdinalIgnoreCase))
+        {
+            return "PACKAGE_HASH_MISMATCH";
+        }
+
+        if (validation.Errors.Any(error => error.Contains("session", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "PACKAGE_SESSION_MISMATCH";
+        }
+
+        if (validation.Errors.Any(error => error.Contains("deployment export", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "DEPLOYMENT_EXPORT_MISMATCH";
+        }
+
+        return "PACKAGE_SIGNATURE_INVALID";
+    }
+
+    private static string PackageValidationMessage(string errorCode)
+    {
+        return errorCode switch
+        {
+            "PACKAGE_HASH_MISMATCH" => "Installer package checksum did not match the published package metadata.",
+            "PACKAGE_SESSION_MISMATCH" => "Installer package was not issued for the active onboarding session.",
+            "DEPLOYMENT_EXPORT_MISMATCH" => "Installer package did not match the approved deployment export.",
+            _ => "Installer package signature could not be verified."
+        };
+    }
+
     private void LoadConfig(CustomerInstallConfig config, string path, ConfigValidationResult? validation = null)
     {
         _config = config;
+        OnPropertyChanged(nameof(DeployedSiteUrl));
+        OnPropertyChanged(nameof(HasDeployedSiteUrl));
+        OpenDeployedSiteCommand.RaiseCanExecuteChanged();
         _onboardingPortalStatus = null;
         _packageReadiness = null;
+        IsPortalDiscoveryRequired = false;
+        _packageTrustOptions = validation is null ? PackageTrustOptions.FromEnvironment() : _packageTrustOptions;
         validation ??= _configService.Validate(config);
         ApplyPackageTrustReview(validation);
         PackagePath = path;
@@ -1376,12 +2032,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
         FooterStatus = IsRemovalMode
             ? "Customer package loaded. Sign in so the app can inventory the existing deployment."
-            : "Customer package loaded. Run preflight checks next.";
+            : "Customer package loaded. Sign in to Azure and Microsoft Graph to continue.";
+        _postSignInResumeStepNumber = 0;
+        _postSignInResumeMaxAccessibleStepNumber = 0;
+        ResetSignInState();
         SetStepStatus(2, "Complete", "#42D8A0");
-        SetStepStatus(3, "Current", "#19D8E9");
-        SetStepStatus(4, "Ready", "#19D8E9");
-        UnlockThroughStep(4);
+        SetStepStatus(3, "Action required", "#FFB84D");
+        SetStepStatus(4, "Pending", "#2A355E");
+        _maxAccessibleStepNumber = 3;
         SetCurrentStep(3);
+        NotifyPackageAcquisitionStateChanged(refreshNavigation: true);
         ClearPreviewReview();
         ClearDeploymentReview();
         OnPropertyChanged(nameof(DeploymentConfirmationTarget));
@@ -1440,17 +2100,196 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         await RunPowerShellActionAsync(
             "Starting Azure sign-in. Complete the browser prompt, then return to the installer.",
             "Azure sign-in running",
-            "Azure sign-in completed.",
-            (session, progress) => _engine.RunAzureSignInAsync(session, GetWorkspaceRoot(), PackagePath, progress));
+            (session, progress, _) => _engine.RunAzureSignInAsync(session, GetWorkspaceRoot(), PackagePath, progress));
     }
 
     private async Task ConnectGraphAsync()
     {
-        await RunPowerShellActionAsync(
-            "Starting Microsoft Graph sign-in. Approve the requested scopes, then return to the installer.",
-            "Graph sign-in running",
-            "Microsoft Graph sign-in completed.",
-            (session, progress) => _engine.RunGraphSignInAsync(session, GetWorkspaceRoot(), PackagePath, progress));
+        if (_config is null)
+        {
+            return;
+        }
+
+        if (_isPowerShellActionRunning)
+        {
+            FooterStatus = "Another installer action is still running. Complete or close that action before starting Graph sign-in.";
+            AiTitle = "Action already running";
+            AiSummary = "Finish the active action before signing in to Microsoft Graph.";
+            return;
+        }
+
+        if (!File.Exists(PackagePath))
+        {
+            FooterStatus = "Graph sign-in requires a customer package file. Load a package from disk first.";
+            return;
+        }
+
+        _lastGraphSignInPrompt = "";
+        _graphAccessToken = "";
+        SetGraphSignInState(false, "Signing in", "#19D8E9");
+        GraphDeviceCode = "";
+        GraphDeviceCodeStatus = "";
+        GraphVerificationUrl = "https://microsoft.com/devicelogin";
+        _isPowerShellActionRunning = true;
+        FooterStatus = "Starting Microsoft Graph sign-in. The installer will open the Microsoft device-login page and copy the sign-in code.";
+        _session ??= _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Graph sign-in running";
+        SetCurrentStep(3);
+        SetStepStatus(3, "Running", "#19D8E9");
+
+        var progress = new Progress<InstallerStepResult>(result =>
+        {
+            CheckResults.Add(new CheckResultViewModel(result));
+        });
+        var promptProgress = new Progress<GraphDeviceCodePrompt>(HandleGraphDeviceCodePrompt);
+        var actionResultStartIndex = _session.Results.Count;
+
+        try
+        {
+            var signInResult = await _engine.RunGraphDeviceCodeSignInAsync(_session, progress, promptProgress);
+            if (signInResult.HasAccessToken)
+            {
+                _graphAccessToken = signInResult.AccessToken;
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException or HttpRequestException)
+        {
+            var failed = InstallerStepResult.Failed(
+                "Microsoft Graph Sign In",
+                "GraphSignInFailed",
+                "Microsoft Graph sign-in did not complete.",
+                exception.Message,
+                retrySafe: true);
+            _session.Results.Add(failed);
+            CheckResults.Add(new CheckResultViewModel(failed));
+        }
+        finally
+        {
+            _isPowerShellActionRunning = false;
+        }
+
+        var actionResults = _session.Results.Skip(actionResultStartIndex).ToArray();
+        var actionStatus = ResolveResultStatus(actionResults);
+        _session.Status = actionStatus;
+        SessionStatus = actionStatus.ToString();
+        var graphSignInSucceeded =
+            actionStatus is InstallStatus.Passed or InstallStatus.Warning &&
+            !string.IsNullOrWhiteSpace(_graphAccessToken);
+        SetGraphSignInState(
+            graphSignInSucceeded,
+            graphSignInSucceeded ? "Signed in" : "Failed",
+            graphSignInSucceeded ? "#42D8A0" : "#FF5C7A");
+        if (graphSignInSucceeded)
+        {
+            GraphDeviceCode = "";
+            GraphDeviceCodeStatus = "";
+            RefreshSignInGate();
+            AiTitle = "Graph sign-in complete";
+            AiSummary = "The installer has an in-memory Microsoft Graph token for this session. It will use it for preflight checks without saving it to disk.";
+        }
+        else
+        {
+            SetStepStatus(3, "Blocked", "#FF5C7A");
+            SetCurrentStep(3);
+            var failedResult = actionResults.LastOrDefault(result => result.Status == InstallStatus.Failed);
+            FooterStatus = BuildActionFailureStatus(failedResult, "Graph sign-in did not complete. Retry sign-in and complete the Microsoft device-login page.");
+            AiTitle = failedResult?.StepName ?? "Graph sign-in did not complete";
+            AiSummary = BuildActionFailureDetails(failedResult, "Retry Graph sign-in and complete the Microsoft device-login page before the code expires.");
+        }
+
+        ExplainIssueCommand.RaiseCanExecuteChanged();
+        GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+        CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        RunPreflightCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
+    }
+
+    private bool SignInRequirementsSatisfied()
+    {
+        return _isAzureSignedIn && (IsRemovalMode || _isGraphSignedIn);
+    }
+
+    private bool CanRunPreflight()
+    {
+        return IsSetupMode &&
+            _config is not null &&
+            SignInRequirementsSatisfied() &&
+            !_isPowerShellActionRunning;
+    }
+
+    private void SetAzureSignInState(bool signedIn, string status, string brush)
+    {
+        if (_isAzureSignedIn != signedIn)
+        {
+            _isAzureSignedIn = signedIn;
+            OnPropertyChanged(nameof(IsAzureSignedIn));
+        }
+
+        AzureSignInStatus = status;
+        AzureSignInStatusBrush = brush;
+        RunPreflightCommand?.RaiseCanExecuteChanged();
+        RunRemovalInventoryCommand?.RaiseCanExecuteChanged();
+    }
+
+    private void SetGraphSignInState(bool signedIn, string status, string brush)
+    {
+        if (_isGraphSignedIn != signedIn)
+        {
+            _isGraphSignedIn = signedIn;
+            OnPropertyChanged(nameof(IsGraphSignedIn));
+        }
+
+        GraphSignInStatus = status;
+        GraphSignInStatusBrush = brush;
+        RunPreflightCommand?.RaiseCanExecuteChanged();
+        RunValidationCommand?.RaiseCanExecuteChanged();
+    }
+
+    private void ResetSignInState()
+    {
+        _graphAccessToken = "";
+        SetAzureSignInState(false, "Required", "#FFB84D");
+        SetGraphSignInState(
+            false,
+            IsRemovalMode ? "Not required" : "Required",
+            IsRemovalMode ? "#8290AA" : "#FFB84D");
+        GraphDeviceCode = "";
+        GraphDeviceCodeStatus = "";
+        GraphVerificationUrl = "https://microsoft.com/devicelogin";
+    }
+
+    private void RefreshSignInGate()
+    {
+        if (SignInRequirementsSatisfied())
+        {
+            SetStepStatus(3, "Complete", "#42D8A0");
+            var destinationMaxStep = Math.Max(4, _postSignInResumeMaxAccessibleStepNumber);
+            var destinationStep = _postSignInResumeStepNumber > 0
+                ? Math.Min(_postSignInResumeStepNumber, destinationMaxStep)
+                : 4;
+            _postSignInResumeStepNumber = 0;
+            _postSignInResumeMaxAccessibleStepNumber = 0;
+            UnlockThroughStep(destinationMaxStep);
+            SetCurrentStep(destinationStep);
+            FooterStatus = IsRemovalMode
+                ? "Azure sign-in completed. Continue with removal inventory."
+                : "Azure and Microsoft Graph sign-in completed. Run preflight checks next.";
+        }
+        else
+        {
+            _maxAccessibleStepNumber = Math.Min(_maxAccessibleStepNumber, 3);
+            SetStepStatus(3, "Action required", "#FFB84D");
+            SetStepStatus(4, "Pending", "#2A355E");
+            SetCurrentStep(3);
+            FooterStatus = _isAzureSignedIn
+                ? "Azure sign-in completed. Sign in to Microsoft Graph to continue."
+                : "Microsoft Graph sign-in completed. Sign in to Azure to continue.";
+        }
+
+        RefreshStepNavigation();
+        RunPreflightCommand.RaiseCanExecuteChanged();
+        RunRemovalInventoryCommand.RaiseCanExecuteChanged();
     }
 
     private async Task RunPreflightAsync()
@@ -1460,50 +2299,67 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        CheckResults.Clear();
-        CanContinue = false;
-        FooterStatus = "Running PowerShell-backed preflight checks...";
-        SetCurrentStep(4);
-        SetStepStatus(4, "Running", "#19D8E9");
-
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
-        SessionId = _session.SessionId;
-        SessionStatus = "Preflight running";
-
-        var progress = new Progress<InstallerStepResult>(result =>
+        if (_isPowerShellActionRunning)
         {
-            CheckResults.Add(new CheckResultViewModel(result));
-        });
-
-        var packageTrustResult = CreatePackageTrustStepResult();
-        _session.Results.Add(packageTrustResult);
-        CheckResults.Add(new CheckResultViewModel(packageTrustResult));
-
-        await _engine.RunPowerShellPreflightAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
-
-        SessionStatus = _session.Status.ToString();
-        CanContinue = _session.Status is InstallStatus.Passed or InstallStatus.Warning;
-        SetStepStatus(4, _session.Status == InstallStatus.Failed ? "Blocked" : "Complete", _session.Status == InstallStatus.Failed ? "#FF5C7A" : "#42D8A0");
-        if (CanContinue)
-        {
-            UnlockThroughStep(5);
+            FooterStatus = "Another installer action is still running. Complete or close that action before running preflight.";
+            AiTitle = "Action already running";
+            AiSummary = "Wait for the active sign-in or deployment action to finish, then run preflight again.";
+            return;
         }
-        FooterStatus = _session.Status == InstallStatus.Failed
-            ? "Preflight found a blocking issue. Use the AI assistant or create a support bundle."
-            : "Preflight completed. Continue to deployment preview.";
 
-        await ExplainIssueAsync();
-        ExplainIssueCommand.RaiseCanExecuteChanged();
-        GenerateAdminMessageCommand.RaiseCanExecuteChanged();
-        CreateSupportBundleCommand.RaiseCanExecuteChanged();
-        RunPreviewCommand.RaiseCanExecuteChanged();
-        SaveWizardState();
+        _isPowerShellActionRunning = true;
+        CheckResults.Clear();
+        try
+        {
+            CanContinue = false;
+            FooterStatus = "Running PowerShell-backed preflight checks...";
+            SetCurrentStep(4);
+            SetStepStatus(4, "Running", "#19D8E9");
+
+            _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+            SessionId = _session.SessionId;
+            SessionStatus = "Preflight running";
+
+            var progress = new Progress<InstallerStepResult>(result =>
+            {
+                CheckResults.Add(new CheckResultViewModel(result));
+            });
+
+            var packageTrustResult = await CreatePackageTrustStepResultAsync();
+            _session.Results.Add(packageTrustResult);
+            CheckResults.Add(new CheckResultViewModel(packageTrustResult));
+
+            await _engine.RunPowerShellPreflightAsync(_session, GetWorkspaceRoot(), PackagePath, _graphAccessToken, progress);
+
+            SessionStatus = _session.Status.ToString();
+            CanContinue = _session.Status is InstallStatus.Passed or InstallStatus.Warning;
+            SetStepStatus(4, _session.Status == InstallStatus.Failed ? "Blocked" : "Complete", _session.Status == InstallStatus.Failed ? "#FF5C7A" : "#42D8A0");
+            if (CanContinue)
+            {
+                UnlockThroughStep(5);
+            }
+            FooterStatus = _session.Status == InstallStatus.Failed
+                ? "Preflight found a blocking issue. Use the AI assistant or create a support bundle."
+                : "Preflight completed. Continue to deployment preview.";
+
+            await ExplainIssueAsync();
+            ExplainIssueCommand.RaiseCanExecuteChanged();
+            GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+            CreateSupportBundleCommand.RaiseCanExecuteChanged();
+            RunPreviewCommand.RaiseCanExecuteChanged();
+            SaveWizardState();
+        }
+        finally
+        {
+            _isPowerShellActionRunning = false;
+        }
     }
 
-    private InstallerStepResult CreatePackageTrustStepResult()
+    private async Task<InstallerStepResult> CreatePackageTrustStepResultAsync()
     {
         var packageJson = File.Exists(PackagePath) ? File.ReadAllText(PackagePath) : "";
-        var validation = _configService.Validate(_config!, packageJson);
+        _packageTrustOptions = await ResolvePackageTrustOptionsAsync(_config!);
+        var validation = _configService.Validate(_config!, packageJson, trustOptions: _packageTrustOptions);
         ApplyPackageTrustReview(validation);
 
         var status = validation.IsValid
@@ -1547,6 +2403,21 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return string.Join(Environment.NewLine, details);
     }
 
+    private async Task<PackageTrustOptions> ResolvePackageTrustOptionsAsync(CustomerInstallConfig config)
+    {
+        var baseOptions = PackageTrustOptions.FromEnvironment();
+        var publicKeyId = config.ControlPlane.PublicKeyId;
+        if (string.IsNullOrWhiteSpace(config.ControlPlane.Signature) ||
+            string.IsNullOrWhiteSpace(publicKeyId) ||
+            string.IsNullOrWhiteSpace(config.ControlPlane.JwksUrl) ||
+            !string.IsNullOrWhiteSpace(baseOptions.GetTrustedPublicKey(publicKeyId)))
+        {
+            return baseOptions;
+        }
+
+        return await _packageTrustKeyResolver.ResolveAsync(config, baseOptions);
+    }
+
     private static string ValueOrNotAvailable(string value)
     {
         return string.IsNullOrWhiteSpace(value) ? "Not available" : value;
@@ -1555,11 +2426,19 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private async Task RunPowerShellActionAsync(
         string startingStatus,
         string runningStatus,
-        string completedStatus,
-        Func<InstallerSession, IProgress<InstallerStepResult>, Task<IReadOnlyList<InstallerStepResult>>> action)
+        Func<InstallerSession, IProgress<InstallerStepResult>, IProgress<string>?, Task<IReadOnlyList<InstallerStepResult>>> action,
+        Action<string>? outputHandler = null)
     {
         if (_config is null)
         {
+            return;
+        }
+
+        if (_isPowerShellActionRunning)
+        {
+            FooterStatus = "Another installer action is still running. Complete or close that action before starting a new one.";
+            AiTitle = "Action already running";
+            AiSummary = "Finish the active PowerShell-backed action before starting another sign-in, preflight, preview, install, or validation step.";
             return;
         }
 
@@ -1569,6 +2448,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        SetAzureSignInState(false, "Signing in", "#19D8E9");
+        _isPowerShellActionRunning = true;
         FooterStatus = startingStatus;
         _session ??= _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
@@ -1580,23 +2461,264 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             CheckResults.Add(new CheckResultViewModel(result));
         });
+        IProgress<string>? outputProgress = outputHandler is null ? null : new Progress<string>(outputHandler);
+        var actionResultStartIndex = _session.Results.Count;
 
-        await action(_session, progress);
-
-        SessionStatus = _session.Status.ToString();
-        SetStepStatus(3, _session.Status == InstallStatus.Failed ? "Blocked" : "Complete", _session.Status == InstallStatus.Failed ? "#FF5C7A" : "#42D8A0");
-        if (_session.Status is not InstallStatus.Failed)
+        try
         {
-            UnlockThroughStep(4);
-            SetCurrentStep(4);
+            await action(_session, progress, outputProgress);
         }
-        FooterStatus = _session.Status == InstallStatus.Failed
-            ? "Sign-in did not complete. Review the result details and try again."
-            : completedStatus;
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException or HttpRequestException)
+        {
+            var failed = InstallerStepResult.Failed(
+                "PowerShell Action",
+                "PowerShellActionFailed",
+                "The sign-in action failed before returning a structured result.",
+                exception.Message,
+                retrySafe: true);
+            _session.Results.Add(failed);
+            CheckResults.Add(new CheckResultViewModel(failed));
+            _session.Status = InstallStatus.Failed;
+            SessionStatus = "Failed";
+            SetAzureSignInState(false, "Failed", "#FF5C7A");
+            SetStepStatus(3, "Blocked", "#FF5C7A");
+            FooterStatus = "Sign-in failed unexpectedly. Review the result details and try again.";
+            AiTitle = "Sign-in error";
+            AiSummary = exception.Message;
+            ExplainIssueCommand.RaiseCanExecuteChanged();
+            GenerateAdminMessageCommand.RaiseCanExecuteChanged();
+            CreateSupportBundleCommand.RaiseCanExecuteChanged();
+            SaveWizardState();
+            return;
+        }
+        finally
+        {
+            _isPowerShellActionRunning = false;
+        }
+
+        var actionResults = _session.Results.Skip(actionResultStartIndex).ToArray();
+        var actionStatus = ResolveResultStatus(actionResults);
+        _session.Status = actionStatus;
+        SessionStatus = actionStatus.ToString();
+        var azureSignInSucceeded = actionStatus is InstallStatus.Passed or InstallStatus.Warning;
+        SetAzureSignInState(
+            azureSignInSucceeded,
+            azureSignInSucceeded ? "Signed in" : "Failed",
+            azureSignInSucceeded ? "#42D8A0" : "#FF5C7A");
+        if (azureSignInSucceeded)
+        {
+            RefreshSignInGate();
+        }
+        var failedResult = actionResults.LastOrDefault(result => result.Status == InstallStatus.Failed);
+        if (actionStatus == InstallStatus.Failed)
+        {
+            FooterStatus = BuildActionFailureStatus(failedResult, "Sign-in did not complete. Review the result details and try again.");
+            AiTitle = failedResult?.StepName ?? "Sign-in did not complete";
+            AiSummary = BuildActionFailureDetails(failedResult, "Review the sign-in result details and try again.");
+        }
 
         ExplainIssueCommand.RaiseCanExecuteChanged();
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
+        RunPreflightCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
+    }
+
+    private static InstallStatus ResolveResultStatus(IReadOnlyCollection<InstallerStepResult> results)
+    {
+        if (results.Count == 0)
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Failed))
+        {
+            return InstallStatus.Failed;
+        }
+
+        if (results.Any(result => result.Status == InstallStatus.Warning))
+        {
+            return InstallStatus.Warning;
+        }
+
+        return results.All(result => result.Status == InstallStatus.Skipped)
+            ? InstallStatus.Skipped
+            : InstallStatus.Passed;
+    }
+
+    private void HandleGraphDeviceCodePrompt(GraphDeviceCodePrompt prompt)
+    {
+        var verificationUrl = string.IsNullOrWhiteSpace(prompt.VerificationUrl)
+            ? "https://microsoft.com/devicelogin"
+            : prompt.VerificationUrl;
+        GraphDeviceCode = prompt.UserCode.Trim();
+        GraphVerificationUrl = verificationUrl;
+        GraphDeviceCodeStatus = prompt.ExpiresOn == default
+            ? "Enter this code in the Microsoft sign-in window."
+            : $"Enter this code in the Microsoft sign-in window before {prompt.ExpiresOn.LocalDateTime:g}.";
+        var message = string.IsNullOrWhiteSpace(prompt.UserCode)
+            ? prompt.Message
+            : $"Go to {verificationUrl} and enter code {prompt.UserCode}.";
+
+        if (string.Equals(message, _lastGraphSignInPrompt, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastGraphSignInPrompt = message;
+        FooterStatus = message;
+        AiTitle = "Complete Graph sign-in";
+        AiSummary = $"{message} The code expires at {prompt.ExpiresOn.LocalDateTime:g}.";
+
+        TryCopyToClipboard(prompt.UserCode);
+        TryOpenBrowser(verificationUrl);
+    }
+
+    private Task CopyGraphDeviceCodeAsync()
+    {
+        TryCopyToClipboard(GraphDeviceCode);
+        FooterStatus = string.IsNullOrWhiteSpace(GraphDeviceCode)
+            ? "Start Microsoft Graph sign-in to generate a device code."
+            : $"Graph sign-in code {GraphDeviceCode} copied to the clipboard.";
+        return Task.CompletedTask;
+    }
+
+    private void HandleGraphSignInOutput(string outputLine)
+    {
+        var prompt = CleanPowerShellOutputLine(outputLine);
+        if (string.IsNullOrWhiteSpace(prompt) || !IsGraphDeviceCodePrompt(prompt))
+        {
+            return;
+        }
+
+        if (string.Equals(prompt, _lastGraphSignInPrompt, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastGraphSignInPrompt = prompt;
+        FooterStatus = prompt;
+        AiTitle = "Complete Graph sign-in";
+        AiSummary = prompt;
+    }
+
+    private static string CleanPowerShellOutputLine(string outputLine)
+    {
+        var clean = AnsiEscapeSequenceRegex.Replace(outputLine, "");
+        if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase))
+        {
+            clean = clean["WARNING:".Length..];
+        }
+
+        return clean.Trim();
+    }
+
+    private static bool IsGraphDeviceCodePrompt(string message)
+    {
+        return message.Contains("microsoft.com/devicelogin", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("device code", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("enter the code", StringComparison.OrdinalIgnoreCase) ||
+            message.StartsWith("To sign in", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TryCopyToClipboard(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(value);
+        }
+        catch (Exception exception) when (exception is ExternalException or InvalidOperationException)
+        {
+            // Clipboard access can fail if another process has it locked; the code remains visible in the UI.
+        }
+    }
+
+    private static void TryOpenBrowser(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // The verification URL is still shown in the UI when the default browser cannot be opened.
+        }
+    }
+
+    private Task OpenDeployedSiteAsync()
+    {
+        var url = DeployedSiteUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            FooterStatus = "The customer package does not define a deployed site URL.";
+            return Task.CompletedTask;
+        }
+
+        TryOpenBrowser(url);
+        FooterStatus = $"Opened deployed site: {url}";
+        return Task.CompletedTask;
+    }
+
+    private static string NormalizeSiteUrl(string value)
+    {
+        var candidate = value.Trim();
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return "";
+        }
+
+        if (!candidate.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !candidate.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = $"https://{candidate}";
+        }
+
+        return Uri.TryCreate(candidate, UriKind.Absolute, out var uri)
+            ? uri.AbsoluteUri.TrimEnd('/')
+            : "";
+    }
+
+    private static string BuildActionFailureStatus(InstallerStepResult? failedResult, string fallback)
+    {
+        if (failedResult is null)
+        {
+            return fallback;
+        }
+
+        var status = string.IsNullOrWhiteSpace(failedResult.Details)
+            ? failedResult.Summary
+            : $"{failedResult.Summary} {failedResult.Details}";
+        return TrimForUi(status, 360);
+    }
+
+    private static string BuildActionFailureDetails(InstallerStepResult? failedResult, string fallback)
+    {
+        if (failedResult is null)
+        {
+            return fallback;
+        }
+
+        return TrimForUi(string.IsNullOrWhiteSpace(failedResult.Details) ? failedResult.Summary : failedResult.Details, 700);
+    }
+
+    private static string TrimForUi(string value, int maxLength)
+    {
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength] + "...";
     }
 
     private Task GoBackAsync()
@@ -1679,7 +2801,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         foreach (var step in Steps)
         {
-            step.IsAccessible = step.Number <= _maxAccessibleStepNumber && (step.Number == 1 || _workflowSelected);
+            step.IsAccessible = step.Number <= _maxAccessibleStepNumber &&
+                (step.Number == 1 || _workflowSelected) &&
+                (!IsSetupMode || step.Number < 3 || HasValidatedPackage);
             step.IsCurrent = step.Number == _currentStepNumber;
             RefreshStepStatusForNavigation(step);
         }
@@ -1709,6 +2833,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunInstallCommand?.RaiseCanExecuteChanged();
         RunValidationCommand?.RaiseCanExecuteChanged();
         CreateFinalEvidenceCommand?.RaiseCanExecuteChanged();
+        RunRemovalInventoryCommand?.RaiseCanExecuteChanged();
+        RunRemovalCommand?.RaiseCanExecuteChanged();
+        RunRemovalValidationCommand?.RaiseCanExecuteChanged();
+        CreateRemovalEvidenceCommand?.RaiseCanExecuteChanged();
         OnPropertyChanged(nameof(IsWelcomeStep));
         OnPropertyChanged(nameof(IsPackageStep));
         OnPropertyChanged(nameof(IsSignInStep));
@@ -1730,12 +2858,24 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return false;
         }
 
-        return stepNumber == 1 || _workflowSelected;
+        return (stepNumber == 1 || _workflowSelected) &&
+            (!IsSetupMode || stepNumber < 3 || HasValidatedPackage) &&
+            (stepNumber < 4 || SignInRequirementsSatisfied());
     }
 
     private bool CanAdvanceFromCurrentStep()
     {
-        return _currentStepNumber != 1 || _workflowSelected;
+        if (_currentStepNumber == 1)
+        {
+            return _workflowSelected;
+        }
+
+        if (_currentStepNumber == 2 && IsSetupMode)
+        {
+            return HasValidatedPackage;
+        }
+
+        return _currentStepNumber != 3 || SignInRequirementsSatisfied();
     }
 
     private void ConfigureSetupWorkflow()
@@ -1794,6 +2934,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ClearDeploymentReview();
         ClearValidationReview();
         ClearFinalEvidenceReview();
+        ResetRemovalReview();
         CanContinue = false;
         RefreshStepNavigation();
     }
@@ -1801,11 +2942,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private void ResetSessionData()
     {
         _config = null;
+        NotifyPackageAcquisitionStateChanged();
+        OnPropertyChanged(nameof(DeployedSiteUrl));
+        OnPropertyChanged(nameof(HasDeployedSiteUrl));
+        OpenDeployedSiteCommand.RaiseCanExecuteChanged();
         _session = null;
         _bootstrapSession = null;
         _tenantDiscovery = null;
         _onboardingPortalStatus = null;
         _packageReadiness = null;
+        _postSignInResumeStepNumber = 0;
+        _postSignInResumeMaxAccessibleStepNumber = 0;
+        ResetSignInState();
         PackagePath = "No customer package loaded.";
         CustomerName = "Load a customer package";
         AzureSubscription = "Not loaded";
@@ -1871,24 +3019,24 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ForgetResumeSessionCommand.RaiseCanExecuteChanged();
     }
 
-    private Task ResumeSessionAsync()
+    private async Task ResumeSessionAsync()
     {
         if (_pendingResumeState is null)
         {
             DetectRestorableState();
-            return Task.CompletedTask;
+            return;
         }
 
         if (_pendingResumeState.WorkflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase) && !IsRemovalWorkflowAvailable)
         {
             FooterStatus = "The saved session uses the disabled removal workflow. Start a new setup session or forget the saved removal session.";
-            return Task.CompletedTask;
+            return;
         }
 
         _isRestoringState = true;
         try
         {
-            ApplyPersistedState(_pendingResumeState);
+            await ApplyPersistedStateAsync(_pendingResumeState);
             _workflowSelected = true;
             HasRestorableSession = false;
             _pendingResumeState = null;
@@ -1902,7 +3050,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         RefreshStepNavigation();
-        return Task.CompletedTask;
+        await FlushInstallerEvidenceOutboxAsync();
+        if (_installerEvidenceOutbox.PendingEvents.Count == 0 && FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase))
+        {
+            SaveWizardState(markCompleted: true);
+        }
     }
 
     private Task StartNewSessionAsync()
@@ -1912,6 +3064,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _stateId = InstallerStateStore.CreateStateId();
         _stateCreatedAt = DateTimeOffset.UtcNow;
         _stateCompleted = false;
+        _installerEvidenceOutbox = new InstallerEvidenceOutboxState();
         ConfigureSetupWorkflow();
         _workflowSelected = false;
         ResumeSessionSummary = "No saved installer session selected.";
@@ -1941,7 +3094,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return Task.CompletedTask;
     }
 
-    private void ApplyPersistedState(PersistedInstallerState state)
+    private async Task ApplyPersistedStateAsync(PersistedInstallerState state)
     {
         if (state.WorkflowMode.Equals("Removal", StringComparison.OrdinalIgnoreCase))
         {
@@ -1957,12 +3110,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _stateCompleted = state.IsCompleted;
         _workflowSelected = state.WorkflowSelected || state.CurrentStepNumber > 1 || state.Config is not null || state.InstallerSession is not null || state.TenantDiscovery is not null;
         _bootstrapSourcePath = state.BootstrapSourcePath;
-        _config = state.Config ?? TryLoadConfig(state.PackagePath);
+        _config = state.Config ?? await TryLoadConfigAsync(state.PackagePath);
+        OnPropertyChanged(nameof(DeployedSiteUrl));
+        OnPropertyChanged(nameof(HasDeployedSiteUrl));
+        OpenDeployedSiteCommand.RaiseCanExecuteChanged();
         _session = state.InstallerSession;
-        _bootstrapSession = TryLoadBootstrapSession(_bootstrapSourcePath);
+        _bootstrapSession = await TryLoadBootstrapSessionAsync(_bootstrapSourcePath);
+        ResetSignInState();
         _tenantDiscovery = state.TenantDiscovery;
         _onboardingPortalStatus = state.OnboardingPortalStatus;
         _packageReadiness = state.PackageReadiness ?? state.OnboardingPortalStatus?.PackageReadiness;
+        _installerEvidenceOutbox = state.InstallerEvidenceOutbox ?? new InstallerEvidenceOutboxState();
+        RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
 
         if (_tenantDiscovery is not null)
         {
@@ -2032,6 +3191,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FinalManifestPath = SavedOrDefault(state.FinalManifestPath, FinalManifestPath);
         FinalBundlePath = SavedOrDefault(state.FinalBundlePath, FinalBundlePath);
         FinalEvidenceDirectory = SavedOrDefault(state.FinalEvidenceDirectory, FinalEvidenceDirectory);
+        RemovalInventoryStatus = SavedOrDefault(state.RemovalInventoryStatus, RemovalInventoryStatus);
+        RemovalInventorySummary = SavedOrDefault(state.RemovalInventorySummary, RemovalInventorySummary);
+        RemovalInventoryOutputPath = SavedOrDefault(state.RemovalInventoryOutputPath, RemovalInventoryOutputPath);
+        RemovalStatus = SavedOrDefault(state.RemovalStatus, RemovalStatus);
+        RemovalSummary = SavedOrDefault(state.RemovalSummary, RemovalSummary);
+        RemovalOutputPath = SavedOrDefault(state.RemovalOutputPath, RemovalOutputPath);
+        RemovalValidationStatus = SavedOrDefault(state.RemovalValidationStatus, RemovalValidationStatus);
+        RemovalValidationSummary = SavedOrDefault(state.RemovalValidationSummary, RemovalValidationSummary);
+        RemovalValidationOutputPath = SavedOrDefault(state.RemovalValidationOutputPath, RemovalValidationOutputPath);
+        _lastRemovalInventoryStatus = state.LastRemovalInventoryStatus;
+        _lastRemovalStatus = state.LastRemovalStatus;
+        _lastRemovalValidationStatus = state.LastRemovalValidationStatus;
         AiTitle = SavedOrDefault(state.AiTitle, AiTitle);
         AiSummary = SavedOrDefault(state.AiSummary, AiSummary);
         SessionId = SavedOrDefault(state.SessionId, SessionId);
@@ -2039,14 +3210,33 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         DeploymentApprovalConfirmed = false;
         DeploymentConfirmationText = "";
+        RemovalApprovalConfirmed = false;
+        RemovalConfirmationText = "";
 
         _maxAccessibleStepNumber = Math.Clamp(Math.Max(state.MaxAccessibleStepNumber, 2), 1, Steps.Count);
+        if (_config is not null)
+        {
+            _postSignInResumeStepNumber = Math.Max(4, state.CurrentStepNumber);
+            _postSignInResumeMaxAccessibleStepNumber = Math.Max(4, _maxAccessibleStepNumber);
+            _maxAccessibleStepNumber = Math.Min(_maxAccessibleStepNumber, 3);
+        }
+
         _currentStepNumber = Math.Clamp(state.CurrentStepNumber, 1, _maxAccessibleStepNumber);
+        NotifyPackageAcquisitionStateChanged();
         RefreshStepNavigation();
         ApplyPersistedStepStates(state.Steps);
+        if (_config is not null)
+        {
+            SetStepStatus(3, "Action required", "#FFB84D");
+            SetStepStatus(4, "Pending", "#2A355E");
+        }
         RefreshStateDependentCommands();
 
-        FooterStatus = $"Resumed previous {WorkflowModeLabel()} session saved {state.SavedAt.LocalDateTime:g}. {state.FooterStatus}";
+        FooterStatus = _config is null
+            ? $"Resumed previous {WorkflowModeLabel()} session saved {state.SavedAt.LocalDateTime:g}. {state.FooterStatus}"
+            : IsRemovalMode
+                ? "Session resumed. Sign in to Azure again before continuing because authentication is not stored."
+                : "Session resumed. Sign in to Azure and Microsoft Graph again before continuing because authentication tokens are not stored.";
     }
 
     private void SaveWizardState(bool markCompleted = false)
@@ -2145,6 +3335,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 SyncedAt = PortalSyncReceipt.SyncedAt,
                 ErrorMessage = PortalSyncReceipt.ErrorMessage
             },
+            InstallerEvidenceOutbox = _installerEvidenceOutbox,
             CheckResults = CheckResults.Select(ToStepResult).ToList(),
             PreviewResults = PreviewResults.Select(ToStepResult).ToList(),
             DeploymentResults = DeploymentResults.Select(ToStepResult).ToList(),
@@ -2176,6 +3367,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             FinalManifestPath = FinalManifestPath,
             FinalBundlePath = FinalBundlePath,
             FinalEvidenceDirectory = FinalEvidenceDirectory,
+            RemovalInventoryStatus = RemovalInventoryStatus,
+            RemovalInventorySummary = RemovalInventorySummary,
+            RemovalInventoryOutputPath = RemovalInventoryOutputPath,
+            RemovalStatus = RemovalStatus,
+            RemovalSummary = RemovalSummary,
+            RemovalOutputPath = RemovalOutputPath,
+            RemovalValidationStatus = RemovalValidationStatus,
+            RemovalValidationSummary = RemovalValidationSummary,
+            RemovalValidationOutputPath = RemovalValidationOutputPath,
+            LastRemovalInventoryStatus = _lastRemovalInventoryStatus,
+            LastRemovalStatus = _lastRemovalStatus,
+            LastRemovalValidationStatus = _lastRemovalValidationStatus,
             AiTitle = AiTitle,
             AiSummary = AiSummary,
             SessionId = SessionId,
@@ -2268,7 +3471,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
     }
 
-    private CustomerInstallConfig? TryLoadConfig(string path)
+    private async Task<CustomerInstallConfig?> TryLoadConfigAsync(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
@@ -2277,7 +3480,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         try
         {
-            return _configService.LoadAsync(path).GetAwaiter().GetResult();
+            return await _configService.LoadAsync(path);
         }
         catch (Exception)
         {
@@ -2285,7 +3488,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
     }
 
-    private OnboardingBootstrapSession? TryLoadBootstrapSession(string path)
+    private async Task<OnboardingBootstrapSession?> TryLoadBootstrapSessionAsync(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
@@ -2294,7 +3497,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         try
         {
-            return _onboardingSessionService.LoadBootstrapAsync(path).GetAwaiter().GetResult();
+            return await _onboardingSessionService.LoadBootstrapAsync(path);
         }
         catch (Exception)
         {
@@ -2314,7 +3517,25 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private static bool RemovalWorkflowEnabled()
     {
-        return bool.TryParse(Environment.GetEnvironmentVariable("PM365_ENABLE_REMOVAL_WORKFLOW"), out var enabled) && enabled;
+        return true;
+    }
+
+    private void ResetRemovalReview()
+    {
+        _lastRemovalInventoryStatus = InstallStatus.NotStarted;
+        _lastRemovalStatus = InstallStatus.NotStarted;
+        _lastRemovalValidationStatus = InstallStatus.NotStarted;
+        RemovalInventoryStatus = "Not run";
+        RemovalInventorySummary = "Run read-only inventory before previewing removal.";
+        RemovalInventoryOutputPath = "Not saved";
+        RemovalStatus = "Waiting for approval";
+        RemovalSummary = "Inventory and approve the Azure-only removal plan.";
+        RemovalOutputPath = "Not saved";
+        RemovalValidationStatus = "Waiting for removal";
+        RemovalValidationSummary = "Complete removal before validating cleanup.";
+        RemovalValidationOutputPath = "Not saved";
+        RemovalApprovalConfirmed = false;
+        RemovalConfirmationText = "";
     }
 
     private static string SavedOrDefault(string value, string fallback)
@@ -2327,9 +3548,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return new InstallerStepResult
         {
             StepName = result.Name,
+            Code = result.Code,
             Status = ParseInstallStatus(result.StatusLabel),
             Summary = result.Summary,
-            RetrySafe = true
+            Details = result.Details,
+            RetrySafe = result.RetrySafe
         };
     }
 
@@ -2380,10 +3603,374 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             : InstallStatus.NotStarted;
     }
 
+    private bool CanRunRemovalInventory()
+    {
+        return IsRemovalMode &&
+            _config is not null &&
+            File.Exists(PackagePath) &&
+            SignInRequirementsSatisfied() &&
+            _currentStepNumber >= 4;
+    }
+
+    private async Task RunRemovalInventoryAsync()
+    {
+        if (!CanRunRemovalInventory() || _config is null)
+        {
+            FooterStatus = "Load the original customer package and sign in to Azure before running removal inventory.";
+            return;
+        }
+
+        IsRemovalRunning = true;
+        CheckResults.Clear();
+        RemovalApprovalConfirmed = false;
+        RemovalConfirmationText = "";
+        RemovalInventoryStatus = "Running";
+        RemovalInventorySummary = "Inspecting the dedicated PageMaker365 Azure resource group and ownership tags.";
+        RemovalInventoryOutputPath = PrepareRemovalOutputPath("inventory", "removal-inventory.json");
+        FooterStatus = "Running read-only Azure removal inventory.";
+        SetCurrentStep(4);
+        SetStepStatus(4, "Running", "#19D8E9");
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Removal inventory running";
+
+        IReadOnlyList<InstallerStepResult> results;
+        try
+        {
+            results = await _engine.RunRemovalInventoryAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                RemovalInventoryOutputPath);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or HttpRequestException or JsonException)
+        {
+            results =
+            [
+                InstallerStepResult.Failed(
+                    "Removal Inventory",
+                    "RemovalInventoryException",
+                    "Removal inventory did not complete.",
+                    "The installer encountered an internal inventory error. Review local support evidence.",
+                    retrySafe: true)
+            ];
+        }
+        finally
+        {
+            IsRemovalRunning = false;
+        }
+
+        foreach (var result in results)
+        {
+            CheckResults.Add(new CheckResultViewModel(result));
+        }
+
+        _lastRemovalInventoryStatus = GetPhaseStatus(results);
+        RemovalInventoryStatus = _lastRemovalInventoryStatus.ToString();
+        var absent = results.Any(result => result.Code == "PartialInstallAbsent");
+        RemovalInventorySummary = _lastRemovalInventoryStatus == InstallStatus.Passed
+            ? absent
+                ? "The target resource group is already absent. Cleanup can be validated as an idempotent removal."
+                : "Ownership checks passed. Review the Azure-only removal preview and retained Key Vault policy."
+            : "Removal is blocked by subscription, ownership, resource, or deployment activity checks.";
+        SetStepStatus(4, _lastRemovalInventoryStatus == InstallStatus.Passed ? "Complete" : "Blocked", BrushForStatus(_lastRemovalInventoryStatus));
+        if (_lastRemovalInventoryStatus == InstallStatus.Passed)
+        {
+            UnlockThroughStep(5);
+        }
+
+        FooterStatus = RemovalInventorySummary;
+        AiTitle = _lastRemovalInventoryStatus == InstallStatus.Passed ? "Removal inventory ready" : "Removal inventory blocked";
+        AiSummary = _lastRemovalInventoryStatus == InstallStatus.Passed
+            ? "Review the removal preview. SharePoint is not changed, and the old Key Vault will not be purged."
+            : "Resolve every ownership or activity blocker before attempting removal.";
+        RefreshRemovalCommands();
+        SaveWizardState();
+    }
+
+    private void RefreshRemovalApprovalReadiness()
+    {
+        if (IsRemovalMode &&
+            _lastRemovalInventoryStatus == InstallStatus.Passed &&
+            RemovalApprovalConfirmed &&
+            IsRemovalConfirmationValid())
+        {
+            UnlockThroughStep(6);
+        }
+
+        RunRemovalCommand?.RaiseCanExecuteChanged();
+    }
+
+    private bool IsRemovalConfirmationValid()
+    {
+        return _config is not null && string.Equals(
+            RemovalConfirmationText.Trim(),
+            _config.Azure.ResourceGroupName,
+            StringComparison.Ordinal);
+    }
+
+    private bool CanRunRemoval()
+    {
+        return IsRemovalMode &&
+            _config is not null &&
+            File.Exists(PackagePath) &&
+            _currentStepNumber >= 6 &&
+            _lastRemovalInventoryStatus == InstallStatus.Passed &&
+            RemovalApprovalConfirmed &&
+            IsRemovalConfirmationValid() &&
+            !IsRemovalRunning;
+    }
+
+    private async Task RunRemovalAsync()
+    {
+        if (!CanRunRemoval() || _config is null)
+        {
+            FooterStatus = "Run inventory, review the preview, approve removal, and type the exact resource-group name.";
+            return;
+        }
+
+        IsRemovalRunning = true;
+        DeploymentResults.Clear();
+        RemovalStatus = "Running";
+        RemovalSummary = "Deleting the approved dedicated PageMaker365 Azure resource group.";
+        RemovalOutputPath = PrepareRemovalOutputPath("execute", "partial-install-cleanup-result.json");
+        FooterStatus = "Running approved Azure-only removal. Key Vault purge is disabled.";
+        SetCurrentStep(6);
+        SetStepStatus(6, "Running", "#19D8E9");
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Removal running";
+
+        IReadOnlyList<InstallerStepResult> results;
+        try
+        {
+            results = await _engine.RunRemovalAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                RemovalConfirmationText,
+                RemovalOutputPath);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or HttpRequestException or JsonException)
+        {
+            results =
+            [
+                InstallerStepResult.Failed(
+                    "Azure Removal",
+                    "RemovalExecutionException",
+                    "Azure removal did not complete.",
+                    "The installer encountered an internal removal error. Review local support evidence.",
+                    retrySafe: true)
+            ];
+        }
+        finally
+        {
+            IsRemovalRunning = false;
+        }
+
+        foreach (var result in results)
+        {
+            DeploymentResults.Add(new DeploymentResultViewModel(result));
+        }
+
+        _lastRemovalStatus = GetPhaseStatus(results);
+        RemovalStatus = _lastRemovalStatus.ToString();
+        RemovalSummary = _lastRemovalStatus == InstallStatus.Passed
+            ? "Azure removal completed. Validate that the resource group is absent."
+            : "Azure removal did not complete. Review the current inventory and cleanup evidence.";
+        SetStepStatus(6, _lastRemovalStatus == InstallStatus.Passed ? "Complete" : "Blocked", BrushForStatus(_lastRemovalStatus));
+        if (_lastRemovalStatus == InstallStatus.Passed)
+        {
+            UnlockThroughStep(7);
+        }
+
+        FooterStatus = RemovalSummary;
+        AiTitle = _lastRemovalStatus == InstallStatus.Passed ? "Azure removal completed" : "Removal blocker detected";
+        AiSummary = _lastRemovalStatus == InstallStatus.Passed
+            ? "Validate cleanup next. SharePoint was not changed, and the Key Vault was not purged."
+            : "Rerun inventory before retrying removal so ownership and activity checks are current.";
+        RefreshRemovalCommands();
+        SaveWizardState();
+    }
+
+    private bool CanRunRemovalValidation()
+    {
+        return IsRemovalMode &&
+            _config is not null &&
+            File.Exists(PackagePath) &&
+            _currentStepNumber >= 7 &&
+            _lastRemovalStatus == InstallStatus.Passed &&
+            !IsRemovalRunning;
+    }
+
+    private async Task RunRemovalValidationAsync()
+    {
+        if (!CanRunRemovalValidation() || _config is null)
+        {
+            FooterStatus = "Complete approved removal before validating cleanup.";
+            return;
+        }
+
+        IsRemovalRunning = true;
+        ValidationResults.Clear();
+        RemovalValidationStatus = "Running";
+        RemovalValidationSummary = "Confirming the dedicated resource group is absent.";
+        RemovalValidationOutputPath = PrepareRemovalOutputPath("validate", "removal-validation.json");
+        FooterStatus = "Validating Azure cleanup.";
+        SetCurrentStep(7);
+        SetStepStatus(7, "Running", "#19D8E9");
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        SessionId = _session.SessionId;
+        SessionStatus = "Cleanup validation running";
+
+        IReadOnlyList<InstallerStepResult> results;
+        try
+        {
+            results = await _engine.RunRemovalValidationAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                RemovalValidationOutputPath);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or HttpRequestException or JsonException)
+        {
+            results =
+            [
+                InstallerStepResult.Failed(
+                    "Cleanup Validation",
+                    "RemovalValidationException",
+                    "Cleanup validation did not complete.",
+                    "The installer encountered an internal validation error. Review local support evidence.",
+                    retrySafe: true)
+            ];
+        }
+        finally
+        {
+            IsRemovalRunning = false;
+        }
+
+        foreach (var result in results)
+        {
+            ValidationResults.Add(new ValidationResultViewModel(result));
+        }
+
+        var resourceGroupAbsent = results.Any(result =>
+            result.Code == "PartialInstallAbsent" && result.Status == InstallStatus.Passed);
+        _lastRemovalValidationStatus = resourceGroupAbsent ? InstallStatus.Passed : InstallStatus.Failed;
+        RemovalValidationStatus = _lastRemovalValidationStatus.ToString();
+        RemovalValidationSummary = resourceGroupAbsent
+            ? "Cleanup validated. The resource group is absent, SharePoint was unchanged, and Key Vault purge was not requested."
+            : "Cleanup validation failed because the target resource group is still present or Azure state could not be confirmed.";
+        SetStepStatus(7, resourceGroupAbsent ? "Complete" : "Blocked", BrushForStatus(_lastRemovalValidationStatus));
+        if (resourceGroupAbsent)
+        {
+            UnlockThroughStep(8);
+        }
+
+        FooterStatus = RemovalValidationSummary;
+        RefreshRemovalCommands();
+        SaveWizardState();
+    }
+
+    private bool CanCreateRemovalEvidence()
+    {
+        return IsRemovalMode &&
+            _config is not null &&
+            _currentStepNumber >= 8 &&
+            _lastRemovalValidationStatus == InstallStatus.Passed;
+    }
+
+    private async Task CreateRemovalEvidenceAsync()
+    {
+        if (!CanCreateRemovalEvidence() || _config is null)
+        {
+            FooterStatus = "Validate cleanup before generating final removal evidence.";
+            return;
+        }
+
+        var root = Path.Combine(GetWorkspaceRoot(), "support-bundle", "removal");
+        var finalDirectory = Path.Combine(root, "final");
+        Directory.CreateDirectory(finalDirectory);
+        var completedAt = DateTimeOffset.UtcNow;
+        var reportPath = Path.Combine(finalDirectory, "removal-report.md");
+        var manifestPath = Path.Combine(finalDirectory, "removal-manifest.json");
+        var bundlePath = Path.Combine(root, $"removal-evidence-{completedAt:yyyyMMdd-HHmmss}.zip");
+        var report = $"""
+            # PageMaker365 Removal Report
+
+            - Customer: {_config.Customer.TenantName}
+            - Azure subscription: {_config.Azure.SubscriptionId}
+            - Resource group: {_config.Azure.ResourceGroupName}
+            - Deployment export: {_config.ControlPlane.DeploymentExportId}
+            - Completed: {completedAt:u}
+            - Result: Azure resource group absent
+            - SharePoint cleanup: Not performed
+            - Key Vault purge: Not performed
+            - Reinstall requirement: Generate a new package with a new Key Vault name
+            """;
+        var manifest = new
+        {
+            contractVersion = "0.1",
+            artifactType = "PageMaker365.RemovalEvidence",
+            completedAt,
+            customer = _config.Customer.TenantName,
+            subscriptionId = _config.Azure.SubscriptionId,
+            resourceGroupName = _config.Azure.ResourceGroupName,
+            deploymentExportId = _config.ControlPlane.DeploymentExportId,
+            inventoryStatus = _lastRemovalInventoryStatus.ToString(),
+            removalStatus = _lastRemovalStatus.ToString(),
+            validationStatus = _lastRemovalValidationStatus.ToString(),
+            inventoryArtifact = RemovalInventoryOutputPath,
+            removalArtifact = RemovalOutputPath,
+            validationArtifact = RemovalValidationOutputPath,
+            sharePointCleanupPerformed = false,
+            keyVaultPurged = false,
+            keyVaultDisposition = "SoftDeletedRecoverable",
+            reinstallRequiresNewKeyVaultName = true
+        };
+        await File.WriteAllTextAsync(reportPath, report);
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+        if (File.Exists(bundlePath))
+        {
+            File.Delete(bundlePath);
+        }
+        ZipFile.CreateFromDirectory(finalDirectory, bundlePath, CompressionLevel.Optimal, includeBaseDirectory: false);
+
+        FinalEvidenceDirectory = finalDirectory;
+        FinalReportPath = reportPath;
+        FinalManifestPath = manifestPath;
+        FinalBundlePath = bundlePath;
+        FinishStatus = "Complete";
+        FinishStatusBrush = "#42D8A0";
+        FinishSummary = "Final Azure-only removal evidence is ready.";
+        SetStepStatus(8, "Complete", "#42D8A0");
+        FooterStatus = $"Removal workflow complete. Evidence: {bundlePath}";
+        AiTitle = "Removal workflow complete";
+        AiSummary = "The dedicated Azure resource group is absent. SharePoint was unchanged, and reinstall requires a new package with a new Key Vault name.";
+        SaveWizardState(markCompleted: true);
+    }
+
+    private string PrepareRemovalOutputPath(string phase, string fileName)
+    {
+        var directory = Path.Combine(GetWorkspaceRoot(), "support-bundle", "removal", phase);
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, fileName);
+    }
+
+    private void RefreshRemovalCommands()
+    {
+        RunRemovalInventoryCommand.RaiseCanExecuteChanged();
+        RunRemovalCommand.RaiseCanExecuteChanged();
+        RunRemovalValidationCommand.RaiseCanExecuteChanged();
+        CreateRemovalEvidenceCommand.RaiseCanExecuteChanged();
+        RefreshStepNavigation();
+    }
+
     private bool CanRunPreview()
     {
         return _config is not null &&
             File.Exists(PackagePath) &&
+            !IsPreviewRunning &&
             _currentStepNumber >= 5;
     }
 
@@ -2405,6 +3992,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PreviewStatus = "Running";
         PreviewStatusBrush = "#19D8E9";
         PreviewSummary = "Running Azure what-if. No resources will be deployed.";
+        IsPreviewRunning = true;
         PreviewOutputPath = "Not saved";
         var previewArtifactOutputPath = PrepareArtifactOutputPath("preview", "azure-whatif.json");
         PreviewArtifactPath = previewArtifactOutputPath;
@@ -2424,7 +4012,27 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             PreviewResults.Add(new PreviewResultViewModel(result));
         });
 
-        await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, previewArtifactOutputPath, progress);
+        try
+        {
+            await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, previewArtifactOutputPath, progress);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException or HttpRequestException)
+        {
+            var failed = InstallerStepResult.Failed(
+                "Azure What-If",
+                "AzureWhatIfFailed",
+                "Deployment preview did not complete.",
+                exception.Message,
+                retrySafe: true);
+            previewResults.Add(failed);
+            PreviewResults.Add(new PreviewResultViewModel(failed));
+            _session.Results.Add(failed);
+        }
+        finally
+        {
+            IsPreviewRunning = false;
+        }
+
         PreviewArtifactPath = GetArtifactPathFromResults(previewResults, previewArtifactOutputPath);
 
         var previewStatus = GetPreviewStatus(previewResults);
@@ -2559,6 +4167,234 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             IsDeploymentConfirmationValid();
     }
 
+    private bool CanUseInstallerEvidence(CustomerInstallConfig config)
+    {
+        return _bootstrapSession is not null &&
+            !string.IsNullOrWhiteSpace(_bootstrapSession.SessionId) &&
+            !string.IsNullOrWhiteSpace(config.ControlPlane.DeploymentExportId) &&
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallStatusSync,
+                requirePortalSync: true,
+                out _);
+    }
+
+    private void StartNewInstallerEvidenceAttempt()
+    {
+        _installerEvidenceOutbox.InstallAttemptId = $"ia_{Guid.NewGuid():N}";
+        _installerEvidenceOutbox.NextSequence = 1;
+        _installerEvidenceOutbox.InstallStarted = false;
+        _installerEvidenceOutbox.IsTerminal = false;
+    }
+
+    private async Task EnsureFreshInstallEvidenceAttemptAsync()
+    {
+        if (_config is null || !CanUseInstallerEvidence(_config))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_installerEvidenceOutbox.InstallAttemptId) ||
+            _installerEvidenceOutbox.InstallStarted ||
+            _installerEvidenceOutbox.IsTerminal)
+        {
+            StartNewInstallerEvidenceAttempt();
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.PackageValidated,
+                "provisioning",
+                "passed",
+                "Installer verified the customer deployment package.");
+        }
+    }
+
+    private async Task QueueInstallerEvidenceAsync(
+        string eventType,
+        string lifecycleStatus,
+        string outcome,
+        string message,
+        InstallerEvidenceError? error = null,
+        IReadOnlyList<InstallerEvidenceSmokeTest>? smokeTests = null,
+        CustomerInstallConfig? config = null)
+    {
+        config ??= _config;
+        if (!IsSetupMode || config is null || !CanUseInstallerEvidence(config))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_installerEvidenceOutbox.InstallAttemptId))
+        {
+            StartNewInstallerEvidenceAttempt();
+        }
+
+        var sequence = _installerEvidenceOutbox.NextSequence++;
+        var eventId = $"evt_{Guid.NewGuid():N}";
+        var payload = new InstallerEvidenceEvent
+        {
+            EventId = eventId,
+            EventType = eventType,
+            InstallAttemptId = _installerEvidenceOutbox.InstallAttemptId,
+            Sequence = sequence,
+            OccurredAt = DateTimeOffset.UtcNow,
+            OnboardingSessionId = _bootstrapSession!.SessionId,
+            DeploymentExportId = config.ControlPlane.DeploymentExportId,
+            LifecycleStatus = lifecycleStatus,
+            Outcome = outcome,
+            Error = error,
+            InstallerVersion = InstallerVersion,
+            PackageHash = EvidencePackageHash(config),
+            RuntimeUrl = config.App.RuntimeBaseUrl,
+            ApiUrl = config.App.ApiBaseUrl,
+            AzureResourceGroup = config.Azure.ResourceGroupName,
+            SmokeTests = smokeTests?.ToList() ?? [],
+            Message = message
+        };
+        _installerEvidenceOutbox.PendingEvents.Add(new PendingInstallerEvidenceEvent
+        {
+            IdempotencyKey = $"{payload.InstallAttemptId}:{payload.Sequence}:{payload.EventId}",
+            Payload = payload
+        });
+        RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
+
+        if (eventType.Equals(InstallerEvidenceEventType.InstallStarted, StringComparison.Ordinal))
+        {
+            _installerEvidenceOutbox.InstallStarted = true;
+        }
+
+        if (eventType is InstallerEvidenceEventType.PackageValidationFailed or
+            InstallerEvidenceEventType.InstallFailed or
+            InstallerEvidenceEventType.InstallCompleted)
+        {
+            _installerEvidenceOutbox.IsTerminal = true;
+        }
+
+        SaveWizardState();
+        await FlushInstallerEvidenceOutboxAsync();
+    }
+
+    private async Task FlushInstallerEvidenceOutboxAsync()
+    {
+        if (_installerEvidenceOutbox.PendingEvents.Count == 0)
+        {
+            return;
+        }
+
+        if (_bootstrapSession is null ||
+            !IsBootstrapOperationAllowed(
+                OnboardingOperation.InstallStatusSync,
+                requirePortalSync: true,
+                out _))
+        {
+            PortalSyncStatus = $"{_installerEvidenceOutbox.PendingEvents.Count} installer evidence event(s) queued for portal sync.";
+            SaveWizardState();
+            return;
+        }
+
+        while (_installerEvidenceOutbox.PendingEvents.Count > 0)
+        {
+            var pending = _installerEvidenceOutbox.PendingEvents[0];
+            pending.DeliveryAttempts++;
+            pending.LastAttemptAt = DateTimeOffset.UtcNow;
+            try
+            {
+                var receipt = await _onboardingApiClient.SubmitEvidenceAsync(
+                    _bootstrapSession,
+                    pending.Payload,
+                    pending.IdempotencyKey);
+                _installerEvidenceOutbox.PendingEvents.RemoveAt(0);
+                RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
+                PortalSyncStatus = $"Installer evidence synced through sequence {receipt.Sequence}; correlation {receipt.CorrelationId}.";
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                pending.LastDeliveryStatus = "Retry pending";
+                PortalSyncStatus = $"Portal evidence sync pending; {_installerEvidenceOutbox.PendingEvents.Count} event(s) remain queued.";
+                SaveWizardState();
+                RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
+                return;
+            }
+
+            SaveWizardState();
+        }
+    }
+
+    private bool CanRetryInstallerEvidenceSync()
+    {
+        return _bootstrapSession is not null && _installerEvidenceOutbox.PendingEvents.Count > 0;
+    }
+
+    private string EvidencePackageHash(CustomerInstallConfig config)
+    {
+        var hash = PackageComputedHash;
+        if (string.IsNullOrWhiteSpace(hash) ||
+            hash.Equals("Not checked", StringComparison.OrdinalIgnoreCase) ||
+            hash.Equals("Not available", StringComparison.OrdinalIgnoreCase))
+        {
+            hash = config.ControlPlane.PackageHash;
+        }
+
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return "";
+        }
+
+        return hash.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? hash : $"sha256:{hash}";
+    }
+
+    private static InstallerEvidenceError CreateMilestoneError(
+        string phase,
+        IReadOnlyList<InstallerStepResult> results,
+        bool warning = false)
+    {
+        var failed = results.FirstOrDefault(result => result.Status == InstallStatus.Failed) ??
+            results.FirstOrDefault(result => result.Status == InstallStatus.Warning);
+        var code = failed?.Code ?? "";
+
+        if (phase.Equals("azure", StringComparison.OrdinalIgnoreCase))
+        {
+            return code switch
+            {
+                "AppServiceCapacityUnavailable" => EvidenceError("AZURE_REGION_UNAVAILABLE", "Azure could not allocate the requested App Service capacity in the selected region.", "azure", true),
+                "KeyVaultRecoveryRequired" => EvidenceError("AZURE_DEPLOYMENT_FAILED", "Azure deployment requires Key Vault recovery or an approved replacement name.", "azure", true),
+                _ when warning => EvidenceError("AZURE_DEPLOYMENT_WARNING", "Azure deployment completed with a warning that requires review.", "azure", true),
+                _ => EvidenceError("AZURE_DEPLOYMENT_FAILED", "Azure deployment did not complete successfully.", "azure", failed?.RetrySafe ?? true)
+            };
+        }
+
+        return warning
+            ? EvidenceError("SMOKE_TEST_WARNING", "Runtime smoke tests completed with warnings that require review.", "runtime", true)
+            : EvidenceError("SMOKE_TEST_FAILED", "One or more required runtime smoke tests did not pass.", "runtime", failed?.RetrySafe ?? true);
+    }
+
+    private static InstallerEvidenceError EvidenceError(
+        string code,
+        string message,
+        string category,
+        bool retryable)
+    {
+        return new InstallerEvidenceError
+        {
+            Code = code,
+            Message = message,
+            Category = category,
+            Retryable = retryable
+        };
+    }
+
+    private static List<InstallerEvidenceSmokeTest> CreateSmokeTestSummary(
+        IReadOnlyList<InstallerStepResult> results)
+    {
+        return results.Select(result => new InstallerEvidenceSmokeTest
+        {
+            Name = result.Code.Contains("SharePoint", StringComparison.OrdinalIgnoreCase)
+                ? "sharePointConnection"
+                : result.Code.Contains("Health", StringComparison.OrdinalIgnoreCase) ||
+                    result.Code.Contains("App", StringComparison.OrdinalIgnoreCase)
+                    ? "runtimeHealth"
+                    : "installerValidation",
+            Status = result.Status.ToString().ToLowerInvariant()
+        }).ToList();
+    }
+
     private async Task RunInstallAsync()
     {
         if (_config is null)
@@ -2584,6 +4420,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentStatus = "Running";
         DeploymentStatusBrush = "#19D8E9";
         DeploymentSummary = "Running approved Azure deployment.";
+        IsDeploymentRunning = true;
         DeploymentOutputPath = "Not saved";
         var deploymentArtifactOutputPath = PrepareArtifactOutputPath("install", "azure-deployment.json");
         DeploymentArtifactPath = deploymentArtifactOutputPath;
@@ -2601,10 +4438,34 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             DeploymentResults.Add(new DeploymentResultViewModel(result));
         });
 
-        await WriteDeploymentApprovalManifestAsync();
-        SaveWizardState();
-
-        await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, deploymentArtifactOutputPath, progress);
+        try
+        {
+            await WriteDeploymentApprovalManifestAsync();
+            SaveWizardState();
+            await EnsureFreshInstallEvidenceAttemptAsync();
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.InstallStarted,
+                "provisioning",
+                "passed",
+                "Installer started provisioning the approved customer environment.");
+            await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, deploymentArtifactOutputPath, progress);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or HttpRequestException or JsonException)
+        {
+            var failed = InstallerStepResult.Failed(
+                "Azure Deployment",
+                "InstallerDeploymentException",
+                "Azure deployment did not complete.",
+                "The installer encountered an internal deployment error. Review local support evidence.",
+                retrySafe: true);
+            deploymentResults.Add(failed);
+            DeploymentResults.Add(new DeploymentResultViewModel(failed));
+            _session.Results.Add(failed);
+        }
+        finally
+        {
+            IsDeploymentRunning = false;
+        }
         DeploymentArtifactPath = GetArtifactPathFromResults(deploymentResults, deploymentArtifactOutputPath);
 
         var deploymentStatus = GetDeploymentStatus(deploymentResults);
@@ -2635,6 +4496,28 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RefreshValidationReadiness();
 
         DeploymentOutputPath = await SaveDeploymentEvidenceAsync(deploymentResults, deploymentStatus, DeploymentArtifactPath);
+        if (deploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.AzureDeploymentCompleted,
+                "provisioning",
+                deploymentStatus == InstallStatus.Warning ? "warning" : "passed",
+                deploymentStatus == InstallStatus.Warning
+                    ? "Azure deployment completed with warnings that require review."
+                    : "Azure deployment completed successfully.",
+                deploymentStatus == InstallStatus.Warning
+                    ? CreateMilestoneError("azure", deploymentResults, warning: true)
+                    : null);
+        }
+        else
+        {
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.InstallFailed,
+                "failed",
+                "failed",
+                "Installer stopped because Azure deployment did not complete.",
+                CreateMilestoneError("azure", deploymentResults));
+        }
         OnPropertyChanged(nameof(ValidationTargetDetails));
         FooterStatus = deploymentStatus switch
         {
@@ -2870,7 +4753,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _config is not null &&
             File.Exists(PackagePath) &&
             _currentStepNumber >= 7 &&
-            _lastDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning;
+            _lastDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning &&
+            _isGraphSignedIn &&
+            !string.IsNullOrWhiteSpace(_graphAccessToken) &&
+            !_isPowerShellActionRunning;
     }
 
     private async Task RunValidationAsync()
@@ -2893,6 +4779,17 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        if (!_isGraphSignedIn || string.IsNullOrWhiteSpace(_graphAccessToken))
+        {
+            FooterStatus = "Validation requires an active Microsoft Graph sign-in. Return to Sign In and authenticate to Graph again.";
+            SetCurrentStep(3);
+            SetStepStatus(3, "Action required", "#FFB84D");
+            return;
+        }
+
+        IsValidationRunning = true;
+        try
+        {
         ValidationResults.Clear();
         ValidationStatus = "Running";
         ValidationStatusBrush = "#19D8E9";
@@ -2912,7 +4809,28 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             ValidationResults.Add(new ValidationResultViewModel(result));
         });
 
-        await _engine.RunValidationAsync(_session, GetWorkspaceRoot(), PackagePath, progress);
+        try
+        {
+            await _engine.RunValidationAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                _graphAccessToken,
+                progress,
+                deploymentArtifactPath: DeploymentArtifactPath);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or HttpRequestException or JsonException)
+        {
+            var failed = InstallerStepResult.Failed(
+                "Runtime Validation",
+                "InstallerValidationException",
+                "Runtime validation did not complete.",
+                "The installer encountered an internal validation error. Review local support evidence.",
+                retrySafe: true);
+            validationResults.Add(failed);
+            ValidationResults.Add(new ValidationResultViewModel(failed));
+            _session.Results.Add(failed);
+        }
 
         var validationStatus = GetPhaseStatus(validationResults);
         _lastValidationStatus = validationStatus;
@@ -2941,6 +4859,50 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         ValidationOutputPath = await SaveValidationEvidenceAsync(validationResults, validationStatus);
+        var smokeTests = CreateSmokeTestSummary(validationResults);
+        var runtimeIdentityVerified = validationResults.Any(result =>
+            result.Code == "AppHealthReady" && result.Status == InstallStatus.Passed) &&
+            validationResults.Any(result =>
+                result.Code == "PortalAppReady" && result.Status == InstallStatus.Passed);
+        if (runtimeIdentityVerified)
+        {
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.RuntimeConfigured,
+                "provisioning",
+                "passed",
+                "Deployed PageMaker365 runtime identity and configuration were verified.");
+        }
+
+        if (validationStatus is InstallStatus.Passed or InstallStatus.Warning)
+        {
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.SmokeTestsCompleted,
+                validationStatus == InstallStatus.Warning ? "needs_attention" : "provisioning",
+                validationStatus == InstallStatus.Warning ? "warning" : "passed",
+                validationStatus == InstallStatus.Warning
+                    ? "Runtime smoke tests completed with warnings that require review."
+                    : "Required runtime smoke tests completed successfully.",
+                validationStatus == InstallStatus.Warning
+                    ? CreateMilestoneError("smoke", validationResults, warning: true)
+                    : null,
+                smokeTests);
+        }
+        else
+        {
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.SmokeTestsCompleted,
+                "failed",
+                "failed",
+                "Required runtime smoke tests did not pass.",
+                CreateMilestoneError("smoke", validationResults),
+                smokeTests);
+            await QueueInstallerEvidenceAsync(
+                InstallerEvidenceEventType.InstallFailed,
+                "failed",
+                "failed",
+                "Installer stopped because required runtime validation did not pass.",
+                CreateMilestoneError("smoke", validationResults));
+        }
         RefreshFinalEvidenceReadiness();
         FooterStatus = validationStatus switch
         {
@@ -2960,6 +4922,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         GenerateAdminMessageCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
         SaveWizardState();
+        }
+        finally
+        {
+            IsValidationRunning = false;
+        }
     }
 
     private async Task<string> SaveValidationEvidenceAsync(
@@ -3120,6 +5087,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FinalReportPath = result.ReportPath;
         FinalManifestPath = result.ManifestPath;
         FinalBundlePath = result.BundlePath;
+        var completedWithWarnings = GetFinalStatusLabel().Equals("CompletedWithWarnings", StringComparison.OrdinalIgnoreCase);
+        await QueueInstallerEvidenceAsync(
+            InstallerEvidenceEventType.InstallCompleted,
+            "completed",
+            completedWithWarnings ? "warning" : "passed",
+            completedWithWarnings
+                ? "Installer completed with reviewed warnings."
+                : "Installer completed and required validation passed.",
+            completedWithWarnings
+                ? EvidenceError("INSTALL_COMPLETED_WITH_WARNINGS", "Installer completed with warnings recorded in local evidence.", "operator_action", false)
+                : null,
+            CreateSmokeTestSummary(ValidationResults.Select(ToStepResult).ToList()));
         FinishStatus = "Complete";
         FinishStatusBrush = "#42D8A0";
         FinishSummary = "Final install evidence package is ready for PageMaker365 records and customer handoff.";
@@ -3130,7 +5109,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         CreateSupportBundleCommand.RaiseCanExecuteChanged();
-        SaveWizardState(markCompleted: true);
+        SaveWizardState(markCompleted: _installerEvidenceOutbox.PendingEvents.Count == 0);
     }
 
     private string GetFinalStatusLabel()
@@ -3247,6 +5226,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             PortalMissingFieldsSummary = "No required onboarding fields are missing.";
         }
+
+        IsPortalDiscoveryRequired =
+            PortalMissingFields.Count > 0 ||
+            status.PackageReadiness.Status.Equals("NeedsCustomerInput", StringComparison.OrdinalIgnoreCase);
 
         PackageReadinessStatusBrush = status.PackageReadiness.Status switch
         {
@@ -3602,6 +5585,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "Azure sign-in did not complete. Retry sign-in and make sure the account belongs to the customer tenant or has access to the target subscription.",
             "GraphSignInFailed" =>
                 "Microsoft Graph sign-in did not complete. Retry sign-in and approve the requested scopes for tenant, app consent, and SharePoint validation.",
+            "AppServiceCapacityUnavailable" =>
+                "Azure App Service could not allocate the requested plan capacity. Run deployment preview again to review the async-allocation update, approve it, and retry install; existing resources will be reused.",
+            "KeyVaultRecoveryRequired" =>
+                "The package Key Vault name is retained in Azure soft delete. Recover the vault into the target resource group or regenerate the signed package with a new Key Vault name before deployment.",
             "AzureTenantMismatch" =>
                 "The signed-in Azure tenant does not match the loaded customer package. Sign in with the correct customer tenant or load a package generated for the current tenant, then rerun preflight.",
             "AzureSubscriptionMismatch" =>

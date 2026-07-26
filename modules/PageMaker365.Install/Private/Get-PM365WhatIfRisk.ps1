@@ -8,6 +8,7 @@ function Get-PM365WhatIfRisk {
 
     $createCount = 0
     $modifyCount = 0
+    $deployCount = 0
     $deleteCount = 0
     $ignoreCount = 0
     $noChangeCount = 0
@@ -20,6 +21,7 @@ function Get-PM365WhatIfRisk {
         switch ($changeType) {
             'create' { $createCount++; break }
             'modify' { $modifyCount++; break }
+            'deploy' { $deployCount++; $warningCount++; break }
             'delete' { $deleteCount++; $blockedCount++; break }
             'ignore' { $ignoreCount++; $warningCount++; break }
             'nochange' { $noChangeCount++; break }
@@ -49,6 +51,7 @@ function Get-PM365WhatIfRisk {
         riskLevel = $riskLevel
         createCount = $createCount
         modifyCount = $modifyCount
+        deployCount = $deployCount
         deleteCount = $deleteCount
         ignoreCount = $ignoreCount
         noChangeCount = $noChangeCount

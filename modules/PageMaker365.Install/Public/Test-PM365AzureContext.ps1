@@ -88,18 +88,28 @@ function Test-PM365AzureContext {
     $resourceGroupName = [string]$config.azure.resourceGroupName
     $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
     if ($resourceGroup) {
-        $results += New-PM365Result `
-            -Status 'Passed' `
-            -Code 'AzureResourceGroupReady' `
-            -Summary 'Target resource group exists.' `
-            -Details $resourceGroup.ResourceGroupName
+        $productTag = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @('product'))
+        $managedByTag = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @('managedBy'))
+        if ($productTag -eq 'PageMaker365' -and $managedByTag -eq 'PageMaker365') {
+            $results += New-PM365Result `
+                -Status 'Passed' `
+                -Code 'AzureResourceGroupReady' `
+                -Summary 'Target resource group exists and is owned by PageMaker365.' `
+                -Details $resourceGroup.ResourceGroupName
+        } else {
+            $results += New-PM365Result `
+                -Status 'Failed' `
+                -Code 'AzureResourceGroupOwnershipMismatch' `
+                -Summary 'The existing target resource group is not owned by PageMaker365.' `
+                -Details "Resource group '$resourceGroupName' must have product=PageMaker365 and managedBy=PageMaker365 tags before it can be reused." `
+                -RetrySafe $false
+        }
     } else {
         $results += New-PM365Result `
-            -Status 'Failed' `
-            -Code 'AzureResourceGroupMissing' `
-            -Summary 'Target resource group does not exist.' `
-            -Details 'Create the resource group in the customer subscription before running deployment. The v1 installer deploys into a pre-existing resource group.' `
-            -RetrySafe $true
+            -Status 'Passed' `
+            -Code 'AzureResourceGroupWillBeCreated' `
+            -Summary 'The dedicated PageMaker365 resource group will be created during deployment.' `
+            -Details "Subscription-scope preview and deployment will create '$resourceGroupName' in $([string]$config.azure.location)."
     }
 
     $subscriptionReady = $actualSubscriptionId -and ((-not $expectedSubscriptionId) -or ($expectedSubscriptionId -eq $actualSubscriptionId))

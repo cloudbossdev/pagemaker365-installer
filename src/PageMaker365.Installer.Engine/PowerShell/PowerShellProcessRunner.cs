@@ -12,7 +12,9 @@ public sealed class PowerShellProcessRunner
         string arguments,
         string workingDirectory,
         CancellationToken cancellationToken = default,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        IProgress<string>? outputProgress = null,
+        IReadOnlyDictionary<string, string>? environmentVariables = null)
     {
         var effectiveTimeout = timeout ?? DefaultTimeout;
         if (effectiveTimeout <= TimeSpan.Zero && effectiveTimeout != Timeout.InfiniteTimeSpan)
@@ -41,14 +43,15 @@ public sealed class PowerShellProcessRunner
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        AddEnvironmentVariables(startInfo, environmentVariables);
 
         using var process = new Process { StartInfo = startInfo };
         var standardOutput = new StringBuilder();
         var standardError = new StringBuilder();
         var outputLock = new object();
         var errorLock = new object();
-        process.OutputDataReceived += (_, args) => AppendLine(standardOutput, outputLock, args.Data);
-        process.ErrorDataReceived += (_, args) => AppendLine(standardError, errorLock, args.Data);
+        process.OutputDataReceived += (_, args) => AppendLine(standardOutput, outputLock, args.Data, outputProgress);
+        process.ErrorDataReceived += (_, args) => AppendLine(standardError, errorLock, args.Data, outputProgress);
 
         if (!process.Start())
         {
@@ -113,6 +116,123 @@ public sealed class PowerShellProcessRunner
         };
     }
 
+    public async Task<PowerShellExecutionResult> RunInteractiveFileResultAsync(
+        string arguments,
+        string workingDirectory,
+        string resultPath,
+        CancellationToken cancellationToken = default,
+        TimeSpan? timeout = null)
+    {
+        var effectiveTimeout = timeout ?? DefaultTimeout;
+        if (effectiveTimeout <= TimeSpan.Zero && effectiveTimeout != Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), "PowerShell timeout must be greater than zero.");
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new PowerShellExecutionResult
+            {
+                ExitCode = -2,
+                StandardError = "PowerShell command was canceled before it started.",
+                Canceled = true,
+                FailureReason = "PowerShell command was canceled before it started."
+            };
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(resultPath) ?? workingDirectory);
+        if (File.Exists(resultPath))
+        {
+            File.Delete(resultPath);
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "pwsh",
+            Arguments = arguments,
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Normal
+        };
+
+        using var process = new Process { StartInfo = startInfo };
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Unable to start PowerShell.");
+        }
+
+        using var timeoutCancellation = CreateTimeoutCancellationTokenSource(effectiveTimeout);
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            timeoutCancellation.Token);
+        var stopReason = StopReason.Completed;
+        var terminationMessage = "";
+        var exitedAfterTermination = true;
+
+        try
+        {
+            await process.WaitForExitAsync(linkedCancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || timeoutCancellation.IsCancellationRequested)
+        {
+            if (HasExited(process))
+            {
+                stopReason = StopReason.Completed;
+            }
+            else
+            {
+                stopReason = cancellationToken.IsCancellationRequested
+                    ? StopReason.Canceled
+                    : StopReason.TimedOut;
+                terminationMessage = TryTerminate(process);
+                exitedAfterTermination = process.WaitForExit((int)TerminationWaitTimeout.TotalMilliseconds);
+            }
+        }
+
+        var output = File.Exists(resultPath) ? await File.ReadAllTextAsync(resultPath) : "";
+        if (stopReason != StopReason.Completed)
+        {
+            return CreateStoppedResult(
+                stopReason,
+                output,
+                "",
+                effectiveTimeout,
+                terminationMessage,
+                exitedAfterTermination);
+        }
+
+        var error = string.IsNullOrWhiteSpace(output)
+            ? $"Interactive PowerShell command did not write the expected result file: {resultPath}"
+            : "";
+
+        return new PowerShellExecutionResult
+        {
+            ExitCode = process.ExitCode,
+            StandardOutput = output,
+            StandardError = process.ExitCode == 0 ? error : $"Interactive PowerShell command exited with code {process.ExitCode}. {error}".Trim()
+        };
+    }
+
+    private static void AddEnvironmentVariables(
+        ProcessStartInfo startInfo,
+        IReadOnlyDictionary<string, string>? environmentVariables)
+    {
+        if (environmentVariables is null)
+        {
+            return;
+        }
+
+        foreach (var item in environmentVariables)
+        {
+            if (string.IsNullOrWhiteSpace(item.Key))
+            {
+                continue;
+            }
+
+            startInfo.Environment[item.Key] = item.Value;
+        }
+    }
+
     private static CancellationTokenSource CreateTimeoutCancellationTokenSource(TimeSpan timeout)
     {
         return timeout == Timeout.InfiniteTimeSpan
@@ -120,7 +240,7 @@ public sealed class PowerShellProcessRunner
             : new CancellationTokenSource(timeout);
     }
 
-    private static void AppendLine(StringBuilder builder, object syncLock, string? value)
+    private static void AppendLine(StringBuilder builder, object syncLock, string? value, IProgress<string>? outputProgress = null)
     {
         if (value is null)
         {
@@ -131,6 +251,8 @@ public sealed class PowerShellProcessRunner
         {
             builder.AppendLine(value);
         }
+
+        outputProgress?.Report(value);
     }
 
     private static string ReadCapturedOutput(StringBuilder builder, object syncLock)

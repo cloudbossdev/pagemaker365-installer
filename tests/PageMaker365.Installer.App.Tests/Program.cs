@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using PageMaker365.Installer.App.ViewModels;
 using PageMaker365.Installer.Engine.Models;
@@ -12,13 +13,25 @@ internal static class Program
     {
         var tests = new (string Name, Func<Task> Run)[]
         {
+            ("RelayCommand reports asynchronous operation state", RelayCommandReportsAsynchronousOperationState),
+            ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
+            ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
+            ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
+            ("Resume session restores saved bootstrap without blocking", ResumeSessionRestoresSavedBootstrapWithoutBlocking),
+            ("Portal acquisition connects downloads and advances to sign-in", PortalAcquisitionConnectsDownloadsAndAdvancesToSignIn),
+            ("Portal acquisition failure stays retryable on package step", PortalAcquisitionFailureStaysRetryableOnPackageStep),
+            ("Portal acquisition redownloads a previously downloaded package", PortalAcquisitionRedownloadsPreviouslyDownloadedPackage),
+            ("Portal acquisition polls pending package until ready", PortalAcquisitionPollsPendingPackageUntilReady),
+            ("Portal acquisition exposes missing fields without requesting sign-in", PortalAcquisitionExposesMissingFieldsWithoutRequestingSignIn),
             ("CheckPackageReadinessCommand applies portal status and missing fields", CheckPackageReadinessCommandAppliesPortalStatusAndMissingFields),
             ("SyncDiscoveryCommand blocks portal sync when policy disallows portal sync", SyncDiscoveryCommandBlocksPortalSyncWhenPolicyDisallowsPortalSync),
             ("CheckPackageReadinessCommand blocks portal status when policy disallows portal sync", CheckPackageReadinessCommandBlocksPortalStatusWhenPolicyDisallowsPortalSync),
             ("DownloadGeneratedPackageCommand blocks package download when operation is not allowed", DownloadGeneratedPackageCommandBlocksPackageDownloadWhenOperationIsNotAllowed),
             ("SyncDiscoveryCommand calls portal client when policy allows portal sync", SyncDiscoveryCommandCallsPortalClientWhenPolicyAllowsPortalSync),
             ("DownloadGeneratedPackageCommand loads downloaded portal package", DownloadGeneratedPackageCommandLoadsDownloadedPortalPackage),
+            ("Evidence sync failure keeps package event in persisted outbox", EvidenceSyncFailureKeepsPackageEventInPersistedOutbox),
+            ("Removal workflow enables Azure inventory but keeps removal gated", RemovalWorkflowEnablesAzureInventoryButKeepsRemovalGated),
             ("DownloadGeneratedPackageCommand rejects provenance mismatch without loading package", DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage),
             ("DownloadGeneratedPackageCommand rejects invalid downloaded package", DownloadGeneratedPackageCommandRejectsInvalidDownloadedPackage)
         };
@@ -43,6 +56,45 @@ internal static class Program
         return failed == 0 ? 0 : 1;
     }
 
+    private static async Task RelayCommandReportsAsynchronousOperationState()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var isRunning = false;
+        var command = new RelayCommand(
+            async () =>
+            {
+                started.SetResult();
+                await release.Task;
+            },
+            runningChanged: value => isRunning = value);
+
+        var execution = command.ExecuteAsync();
+        await started.Task;
+        AssertEx.True(isRunning, "The operation indicator should be active while the command is awaiting work.");
+        AssertEx.False(command.CanExecute(null), "A running command should not execute twice.");
+
+        release.SetResult();
+        await execution;
+        AssertEx.False(isRunning, "The operation indicator should stop when the command completes.");
+    }
+
+    private static async Task PackageStepLocksSignInUntilPackageIsValidated()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+
+        AssertEx.True(viewModel.IsPackageStep, "Setup should present package acquisition before sign-in.");
+        AssertEx.False(viewModel.CanGoNext, "Sign-in must stay locked until a customer package passes local validation.");
+        AssertEx.False(viewModel.NextCommand.CanExecute(null), "The Next command must not bypass package validation.");
+        AssertEx.False(viewModel.GoToStepCommand.CanExecute(3), "Direct navigation must not bypass package validation.");
+        AssertEx.False(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in must remain unavailable without a validated package.");
+        AssertEx.False(viewModel.ConnectGraphCommand.CanExecute(null), "Graph sign-in must remain unavailable without a validated package.");
+    }
+
     private static async Task LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn()
     {
         using var scope = TestScope.Create();
@@ -55,7 +107,216 @@ internal static class Program
         AssertEx.StringContains(viewModel.AzureSubscription, "rg-pagemaker365-contoso-prod");
         AssertEx.Equal("https://contoso.sharepoint.com/sites/intranet", viewModel.SharePointSite);
         AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in should unlock after loading a valid package.");
+        AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "Graph sign-in should unlock after loading a valid package.");
+        AssertEx.False(viewModel.RunPreflightCommand.CanExecute(null), "Preflight must remain locked until Azure and Graph sign-in both complete.");
+        AssertEx.False(viewModel.GoToStepCommand.CanExecute(4), "The Preflight step must remain inaccessible until both sign-ins complete.");
+        AssertEx.False(viewModel.CanGoNext, "Next must remain disabled while either required sign-in is incomplete.");
         AssertEx.NotEqual("Not checked", viewModel.PackageTrustStatus);
+    }
+
+    private static async Task LocalDownloadedPackagePathRemainsSupported()
+    {
+        using var scope = TestScope.Create();
+        var packagePath = scope.WritePackage(CreateConfig("Local Package Customer"));
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+
+        AssertEx.Equal(Path.GetFullPath(packagePath), Path.GetFullPath(viewModel.PackagePath));
+        AssertEx.Equal("Local Package Customer", viewModel.CustomerName);
+        AssertEx.True(viewModel.IsSignInStep, "A valid local package should use the same sign-in flow as a portal package.");
+        AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "A validated local package should enable Azure sign-in.");
+        AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "A validated local package should enable Graph sign-in.");
+        AssertEx.False(viewModel.IsOperationRunning, "Local package validation should return the activity indicator to idle.");
+    }
+
+    private static async Task BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+        var packagePath = Path.Combine(scope.RootDirectory, "cloudboss.customer.install.json");
+        await File.WriteAllTextAsync(packagePath, CustomerConfigService.ToJson(CreateConfig("CloudBoss")));
+
+        var loaded = await viewModel.LoadBootstrapFileAsync(packagePath);
+
+        AssertEx.False(loaded, "A customer install package must not load as an onboarding bootstrap.");
+        AssertEx.Equal("Not connected", viewModel.OnboardingSessionId);
+        AssertEx.StringContains(viewModel.FooterStatus, "not a valid PageMaker365 setup file");
+        AssertEx.StringContains(viewModel.FooterStatus, "Alternative installation options");
+    }
+
+    private static async Task PortalAcquisitionConnectsDownloadsAndAdvancesToSignIn()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var connectStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new FakeOnboardingApiClient
+        {
+            PackageJson = CustomerConfigService.ToJson(CreateConfig("Portal Customer")),
+            ConnectStarted = connectStarted,
+            ConnectRelease = connectRelease
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load.");
+        var acquisition = viewModel.AcquirePortalPackageCommand.ExecuteAsync();
+        await connectStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        AssertEx.True(viewModel.IsOperationRunning, "Package acquisition should show global activity while portal work is in flight.");
+        AssertEx.True(viewModel.IsPortalPackageAcquisitionRunning, "Package acquisition should expose its focused running state.");
+
+        connectRelease.SetResult();
+        await acquisition;
+
+        AssertEx.Equal(1, client.ConnectCalls);
+        AssertEx.Equal(1, client.StatusCalls);
+        AssertEx.Equal(1, client.DownloadCalls);
+        AssertEx.Equal("Portal Customer", viewModel.CustomerName);
+        AssertEx.Equal("Downloaded", viewModel.PackageReadinessStatus);
+        AssertEx.True(viewModel.IsSignInStep, "Successful portal acquisition should advance to the normal sign-in step.");
+        AssertEx.False(viewModel.IsPortalPackageAcquisitionRunning, "Package acquisition should clear its running state after success.");
+        AssertEx.False(viewModel.IsOperationRunning, "Package acquisition should return the global activity indicator to idle.");
+    }
+
+    private static async Task PortalAcquisitionFailureStaysRetryableOnPackageStep()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient
+        {
+            ConnectFailure = new HttpRequestException("Simulated portal outage"),
+            PackageJson = CustomerConfigService.ToJson(CreateConfig("Recovered Portal Customer"))
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load.");
+        await viewModel.AcquirePortalPackageCommand.ExecuteAsync();
+
+        AssertEx.True(viewModel.IsPackageStep, "A portal failure must keep the user on package acquisition.");
+        AssertEx.False(viewModel.CanGoNext, "A portal failure must not unlock sign-in.");
+        AssertEx.True(viewModel.AcquirePortalPackageCommand.CanExecute(null), "The selected setup session should remain available for retry.");
+        AssertEx.False(viewModel.IsPortalPackageAcquisitionRunning, "A failed package acquisition should clear its focused running state.");
+        AssertEx.False(viewModel.IsOperationRunning, "A failed package acquisition should return global activity to idle.");
+
+        client.ConnectFailure = null;
+        await viewModel.AcquirePortalPackageCommand.ExecuteAsync();
+
+        AssertEx.Equal(2, client.ConnectCalls);
+        AssertEx.True(viewModel.IsSignInStep, "Retry should continue to sign-in after the package downloads and validates.");
+        AssertEx.Equal("Recovered Portal Customer", viewModel.CustomerName);
+        AssertEx.False(viewModel.IsOperationRunning, "A successful retry should return global activity to idle.");
+    }
+
+    private static async Task ResumeSessionRestoresSavedBootstrapWithoutBlocking()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var initialViewModel = scope.CreateViewModel();
+
+        await initialViewModel.SelectSetupModeCommand.ExecuteAsync();
+        await initialViewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await initialViewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load and save the active session.");
+
+        var resumedViewModel = scope.CreateViewModel();
+        AssertEx.True(resumedViewModel.HasRestorableSession, "The saved bootstrap session should be offered for resume.");
+
+        var resumeTask = resumedViewModel.ResumeSessionCommand.ExecuteAsync();
+        var completedTask = await Task.WhenAny(resumeTask, Task.Delay(TimeSpan.FromSeconds(2)));
+
+        AssertEx.True(ReferenceEquals(resumeTask, completedTask), "Resume should not block while loading the saved bootstrap.");
+        await resumeTask;
+        AssertEx.False(resumedViewModel.HasRestorableSession, "The saved-session prompt should close after resume.");
+        AssertEx.Equal(bootstrap.SessionId, resumedViewModel.OnboardingSessionId);
+        AssertEx.True(resumedViewModel.AcquirePortalPackageCommand.CanExecute(null), "Portal package acquisition should be available after resume.");
+    }
+
+    private static async Task PortalAcquisitionPollsPendingPackageUntilReady()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient
+        {
+            PackageJson = CustomerConfigService.ToJson(CreateConfig("Polling Customer"))
+        };
+        client.StatusSequence.Enqueue(CreatePortalStatus("NotReady"));
+        client.StatusSequence.Enqueue(CreatePortalStatus("Ready"));
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load.");
+        await viewModel.AcquirePortalPackageCommand.ExecuteAsync();
+
+        AssertEx.Equal(2, client.StatusCalls);
+        AssertEx.Equal(1, client.DownloadCalls);
+        AssertEx.True(viewModel.IsSignInStep, "Package acquisition should advance after polling reaches Ready.");
+    }
+
+    private static async Task PortalAcquisitionRedownloadsPreviouslyDownloadedPackage()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient
+        {
+            Status = CreatePortalStatus("Downloaded"),
+            PackageJson = CustomerConfigService.ToJson(CreateConfig("Redownloaded Customer"))
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load.");
+        await viewModel.AcquirePortalPackageAsync();
+
+        AssertEx.Equal(1, client.StatusCalls);
+        AssertEx.Equal(1, client.DownloadCalls);
+        AssertEx.Equal("Redownloaded Customer", viewModel.CustomerName);
+        AssertEx.Equal("Downloaded", viewModel.PackageReadinessStatus);
+        AssertEx.True(viewModel.IsSignInStep, "A previously downloaded portal package should be downloaded again and advance to sign-in.");
+    }
+
+    private static async Task PortalAcquisitionExposesMissingFieldsWithoutRequestingSignIn()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient
+        {
+            Status = CreatePortalStatus(
+                "NeedsCustomerInput",
+                [
+                    new OnboardingMissingField
+                    {
+                        FieldKey = "supportEmail",
+                        Label = "Support email",
+                        Required = true,
+                        Source = "Portal",
+                        Notes = "Required for package generation."
+                    }
+                ])
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load.");
+        await viewModel.AcquirePortalPackageAsync();
+
+        AssertEx.Equal(0, client.DownloadCalls);
+        AssertEx.True(viewModel.IsPackageStep, "Missing portal fields should keep the user on the package step.");
+        AssertEx.True(viewModel.IsPortalDiscoveryRequired, "Missing portal fields should reveal the recovery details.");
+        AssertEx.StringContains(viewModel.FooterStatus, "customer portal");
+        AssertEx.False(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in must remain unavailable until a valid package is loaded.");
+        AssertEx.False(viewModel.CanGoNext, "Pending customer input must not unlock sign-in.");
+        AssertEx.True(viewModel.AcquirePortalPackageCommand.CanExecute(null), "The setup session should remain available for retry after portal input is completed.");
+        AssertEx.False(viewModel.IsPortalPackageAcquisitionRunning, "Pending package acquisition should clear its focused running state.");
+        AssertEx.False(viewModel.IsOperationRunning, "Pending package acquisition should return global activity to idle.");
     }
 
     private static async Task CheckPackageReadinessCommandAppliesPortalStatusAndMissingFields()
@@ -180,9 +441,58 @@ internal static class Program
         AssertEx.Equal("Downloaded Customer", viewModel.CustomerName);
         AssertEx.Equal("Downloaded", viewModel.PackageReadinessStatus);
         AssertEx.Equal("0.2-test", viewModel.PackageReadinessVersion);
+        AssertEx.Equal("https://download.pagemaker365.example", viewModel.DeployedSiteUrl);
+        AssertEx.True(viewModel.HasDeployedSiteUrl, "A loaded package should expose its deployed runtime URL.");
         AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in should unlock after loading the generated package.");
         AssertEx.True(File.Exists(viewModel.PackageDownloadPath), viewModel.PackageDownloadPath);
         AssertEx.True(File.Exists(viewModel.PortalSyncReceipt.ReceiptOutputPath), viewModel.PortalSyncReceipt.ReceiptOutputPath);
+        AssertEx.Equal(1, client.EvidenceEvents.Count);
+        AssertEx.Equal(InstallerEvidenceEventType.PackageValidated, client.EvidenceEvents[0].EventType);
+        AssertEx.Equal(1, client.EvidenceEvents[0].Sequence);
+    }
+
+    private static async Task EvidenceSyncFailureKeepsPackageEventInPersistedOutbox()
+    {
+        using var scope = TestScope.Create();
+        var client = new FakeOnboardingApiClient
+        {
+            PackageJson = CustomerConfigService.ToJson(CreateConfig("Outbox Customer")),
+            EvidenceFailure = new HttpRequestException("Simulated portal outage")
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.CheckPackageReadinessCommand.ExecuteAsync();
+        await viewModel.DownloadGeneratedPackageCommand.ExecuteAsync();
+
+        var state = scope.LoadActiveState();
+        AssertEx.Equal("Outbox Customer", viewModel.CustomerName);
+        AssertEx.StringContains(viewModel.PortalSyncStatus, "sync pending");
+        AssertEx.True(state is not null, "Expected installer state with a pending evidence event.");
+        AssertEx.Equal(1, state!.InstallerEvidenceOutbox.PendingEvents.Count);
+        AssertEx.Equal(InstallerEvidenceEventType.PackageValidated, state.InstallerEvidenceOutbox.PendingEvents[0].Payload.EventType);
+        AssertEx.Equal(1, state.InstallerEvidenceOutbox.PendingEvents[0].Payload.Sequence);
+    }
+
+    private static async Task RemovalWorkflowEnablesAzureInventoryButKeepsRemovalGated()
+    {
+        using var scope = TestScope.Create();
+        var client = new FakeOnboardingApiClient();
+        var viewModel = scope.CreateViewModel(client);
+
+        AssertEx.True(viewModel.IsRemovalWorkflowAvailable, "Azure-only removal should be available in this build.");
+        await viewModel.SelectRemovalModeCommand.ExecuteAsync();
+        await viewModel.LoadSampleBootstrapCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        await viewModel.GoToStepCommand.ExecuteAsync(4);
+
+        AssertEx.True(viewModel.IsRemovalMode, "Removal workflow was not selected.");
+        AssertEx.True(viewModel.IsSignInStep, "Removal should remain on Sign In until Azure authentication completes.");
+        AssertEx.False(viewModel.RunRemovalInventoryCommand.CanExecute(null), "Removal inventory must remain unavailable until Azure sign-in completes.");
+        AssertEx.False(viewModel.RunRemovalCommand.CanExecute(null), "Destructive removal must remain gated before inventory and approval.");
+        AssertEx.Equal("Not run", viewModel.RemovalInventoryStatus);
+        AssertEx.Equal(0, client.EvidenceEvents.Count);
     }
 
     private static async Task DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage()
@@ -253,7 +563,10 @@ internal static class Program
             ContractVersion = "0.1",
             SessionId = "onb_contoso_sandbox_001",
             CustomerName = "Contoso Intranet",
-            Status = readinessStatus.Equals("Ready", StringComparison.OrdinalIgnoreCase) ? "Ready" : "Pending",
+            Status = readinessStatus.Equals("Ready", StringComparison.OrdinalIgnoreCase) ||
+                readinessStatus.Equals("Downloaded", StringComparison.OrdinalIgnoreCase)
+                    ? readinessStatus
+                    : "Pending",
             PortalRecordUrl = "https://pagemaker365.com/admin/onboarding/onb_contoso_sandbox_001",
             CorrelationId = "corr-app-test-status",
             Message = "Package readiness returned by fake client.",
@@ -401,25 +714,44 @@ internal static class Program
         public string ConnectionLabel => "Fake portal";
 
         public OnboardingPortalStatus Status { get; set; } = CreatePortalStatus();
+        public Queue<OnboardingPortalStatus> StatusSequence { get; } = new();
 
         public string PackageJson { get; set; } = CustomerConfigService.ToJson(CreateConfig("Downloaded Customer"));
 
+        public int ConnectCalls { get; private set; }
         public int DownloadCalls { get; private set; }
         public int SubmitDiscoveryCalls { get; private set; }
         public int StatusCalls { get; private set; }
         public int SaveStatusCalls { get; private set; }
+        public List<InstallerEvidenceEvent> EvidenceEvents { get; } = [];
+        public Exception? EvidenceFailure { get; set; }
+        public Exception? ConnectFailure { get; set; }
+        public TaskCompletionSource? ConnectStarted { get; set; }
+        public TaskCompletionSource? ConnectRelease { get; set; }
 
-        public Task<OnboardingSessionConnection> ConnectAsync(
+        public async Task<OnboardingSessionConnection> ConnectAsync(
             OnboardingBootstrapSession session,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(new OnboardingSessionConnection
+            ConnectCalls++;
+            ConnectStarted?.TrySetResult();
+            if (ConnectRelease is not null)
+            {
+                await ConnectRelease.Task.WaitAsync(cancellationToken);
+            }
+
+            if (ConnectFailure is not null)
+            {
+                throw ConnectFailure;
+            }
+
+            return new OnboardingSessionConnection
             {
                 Status = "Connected",
                 SessionId = session.SessionId,
                 CorrelationId = "corr-app-test-connect",
                 Message = "Connected"
-            });
+            };
         }
 
         public Task<OnboardingDiscoverySubmission> SubmitDiscoveryAsync(
@@ -446,8 +778,9 @@ internal static class Program
             CancellationToken cancellationToken = default)
         {
             StatusCalls++;
-            Status.SessionId = session.SessionId;
-            return Task.FromResult(Status);
+            var status = StatusSequence.Count > 0 ? StatusSequence.Dequeue() : Status;
+            status.SessionId = session.SessionId;
+            return Task.FromResult(status);
         }
 
         public Task<string> SaveStatusAsync(
@@ -460,6 +793,35 @@ internal static class Program
             var path = Path.Combine(outputRoot, "fake-portal-status.json");
             File.WriteAllText(path, JsonSerializer.Serialize(status, JsonOptions));
             return Task.FromResult(path);
+        }
+
+        public Task<InstallerEvidenceReceipt> SubmitEvidenceAsync(
+            OnboardingBootstrapSession session,
+            InstallerEvidenceEvent evidence,
+            string idempotencyKey,
+            CancellationToken cancellationToken = default)
+        {
+            EvidenceEvents.Add(evidence);
+            if (EvidenceFailure is not null)
+            {
+                return Task.FromException<InstallerEvidenceReceipt>(EvidenceFailure);
+            }
+
+            return Task.FromResult(new InstallerEvidenceReceipt
+            {
+                ContractVersion = "0.2",
+                Status = "Accepted",
+                SessionId = session.SessionId,
+                EventId = evidence.EventId,
+                EventType = evidence.EventType,
+                InstallAttemptId = evidence.InstallAttemptId,
+                Sequence = evidence.Sequence,
+                LifecycleStatus = evidence.LifecycleStatus,
+                Outcome = evidence.Outcome,
+                InstallStatus = evidence.LifecycleStatus,
+                CorrelationId = "corr-app-test-evidence",
+                ReceivedAt = DateTimeOffset.UtcNow
+            });
         }
 
         public Task<OnboardingPackageDownloadResult> DownloadPackageAsync(
@@ -508,13 +870,27 @@ internal static class Program
             return new InstallerWizardViewModel(client ?? new FakeOnboardingApiClient(), stateStore, RootDirectory);
         }
 
-        public void WriteBootstrap(OnboardingBootstrapSession session)
+        public PersistedInstallerState? LoadActiveState()
+        {
+            return new InstallerStateStore(Path.Combine(RootDirectory, "state")).LoadMostRecentActive();
+        }
+
+        public string WriteBootstrap(OnboardingBootstrapSession session)
         {
             var samplesDirectory = Path.Combine(RootDirectory, "samples");
             Directory.CreateDirectory(samplesDirectory);
-            File.WriteAllText(
-                Path.Combine(samplesDirectory, "contoso.onboarding.bootstrap.json"),
-                OnboardingSessionService.ToJson(session));
+            var path = Path.Combine(samplesDirectory, "contoso.onboarding.bootstrap.json");
+            File.WriteAllText(path, OnboardingSessionService.ToJson(session));
+            return path;
+        }
+
+        public string WritePackage(CustomerInstallConfig config)
+        {
+            var samplesDirectory = Path.Combine(RootDirectory, "samples");
+            Directory.CreateDirectory(samplesDirectory);
+            var path = Path.Combine(samplesDirectory, "contoso.customer.install.json");
+            File.WriteAllText(path, CustomerConfigService.ToJson(config));
+            return path;
         }
 
         public void Dispose()

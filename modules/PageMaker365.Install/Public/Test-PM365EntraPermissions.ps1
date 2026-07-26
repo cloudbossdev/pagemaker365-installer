@@ -20,8 +20,19 @@ function Test-PM365EntraPermissions {
     }
 
     Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+    $tokenContext = Initialize-PM365GraphAccessToken
+    if ($tokenContext -and -not $tokenContext.connectSucceeded) {
+        $results += New-PM365Result `
+            -Status 'Warning' `
+            -Code 'GraphAccessTokenConnectionFailed' `
+            -Summary 'The installer could not initialize the app-provided Microsoft Graph token.' `
+            -Details $tokenContext.error `
+            -RetrySafe $true
+        return $results
+    }
+
     $context = Get-MgContext -ErrorAction SilentlyContinue
-    if (-not $context) {
+    if (-not $context -and -not $tokenContext) {
         $results += New-PM365Result `
             -Status 'Warning' `
             -Code 'GraphNotSignedIn' `
@@ -31,24 +42,39 @@ function Test-PM365EntraPermissions {
         return $results
     }
 
+    $currentTenantId = if ($tokenContext -and -not [string]::IsNullOrWhiteSpace([string]$tokenContext.tenantId)) {
+        [string]$tokenContext.tenantId
+    } elseif ($context) {
+        [string]$context.TenantId
+    } else {
+        ''
+    }
+    $currentScopes = if ($tokenContext -and $tokenContext.scopes) {
+        @($tokenContext.scopes | ForEach-Object { [string]$_ })
+    } elseif ($context) {
+        @($context.Scopes | ForEach-Object { [string]$_ })
+    } else {
+        @()
+    }
+
     $expectedTenantId = [string]$config.customer.tenantId
-    if ($expectedTenantId -and $context.TenantId -and ($expectedTenantId -ne $context.TenantId)) {
+    if ($expectedTenantId -and $currentTenantId -and ($expectedTenantId -ne $currentTenantId)) {
         $results += New-PM365Result `
             -Status 'Failed' `
             -Code 'GraphTenantMismatch' `
             -Summary 'The Microsoft Graph tenant does not match the customer package.' `
-            -Details "Expected tenant $expectedTenantId but current Graph tenant is $($context.TenantId)." `
+            -Details "Expected tenant $expectedTenantId but current Graph tenant is $currentTenantId." `
             -RetrySafe $true
     } else {
         $results += New-PM365Result `
             -Status 'Passed' `
             -Code 'GraphTenantReady' `
             -Summary 'Microsoft Graph tenant context is available.' `
-            -Details $context.TenantId
+            -Details $currentTenantId
     }
 
     $requiredScopes = @('Application.ReadWrite.All', 'AppRoleAssignment.ReadWrite.All', 'Directory.Read.All', 'Sites.Read.All')
-    $missingScopes = $requiredScopes | Where-Object { $_ -notin $context.Scopes }
+    $missingScopes = $requiredScopes | Where-Object { $_ -notin $currentScopes }
     if ($missingScopes.Count -gt 0) {
         $results += New-PM365Result `
             -Status 'Warning' `

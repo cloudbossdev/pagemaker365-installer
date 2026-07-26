@@ -155,7 +155,8 @@ public static class RuntimeContractValidator
 
         if (TryGetPath(root, "packageReadiness.status", out var status) &&
             status.ValueKind == JsonValueKind.String &&
-            status.GetString()?.Equals("Ready", StringComparison.OrdinalIgnoreCase) == true)
+            (status.GetString()?.Equals("Ready", StringComparison.OrdinalIgnoreCase) == true ||
+             status.GetString()?.Equals("Downloaded", StringComparison.OrdinalIgnoreCase) == true))
         {
             RequireString(root, "packageReadiness.packageDownloadUrl", result);
         }

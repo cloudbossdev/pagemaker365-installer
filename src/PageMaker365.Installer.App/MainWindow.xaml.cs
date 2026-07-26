@@ -40,16 +40,24 @@ public partial class MainWindow : Window
         RightColumn.Width = compact
             ? new GridLength(0)
             : new GridLength(medium ? 270 : 320);
+        HeaderLeftColumn.Width = LeftColumn.Width;
+        HeaderRightColumn.Width = RightColumn.Width;
 
         RightRail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        CompactGuidanceCard.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        CompactGuidanceCard.Visibility = Visibility.Collapsed;
 
-        HeaderBar.Padding = compact || shortWindow ? new Thickness(20, 14, 20, 14) : new Thickness(28, 22, 28, 22);
+        var headerPadding = compact || shortWindow ? new Thickness(20, 14, 20, 14) : new Thickness(28, 22, 28, 22);
+        HeaderBar.Padding = new Thickness(0);
+        HeaderBrand.Margin = headerPadding;
+        HeaderInstallerLabel.Margin = new Thickness(compact || shortWindow ? 20 : 30, 0, 0, 0);
+        HeaderVersionBadge.Margin = new Thickness(0, 0, headerPadding.Right, 0);
         FooterBar.Padding = compact || shortWindow ? new Thickness(14, 12, 14, 12) : new Thickness(22);
         LeftRail.Padding = compact || shortWindow ? new Thickness(14, 16, 14, 16) : new Thickness(22, 24, 22, 24);
         RightRail.Padding = shortWindow ? new Thickness(18, 16, 18, 16) : new Thickness(24);
         CenterContent.Margin = compact || shortWindow ? new Thickness(20) : new Thickness(30);
-        HeaderWordmark.Width = compact ? 210 : 250;
+        HeaderWordmark.Width = compact ? 176 : medium ? 200 : 224;
+        HeaderTagline.Width = HeaderWordmark.Width;
+        WorkflowTitleText.FontSize = compact ? 21 : 24;
 
         WelcomeChoiceGrid.Columns = compact ? 1 : 2;
         SetupChoiceCard.Margin = compact ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 12);
@@ -60,7 +68,14 @@ public partial class MainWindow : Window
         WelcomeWorkflowInstallCard.Margin = compact ? new Thickness(0, 0, 0, 12) : medium ? new Thickness(0, 0, 8, 0) : new Thickness(4, 0, 4, 0);
         WelcomeWorkflowFinishCard.Margin = compact ? new Thickness(0) : medium ? new Thickness(8, 0, 0, 0) : new Thickness(8, 0, 0, 0);
 
-        OnboardingActionsGrid.Columns = compact || medium ? 2 : 4;
+        PackageRecoveryActionsGrid.Columns = compact || medium ? 1 : 2;
+        PackageReadyTargetGrid.Columns = compact || medium ? 1 : 2;
+        PackageReadyAzurePanel.Margin = compact || medium ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 0);
+        PackageReadySharePointPanel.Margin = compact || medium ? new Thickness(0) : new Thickness(9, 0, 0, 0);
+        PackageTechnicalDetailsGrid.Columns = compact || medium ? 1 : 2;
+        PackageTechnicalFilePanel.Margin = compact || medium ? new Thickness(0, 0, 0, 16) : new Thickness(0, 0, 9, 0);
+        PackageTechnicalPortalPanel.Margin = compact || medium ? new Thickness(0) : new Thickness(9, 0, 0, 0);
+        OnboardingActionsGrid.Columns = compact ? 1 : 2;
         PackageTrustGrid.Columns = compact ? 1 : 2;
         PackageTrustPanel.Margin = compact ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 9, 0);
         PackageHashPanel.Margin = compact ? new Thickness(0) : new Thickness(9, 0, 0, 0);

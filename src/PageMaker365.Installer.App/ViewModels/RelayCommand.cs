@@ -6,17 +6,25 @@ public sealed class RelayCommand : ICommand
 {
     private readonly Func<object?, Task> _execute;
     private readonly Func<object?, bool>? _canExecute;
+    private readonly Action<bool>? _runningChanged;
     private bool _isRunning;
 
-    public RelayCommand(Func<Task> execute, Func<bool>? canExecute = null)
-        : this(_ => execute(), canExecute is null ? null : _ => canExecute())
+    public RelayCommand(
+        Func<Task> execute,
+        Func<bool>? canExecute = null,
+        Action<bool>? runningChanged = null)
+        : this(_ => execute(), canExecute is null ? null : _ => canExecute(), runningChanged)
     {
     }
 
-    public RelayCommand(Func<object?, Task> execute, Func<object?, bool>? canExecute = null)
+    public RelayCommand(
+        Func<object?, Task> execute,
+        Func<object?, bool>? canExecute = null,
+        Action<bool>? runningChanged = null)
     {
         _execute = execute;
         _canExecute = canExecute;
+        _runningChanged = runningChanged;
     }
 
     public event EventHandler? CanExecuteChanged;
@@ -41,12 +49,14 @@ public sealed class RelayCommand : ICommand
         try
         {
             _isRunning = true;
+            _runningChanged?.Invoke(true);
             RaiseCanExecuteChanged();
             await _execute(parameter);
         }
         finally
         {
             _isRunning = false;
+            _runningChanged?.Invoke(false);
             RaiseCanExecuteChanged();
         }
     }

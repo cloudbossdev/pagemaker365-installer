@@ -12,6 +12,7 @@ function New-PM365WhatIfResultData {
         riskStatus = [string]$Risk.status
         createCount = [int]$Risk.createCount
         modifyCount = [int]$Risk.modifyCount
+        deployCount = [int]$Risk.deployCount
         deleteCount = [int]$Risk.deleteCount
         ignoreCount = [int]$Risk.ignoreCount
         noChangeCount = [int]$Risk.noChangeCount

@@ -10,9 +10,27 @@ function ConvertTo-PM365WhatIfChange {
         $changeType = 'Unknown'
     }
 
-    $resourceId = [string](Get-PM365ObjectProperty -InputObject $Change -Name @('ResourceId', 'resourceId', 'Id', 'id'))
+    $resourceId = [string](Get-PM365ObjectProperty -InputObject $Change -Name @(
+        'FullyQualifiedResourceId',
+        'fullyQualifiedResourceId',
+        'ResourceId',
+        'resourceId',
+        'RelativeResourceId',
+        'relativeResourceId',
+        'Id',
+        'id'
+    ))
     $resourceType = [string](Get-PM365ObjectProperty -InputObject $Change -Name @('ResourceType', 'resourceType', 'Type', 'type'))
     $resourceName = [string](Get-PM365ObjectProperty -InputObject $Change -Name @('ResourceName', 'resourceName', 'Name', 'name'))
+
+    if ([string]::IsNullOrWhiteSpace($resourceType) -and -not [string]::IsNullOrWhiteSpace($resourceId)) {
+        $providerMatches = [regex]::Matches($resourceId, '(?i)/providers/([^/]+/[^/]+)')
+        if ($providerMatches.Count -gt 0) {
+            $resourceType = $providerMatches[$providerMatches.Count - 1].Groups[1].Value
+        } elseif ($resourceId -match '(?i)(^|/)resourceGroups/[^/]+$') {
+            $resourceType = 'Microsoft.Resources/resourceGroups'
+        }
+    }
 
     if ([string]::IsNullOrWhiteSpace($resourceName) -and -not [string]::IsNullOrWhiteSpace($resourceId)) {
         $resourceName = ($resourceId -split '/')[-1]
