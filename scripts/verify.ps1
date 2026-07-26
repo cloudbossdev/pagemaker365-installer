@@ -14,6 +14,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Repository hygiene checks failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Checking customer-readiness documentation traceability...'
+& (Join-Path $repoRoot 'scripts\test-documentation-traceability.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Documentation traceability checks failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Checking JSON files...'
 Get-ChildItem -Path $repoRoot -Recurse -File -Include *.json |
     Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\|\\logs\\|\\support-bundle\\' } |
