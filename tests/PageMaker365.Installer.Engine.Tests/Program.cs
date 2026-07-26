@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -25,6 +26,9 @@ internal static class Program
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
             ("GetOnboardingStatusAsync accepts unknown readiness without making it downloadable", GetOnboardingStatusAsyncAcceptsUnknownReadinessWithoutMakingItDownloadable),
             ("GetOnboardingStatusAsync carries missing field details", GetOnboardingStatusAsyncCarriesMissingFieldDetails),
+            ("SubmitEvidenceAsync sends hardened callback contract", SubmitEvidenceAsyncSendsHardenedCallbackContract),
+            ("SubmitEvidenceAsync retries transient failure with stable identity", SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity),
+            ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
             ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
@@ -65,8 +69,12 @@ internal static class Program
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
             ("DeploymentApprovalManifestService writes hash without raw confirmation", DeploymentApprovalManifestServiceWritesHashWithoutRawConfirmation),
             ("FinalEvidenceService copies approval and Azure artifacts", FinalEvidenceServiceCopiesApprovalAndAzureArtifacts),
+            ("InstallerEngine parses JSON result from mixed PowerShell output", InstallerEngineParsesJsonResultFromMixedPowerShellOutput),
+            ("InstallerEngine passes Graph token and deployment artifact to validation", InstallerEnginePassesGraphTokenToValidationProcess),
             ("PowerShellProcessRunner returns failed result on timeout", PowerShellProcessRunnerReturnsFailedResultOnTimeout),
             ("PowerShellProcessRunner returns failed result on cancellation", PowerShellProcessRunnerReturnsFailedResultOnCancellation),
+            ("PowerShellProcessRunner reports live output lines", PowerShellProcessRunnerReportsLiveOutputLines),
+            ("PowerShellProcessRunner passes scoped environment variables", PowerShellProcessRunnerPassesScopedEnvironmentVariables),
             ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
             ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery),
             ("GraphDiscoveryService returns package fallback when module is missing", GraphDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
@@ -122,6 +130,92 @@ internal static class Program
         AssertJsonString(body, "oneTimeCode", "TEST-CODE-001");
         AssertJsonString(body, "requestedBy", "owner@example.test");
         AssertJsonString(body, "customerName", "Example Customer");
+    }
+
+    private static async Task SubmitEvidenceAsyncSendsHardenedCallbackContract()
+    {
+        var evidence = CreateInstallerEvidence();
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.2",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "provisioning",
+              "outcome": "passed",
+              "installStatus": "provisioning",
+              "correlationId": "corr-evidence-001",
+              "receivedAt": "2026-07-11T18:00:00Z"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+        var idempotencyKey = $"{evidence.InstallAttemptId}:{evidence.Sequence}:{evidence.EventId}";
+
+        var receipt = await client.SubmitEvidenceAsync(CreateSession(), evidence, idempotencyKey);
+
+        AssertEx.Equal("Accepted", receipt.Status);
+        AssertEx.Equal("/api/onboarding/installer/evidence", handler.Requests[0].RequestUri!.AbsolutePath);
+        AssertEx.Contains(handler.HeaderValues("Idempotency-Key"), idempotencyKey);
+        AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Session"), "onb_test_001");
+        AssertEx.Contains(handler.HeaderValues("X-PM365-Onboarding-Code"), "TEST-CODE-001");
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertEx.Equal(evidence.EventId, body.RootElement.GetProperty("eventId").GetString());
+        AssertEx.Equal(evidence.InstallAttemptId, body.RootElement.GetProperty("installAttemptId").GetString());
+        AssertEx.Equal(1, body.RootElement.GetProperty("sequence").GetInt32());
+        AssertEx.False(handler.RequestBodies[0].Contains("TEST-CODE-001", StringComparison.Ordinal));
+    }
+
+    private static async Task SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity()
+    {
+        var evidence = CreateInstallerEvidence();
+        var calls = 0;
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            calls++;
+            return calls == 1
+                ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("{\"error\":{\"code\":\"temporarily_unavailable\"}}")
+                }
+                : JsonResponse($$"""
+                    {
+                      "status":"Accepted",
+                      "sessionId":"onb_test_001",
+                      "eventId":"{{evidence.EventId}}",
+                      "eventType":"{{evidence.EventType}}",
+                      "installAttemptId":"{{evidence.InstallAttemptId}}",
+                      "sequence":1,
+                      "correlationId":"corr-retry-001"
+                    }
+                    """);
+        });
+        var client = CreatePortalClient(handler);
+        var idempotencyKey = $"{evidence.InstallAttemptId}:1:{evidence.EventId}";
+
+        await client.SubmitEvidenceAsync(CreateSession(), evidence, idempotencyKey);
+
+        AssertEx.Equal(2, handler.Requests.Count);
+        AssertEx.Equal(handler.RequestBodies[0], handler.RequestBodies[1]);
+        AssertEx.Contains(handler.Requests[1].Headers["Idempotency-Key"], idempotencyKey);
+    }
+
+    private static async Task SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse()
+    {
+        var evidence = CreateInstallerEvidence();
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("{\"error\":{\"code\":\"unauthorized\"}}")
+        });
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, "attempt-evidence-001:1:event-evidence-001"));
+
+        AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+        AssertEx.Equal(1, handler.Requests.Count);
     }
 
     private static async Task SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload()
@@ -318,6 +412,7 @@ internal static class Program
             Directory.Delete(workspaceRoot, recursive: true);
         }
     }
+
     private static async Task PackageTrustKeyResolverRejectsUntrustedJwksHost()
     {
         var signedPackage = CreateSignedPackage(config =>
@@ -947,6 +1042,7 @@ internal static class Program
             Directory.Delete(workspaceRoot, recursive: true);
         }
     }
+
     private static async Task ConnectAsyncFallsBackToMockWhenPortalFails()
     {
         var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
@@ -1209,6 +1305,26 @@ internal static class Program
                 PreviewResults =
                 {
                     InstallerStepResult.Passed("Azure What-If", "WhatIfSucceeded", "Preview succeeded.")
+                },
+                InstallerEvidenceOutbox = new InstallerEvidenceOutboxState
+                {
+                    InstallAttemptId = "attempt-persisted-001",
+                    NextSequence = 3,
+                    InstallStarted = true,
+                    PendingEvents =
+                    {
+                        new PendingInstallerEvidenceEvent
+                        {
+                            IdempotencyKey = "attempt-persisted-001:2:event-persisted-002",
+                            Payload = new InstallerEvidenceEvent
+                            {
+                                EventId = "event-persisted-002",
+                                EventType = InstallerEvidenceEventType.InstallStarted,
+                                InstallAttemptId = "attempt-persisted-001",
+                                Sequence = 2
+                            }
+                        }
+                    }
                 }
             });
 
@@ -1220,6 +1336,9 @@ internal static class Program
             AssertEx.Equal(5, loaded.CurrentStepNumber);
             AssertEx.Equal(InstallStatus.Passed, loaded.LastPreviewStatus);
             AssertEx.Equal("Azure What-If", loaded.PreviewResults[0].StepName);
+            AssertEx.Equal("attempt-persisted-001", loaded.InstallerEvidenceOutbox.InstallAttemptId);
+            AssertEx.Equal(3, loaded.InstallerEvidenceOutbox.NextSequence);
+            AssertEx.Equal("event-persisted-002", loaded.InstallerEvidenceOutbox.PendingEvents[0].Payload.EventId);
         }
         finally
         {
@@ -1367,6 +1486,82 @@ internal static class Program
         }
     }
 
+    private static Task InstallerEngineParsesJsonResultFromMixedPowerShellOutput()
+    {
+        var output = "\u001b[93mPlease select the account you want to login with.\u001b[0m\r\n" +
+            "\r\nRetrieving subscriptions for the selection...\r\n" +
+            "[Announcements]\r\n" +
+            "With the new Azure PowerShell login experience, you can select the subscription you want to use more easily.\r\n\r\n" +
+            """
+            {
+              "status": "Passed",
+              "code": "AzureSignInCompleted",
+              "summary": "Azure sign-in completed.",
+              "details": "Current Azure context is tenant tenant-001, subscription sub-001.",
+              "retrySafe": true,
+              "data": {
+                "tenantId": "tenant-001",
+                "subscriptionId": "sub-001",
+                "account": "admin@example.test"
+              },
+              "timestamp": "2026-07-11T03:06:04.5718873Z"
+            }
+            """;
+        var method = typeof(InstallerEngine).GetMethod(
+            "ParsePowerShellResults",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        AssertEx.True(method is not null, "Parser method should exist.");
+        var results = (IReadOnlyList<InstallerStepResult>)method!.Invoke(null, [output])!;
+
+        AssertEx.Equal(1, results.Count);
+        AssertEx.Equal(InstallStatus.Passed, results[0].Status);
+        AssertEx.Equal("AzureSignInCompleted", results[0].Code);
+        AssertEx.Equal("Azure Sign In", results[0].StepName);
+        AssertEx.Equal("sub-001", results[0].Data["subscriptionId"]);
+        return Task.CompletedTask;
+    }
+
+    private static async Task InstallerEnginePassesGraphTokenToValidationProcess()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var moduleDirectory = Path.Combine(workspaceRoot, "modules", "PageMaker365.Install");
+            Directory.CreateDirectory(moduleDirectory);
+            await File.WriteAllTextAsync(
+                Path.Combine(moduleDirectory, "PageMaker365.Install.psd1"),
+                "@{ RootModule = 'PageMaker365.Install.psm1'; ModuleVersion = '0.1.0'; FunctionsToExport = @('Test-PM365SmokeTests') }");
+            await File.WriteAllTextAsync(
+                Path.Combine(moduleDirectory, "PageMaker365.Install.psm1"),
+                "function Test-PM365SmokeTests { param([string] $ConfigPath, [string] $DeploymentArtifactPath) " +
+                "$received = $env:PM365_GRAPH_ACCESS_TOKEN -eq 'validation-token' -and $DeploymentArtifactPath -eq 'deployment-artifact.json'; " +
+                "[pscustomobject]@{ status = if ($received) { 'Passed' } else { 'Failed' }; " +
+                "code = 'ValidationGraphTokenReady'; summary = 'Graph token propagation checked.'; " +
+                "details = if ($received) { 'Token received.' } else { 'Token missing.' }; retrySafe = $true; requiresApproval = $false; data = @{} } }; " +
+                "Export-ModuleMember -Function Test-PM365SmokeTests");
+            var configPath = Path.Combine(workspaceRoot, "customer.install.json");
+            await File.WriteAllTextAsync(configPath, "{}");
+
+            var engine = new InstallerEngine(new StructuredLogger(new RedactionService()));
+            var session = engine.CreateSession(CreateConfig(), workspaceRoot);
+            var results = await engine.RunValidationAsync(
+                session,
+                workspaceRoot,
+                configPath,
+                "validation-token",
+                deploymentArtifactPath: "deployment-artifact.json");
+
+            AssertEx.Equal(1, results.Count);
+            AssertEx.Equal("ValidationGraphTokenReady", results[0].Code);
+            AssertEx.Equal(InstallStatus.Passed, results[0].Status);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
     private static async Task PowerShellProcessRunnerReturnsFailedResultOnTimeout()
     {
         var workspaceRoot = CreateTempDirectory();
@@ -1408,6 +1603,50 @@ internal static class Program
             AssertEx.Equal(-2, result.ExitCode);
             AssertEx.StringContains(result.StandardOutput, "before-cancel");
             AssertEx.StringContains(result.StandardError, "canceled");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task PowerShellProcessRunnerReportsLiveOutputLines()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        var outputLines = new List<string>();
+        try
+        {
+            var progress = new InlineProgress<string>(line => outputLines.Add(line));
+            var result = await new PowerShellProcessRunner().RunAsync(
+                "-NoLogo -NoProfile -NonInteractive -Command \"[Console]::Out.WriteLine('progress-out'); [Console]::Error.WriteLine('progress-err')\"",
+                workspaceRoot,
+                outputProgress: progress);
+
+            AssertEx.True(result.Succeeded, result.StandardError);
+            AssertEx.Contains(outputLines, "progress-out");
+            AssertEx.Contains(outputLines, "progress-err");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task PowerShellProcessRunnerPassesScopedEnvironmentVariables()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var result = await new PowerShellProcessRunner().RunAsync(
+                "-NoLogo -NoProfile -NonInteractive -Command \"Write-Output $env:PM365_TEST_SCOPED_ENV\"",
+                workspaceRoot,
+                environmentVariables: new Dictionary<string, string>
+                {
+                    ["PM365_TEST_SCOPED_ENV"] = "scoped-value"
+                });
+
+            AssertEx.True(result.Succeeded, result.StandardError);
+            AssertEx.StringContains(result.StandardOutput, "scoped-value");
         }
         finally
         {
@@ -1697,6 +1936,25 @@ internal static class Program
         };
     }
 
+    private static InstallerEvidenceEvent CreateInstallerEvidence()
+    {
+        return new InstallerEvidenceEvent
+        {
+            EventId = "event-evidence-001",
+            EventType = InstallerEvidenceEventType.InstallStarted,
+            InstallAttemptId = "attempt-evidence-001",
+            Sequence = 1,
+            OccurredAt = new DateTimeOffset(2026, 7, 11, 18, 0, 0, TimeSpan.Zero),
+            OnboardingSessionId = "onb_test_001",
+            DeploymentExportId = "7f2d7c2e-4f1f-4c7d-8e7d-111111111111",
+            LifecycleStatus = "provisioning",
+            Outcome = "passed",
+            InstallerVersion = "test-version",
+            PackageHash = "sha256:test-hash",
+            Message = "Installer started provisioning."
+        };
+    }
+
     private static TenantDiscoveryResult CreateDiscovery()
     {
         return new TenantDiscoveryResult
@@ -1939,6 +2197,14 @@ internal static class Program
         public void Dispose()
         {
             Environment.SetEnvironmentVariable(Name, _originalValue);
+        }
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value)
+        {
+            report(value);
         }
     }
 

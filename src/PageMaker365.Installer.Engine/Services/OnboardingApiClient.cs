@@ -180,6 +180,63 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         return path;
     }
 
+    public async Task<InstallerEvidenceReceipt> SubmitEvidenceAsync(
+        OnboardingBootstrapSession session,
+        InstallerEvidenceEvent evidence,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (_options.UseMock)
+        {
+            return await _mockClient.SubmitEvidenceAsync(session, evidence, idempotencyKey, cancellationToken);
+        }
+
+        ValidateEvidenceRequest(session, evidence, idempotencyKey);
+        var endpoint = _options.EvidenceEndpoint(session);
+        const int maxAttempts = 4;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var receipt = await PostJsonAsync<InstallerEvidenceEvent, InstallerEvidenceReceipt>(
+                    "installer evidence",
+                    endpoint,
+                    evidence,
+                    session,
+                    cancellationToken,
+                    root => EnsureRequiredJsonFields(
+                        "installer evidence",
+                        endpoint,
+                        root,
+                        "status",
+                        "sessionId",
+                        "eventId",
+                        "eventType",
+                        "installAttemptId",
+                        "sequence",
+                        "correlationId"),
+                    request => request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey));
+                EnsureSessionMatches("installer evidence", endpoint, session, receipt.SessionId);
+                if (!receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
+                    receipt.Sequence != evidence.Sequence)
+                {
+                    throw new OnboardingApiException(
+                        "Portal onboarding API installer evidence response did not match the submitted event.",
+                        endpoint);
+                }
+
+                return receipt;
+            }
+            catch (Exception exception) when (
+                attempt < maxAttempts && IsEvidenceRetryable(exception, cancellationToken))
+            {
+                var backoffMs = Math.Min(2000, 200 * (1 << (attempt - 1))) + Random.Shared.Next(25, 126);
+                await Task.Delay(backoffMs, cancellationToken);
+            }
+        }
+    }
+
     public async Task<OnboardingPackageDownloadResult> DownloadPackageAsync(
         OnboardingBootstrapSession session,
         OnboardingPackageReadiness readiness,
@@ -279,19 +336,22 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         return status.Equals("Ready", StringComparison.OrdinalIgnoreCase) ||
             status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase);
     }
+
     private async Task<TResponse> PostJsonAsync<TRequest, TResponse>(
         string operation,
         Uri endpoint,
         TRequest request,
         OnboardingBootstrapSession session,
         CancellationToken cancellationToken,
-        Action<JsonElement>? validateJson = null)
+        Action<JsonElement>? validateJson = null,
+        Action<HttpRequestMessage>? configureRequest = null)
     {
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = new StringContent(JsonSerializer.Serialize(request, JsonOptions), Encoding.UTF8, "application/json")
         };
         ApplyAuthorization(httpRequest, session);
+        configureRequest?.Invoke(httpRequest);
 
         using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -372,6 +432,47 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         var code = (int)statusCode;
         return statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
             code >= 500;
+    }
+
+    private static bool IsEvidenceRetryable(Exception exception, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested || exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        if (exception is OnboardingApiException apiException && apiException.StatusCode is not null)
+        {
+            var code = (int)apiException.StatusCode.Value;
+            return apiException.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.Conflict or HttpStatusCode.TooManyRequests ||
+                code >= 500;
+        }
+
+        return exception is HttpRequestException or TaskCanceledException or IOException;
+    }
+
+    private static void ValidateEvidenceRequest(
+        OnboardingBootstrapSession session,
+        InstallerEvidenceEvent evidence,
+        string idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey) ||
+            string.IsNullOrWhiteSpace(evidence.EventId) ||
+            string.IsNullOrWhiteSpace(evidence.EventType) ||
+            string.IsNullOrWhiteSpace(evidence.InstallAttemptId) ||
+            evidence.Sequence <= 0 ||
+            string.IsNullOrWhiteSpace(evidence.OnboardingSessionId) ||
+            string.IsNullOrWhiteSpace(evidence.DeploymentExportId) ||
+            string.IsNullOrWhiteSpace(evidence.LifecycleStatus) ||
+            string.IsNullOrWhiteSpace(evidence.Outcome))
+        {
+            throw new InvalidDataException("Installer evidence is missing required hardened contract fields.");
+        }
+
+        if (!evidence.OnboardingSessionId.Equals(session.SessionId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Installer evidence does not match the active onboarding session.");
+        }
     }
 
     private static OnboardingPackageContext? CreatePackageContext(CustomerInstallConfig? config)

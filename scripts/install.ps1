@@ -6,7 +6,9 @@ param(
     [ValidateSet('Headless', 'AzureSignIn', 'GraphSignIn', 'WhatIfOnly', 'SmokeTests')]
     [string] $Mode = 'Headless',
 
-    [string] $OutputRoot = ''
+    [string] $OutputRoot = '',
+
+    [string] $DeploymentArtifactPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,7 +29,7 @@ $result = switch ($Mode) {
         $previewArtifactPath = Join-Path $previewDirectory 'azure-whatif.json'
         Invoke-PM365WhatIf -ConfigPath $Config -OutputPath $previewArtifactPath
     }
-    'SmokeTests' { Test-PM365SmokeTests -ConfigPath $Config }
+    'SmokeTests' { Test-PM365SmokeTests -ConfigPath $Config -DeploymentArtifactPath $DeploymentArtifactPath }
 }
 
 [pscustomobject]@{

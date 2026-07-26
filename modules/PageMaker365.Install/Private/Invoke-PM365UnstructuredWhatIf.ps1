@@ -17,13 +17,13 @@ function Invoke-PM365UnstructuredWhatIf {
 
         [string] $ReasonCode = 'StructuredWhatIfUnavailable',
 
-        [string] $ReasonMessage = 'Get-AzResourceGroupDeploymentWhatIfResult is unavailable; unstructured what-if output was captured.'
+        [string] $ReasonMessage = 'Get-AzSubscriptionDeploymentWhatIfResult is unavailable; unstructured what-if output was captured.'
     )
 
-    $method = 'New-AzResourceGroupDeployment -WhatIf'
+    $method = 'New-AzSubscriptionDeployment -WhatIf'
 
     try {
-        $whatIf = New-AzResourceGroupDeployment @DeploymentArguments -WhatIf *>&1
+        $whatIf = New-AzSubscriptionDeployment @DeploymentArguments -WhatIf *>&1
         $outputText = @($whatIf | ForEach-Object { [string]$_ })
         $risk = Get-PM365WhatIfRisk -UnstructuredFallback
         $artifactPath = ''

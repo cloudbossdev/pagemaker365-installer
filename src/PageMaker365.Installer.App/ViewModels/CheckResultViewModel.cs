@@ -7,7 +7,10 @@ public sealed class CheckResultViewModel
     public CheckResultViewModel(InstallerStepResult result)
     {
         Name = result.StepName;
+        Code = result.Code;
         Summary = result.Summary;
+        Details = result.Details;
+        RetrySafe = result.RetrySafe;
         StatusLabel = result.Status.ToString();
         StatusBrush = result.Status switch
         {
@@ -20,8 +23,10 @@ public sealed class CheckResultViewModel
     }
 
     public string Name { get; }
+    public string Code { get; }
     public string Summary { get; }
+    public string Details { get; }
+    public bool RetrySafe { get; }
     public string StatusLabel { get; }
     public string StatusBrush { get; }
 }
-

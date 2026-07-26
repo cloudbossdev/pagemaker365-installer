@@ -262,19 +262,23 @@ function Invoke-PM365WhatIf {
 
     $resourceGroupName = [string]$config.azure.resourceGroupName
     $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
-    if (-not $resourceGroup) {
+    if ($resourceGroup) {
+        $productTag = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @('product'))
+        $managedByTag = [string](Get-PM365ObjectProperty -InputObject $resourceGroup.Tags -Name @('managedBy'))
+    }
+    if ($resourceGroup -and ($productTag -ne 'PageMaker365' -or $managedByTag -ne 'PageMaker365')) {
         $risk = Get-PM365WhatIfRisk -UnstructuredFallback
         $artifactPath = ''
-        $details = "Create resource group '$resourceGroupName' in subscription '$($context.Subscription.Id)' before running sandbox what-if. The v1 installer deploys into a pre-existing resource group."
+        $details = "Resource group '$resourceGroupName' exists but does not have the required product=PageMaker365 and managedBy=PageMaker365 ownership tags."
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
             $artifact = New-PM365WhatIfArtifact `
                 -Config $config `
                 -Context $context `
                 -TemplateFile $TemplateFile `
-                -Method 'ResourceGroupPreflight' `
+                -Method 'ResourceGroupOwnershipPreflight' `
                 -Risk $risk `
                 -Status 'Failed' `
-                -ErrorCode 'AzureResourceGroupMissing' `
+                -ErrorCode 'AzureResourceGroupOwnershipMismatch' `
                 -ErrorMessage $details
             $artifactPath = Write-PM365JsonArtifact `
                 -OutputPath $OutputPath `
@@ -288,28 +292,33 @@ function Invoke-PM365WhatIf {
 
         New-PM365Result `
             -Status 'Failed' `
-            -Code 'AzureResourceGroupMissing' `
-            -Summary 'Target resource group does not exist.' `
+            -Code 'AzureResourceGroupOwnershipMismatch' `
+            -Summary 'The existing target resource group is not owned by PageMaker365.' `
             -Details $details `
-            -RetrySafe $true `
+            -RetrySafe $false `
             -Data (New-PM365WhatIfResultData -Risk $risk -ArtifactPath $artifactPath)
         return
     }
 
     $parameters = New-PM365TemplateParameterObject -Config $config
     $deploymentArguments = @{
-        ResourceGroupName = [string]$config.azure.resourceGroupName
+        Location = [string]$config.azure.location
         TemplateFile = $TemplateFile
         TemplateParameterObject = $parameters
         ErrorAction = 'Stop'
     }
 
-    $structuredWhatIfCommand = Get-Command -Name Get-AzResourceGroupDeploymentWhatIfResult -ErrorAction SilentlyContinue
+    $structuredWhatIfCommand = Get-Command -Name Get-AzSubscriptionDeploymentWhatIfResult -ErrorAction SilentlyContinue
 
     try {
         if ($structuredWhatIfCommand) {
-            $method = 'Get-AzResourceGroupDeploymentWhatIfResult'
-            $whatIf = Get-AzResourceGroupDeploymentWhatIfResult @deploymentArguments
+            $method = 'Get-AzSubscriptionDeploymentWhatIfResult'
+            # Full payloads preserve Create, Modify, and NoChange instead of collapsing
+            # every evaluated resource into the ambiguous ResourceIdOnly "Deploy" type.
+            $structuredDeploymentArguments = $deploymentArguments.Clone()
+            $structuredDeploymentArguments.ResultFormat = 'FullResourcePayloads'
+            $structuredDeploymentArguments.SkipTemplateParameterPrompt = $true
+            $whatIf = Get-AzSubscriptionDeploymentWhatIfResult @structuredDeploymentArguments
             $changes = @(Get-PM365WhatIfChanges -WhatIfResult $whatIf)
             $risk = Get-PM365WhatIfRisk -Changes $changes
             $resultMetadata = [ordered]@{
@@ -334,9 +343,10 @@ function Invoke-PM365WhatIf {
                     -InputObject $artifact
             }
 
-            $details = 'Create: {0}; Modify: {1}; Delete: {2}; Ignore: {3}; Unknown: {4}; Blocked: {5}' -f `
+            $details = 'Create: {0}; Modify: {1}; Deploy: {2}; Delete: {3}; Ignore: {4}; Unknown: {5}; Blocked: {6}' -f `
                 $risk.createCount,
                 $risk.modifyCount,
+                $risk.deployCount,
                 $risk.deleteCount,
                 $risk.ignoreCount,
                 $risk.unknownCount,
@@ -383,7 +393,7 @@ function Invoke-PM365WhatIf {
             -DeploymentArguments $deploymentArguments `
             -OutputPath $OutputPath `
             -ReasonCode 'StructuredWhatIfUnavailable' `
-            -ReasonMessage 'Get-AzResourceGroupDeploymentWhatIfResult is unavailable; unstructured what-if output was captured.'
+            -ReasonMessage 'Get-AzSubscriptionDeploymentWhatIfResult is unavailable; unstructured what-if output was captured.'
     } catch {
         if ($structuredWhatIfCommand) {
             $structuredErrorMessage = $_.Exception.Message
@@ -394,7 +404,7 @@ function Invoke-PM365WhatIf {
                 -DeploymentArguments $deploymentArguments `
                 -OutputPath $OutputPath `
                 -ReasonCode 'StructuredWhatIfFailedFallbackUsed' `
-                -ReasonMessage "Get-AzResourceGroupDeploymentWhatIfResult failed, so unstructured what-if output was captured. Structured error: $structuredErrorMessage"
+                -ReasonMessage "Get-AzSubscriptionDeploymentWhatIfResult failed, so unstructured what-if output was captured. Structured error: $structuredErrorMessage"
         }
 
         $risk = Get-PM365WhatIfRisk -UnstructuredFallback

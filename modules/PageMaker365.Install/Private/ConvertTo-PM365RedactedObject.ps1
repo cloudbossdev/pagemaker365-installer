@@ -39,6 +39,20 @@ function ConvertTo-PM365RedactedObject {
         return $InputObject
     }
 
+    $inputTypeName = $InputObject.GetType().FullName
+    if ($inputTypeName -eq 'Newtonsoft.Json.Linq.JValue') {
+        return ConvertTo-PM365RedactedObject -InputObject $InputObject.Value -Depth ($Depth - 1)
+    }
+
+    if ($inputTypeName -like 'Newtonsoft.Json.Linq.J*') {
+        try {
+            $plainJsonObject = $InputObject.ToString() | ConvertFrom-Json -Depth 50
+            return ConvertTo-PM365RedactedObject -InputObject $plainJsonObject -Depth ($Depth - 1)
+        } catch {
+            return '[UnsupportedJsonValue]'
+        }
+    }
+
     if ($InputObject -is [System.Collections.IDictionary]) {
         $redacted = [ordered]@{}
         $sensitiveEntryValue = $false

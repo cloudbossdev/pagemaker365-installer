@@ -50,7 +50,18 @@ function Test-PM365SharePointAccess {
     }
 
     $graphContext = Get-MgContext -ErrorAction SilentlyContinue
-    if (-not $graphContext) {
+    $tokenContext = Initialize-PM365GraphAccessToken
+    if ($tokenContext -and -not $tokenContext.connectSucceeded) {
+        $results += New-PM365Result `
+            -Status 'Warning' `
+            -Code 'GraphAccessTokenConnectionFailedForSharePoint' `
+            -Summary 'The installer could not initialize the app-provided Microsoft Graph token for SharePoint checks.' `
+            -Details $tokenContext.error `
+            -RetrySafe $true
+        return $results
+    }
+
+    if (-not $graphContext -and -not $tokenContext) {
         $results += New-PM365Result `
             -Status 'Warning' `
             -Code 'GraphNotSignedInForSharePoint' `

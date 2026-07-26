@@ -47,6 +47,7 @@ public sealed class PersistedInstallerState
     public string PackageDeclaredHash { get; set; } = "";
     public string PackageComputedHash { get; set; } = "";
     public PersistedPortalSyncReceipt PortalSyncReceipt { get; set; } = new();
+    public InstallerEvidenceOutboxState InstallerEvidenceOutbox { get; set; } = new();
     public List<InstallerStepResult> CheckResults { get; set; } = [];
     public List<InstallerStepResult> PreviewResults { get; set; } = [];
     public List<InstallerStepResult> DeploymentResults { get; set; } = [];
@@ -78,6 +79,18 @@ public sealed class PersistedInstallerState
     public string FinalManifestPath { get; set; } = "";
     public string FinalBundlePath { get; set; } = "";
     public string FinalEvidenceDirectory { get; set; } = "";
+    public string RemovalInventoryStatus { get; set; } = "";
+    public string RemovalInventorySummary { get; set; } = "";
+    public string RemovalInventoryOutputPath { get; set; } = "";
+    public string RemovalStatus { get; set; } = "";
+    public string RemovalSummary { get; set; } = "";
+    public string RemovalOutputPath { get; set; } = "";
+    public string RemovalValidationStatus { get; set; } = "";
+    public string RemovalValidationSummary { get; set; } = "";
+    public string RemovalValidationOutputPath { get; set; } = "";
+    public InstallStatus LastRemovalInventoryStatus { get; set; } = InstallStatus.NotStarted;
+    public InstallStatus LastRemovalStatus { get; set; } = InstallStatus.NotStarted;
+    public InstallStatus LastRemovalValidationStatus { get; set; } = InstallStatus.NotStarted;
     public string AiTitle { get; set; } = "";
     public string AiSummary { get; set; } = "";
     public string SessionId { get; set; } = "";

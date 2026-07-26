@@ -100,6 +100,31 @@ public sealed class MockOnboardingApiClient : IOnboardingApiClient
         return path;
     }
 
+    public Task<InstallerEvidenceReceipt> SubmitEvidenceAsync(
+        OnboardingBootstrapSession session,
+        InstallerEvidenceEvent evidence,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new InstallerEvidenceReceipt
+        {
+            ContractVersion = "0.2",
+            Status = "AcceptedMock",
+            SessionId = session.SessionId,
+            EventId = evidence.EventId,
+            EventType = evidence.EventType,
+            InstallAttemptId = evidence.InstallAttemptId,
+            Sequence = evidence.Sequence,
+            LifecycleStatus = evidence.LifecycleStatus,
+            Outcome = evidence.Outcome,
+            InstallStatus = evidence.LifecycleStatus,
+            CorrelationId = $"mock-evidence-{Guid.NewGuid():N}",
+            Message = "Installer evidence accepted by the mock client.",
+            ReceivedAt = DateTimeOffset.UtcNow
+        });
+    }
+
     public Task<string> SaveMockStatusAsync(
         OnboardingPortalStatus status,
         string outputRoot,
@@ -116,7 +141,8 @@ public sealed class MockOnboardingApiClient : IOnboardingApiClient
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!readiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase))
+        if (!readiness.Status.Equals("Ready", StringComparison.OrdinalIgnoreCase) &&
+            !readiness.Status.Equals("Downloaded", StringComparison.OrdinalIgnoreCase))
         {
             return new OnboardingPackageDownloadResult
             {

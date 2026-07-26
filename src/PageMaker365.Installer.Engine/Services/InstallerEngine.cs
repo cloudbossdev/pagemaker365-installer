@@ -1,3 +1,4 @@
+using Microsoft.Identity.Client;
 using System.Text.Json;
 using PageMaker365.Installer.Engine.Models;
 using PageMaker365.Installer.Engine.PowerShell;
@@ -9,6 +10,7 @@ public sealed class InstallerEngine
 {
     private readonly StructuredLogger _logger;
     private readonly PowerShellProcessRunner _powerShellRunner;
+    private readonly GraphDeviceCodeAuthenticator _graphAuthenticator = new();
 
     public InstallerEngine(StructuredLogger logger)
     {
@@ -60,9 +62,14 @@ public sealed class InstallerEngine
         InstallerSession session,
         string workspaceRoot,
         string configPath,
+        string graphAccessToken = "",
         IProgress<InstallerStepResult>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var environmentVariables = string.IsNullOrWhiteSpace(graphAccessToken)
+            ? null
+            : new Dictionary<string, string> { ["PM365_GRAPH_ACCESS_TOKEN"] = graphAccessToken };
+
         return await RunPowerShellModuleCommandAsync(
             session,
             workspaceRoot,
@@ -70,7 +77,8 @@ public sealed class InstallerEngine
             "Preflight & Permissions",
             "Start-PM365Preflight",
             progress,
-            cancellationToken);
+            cancellationToken,
+            environmentVariables: environmentVariables);
     }
 
     public async Task<IReadOnlyList<InstallerStepResult>> RunAzureSignInAsync(
@@ -95,6 +103,7 @@ public sealed class InstallerEngine
         string workspaceRoot,
         string configPath,
         IProgress<InstallerStepResult>? progress = null,
+        IProgress<string>? outputProgress = null,
         CancellationToken cancellationToken = default)
     {
         return await RunPowerShellModuleCommandAsync(
@@ -104,7 +113,58 @@ public sealed class InstallerEngine
             "Microsoft Graph Sign In",
             "Connect-PM365Graph",
             progress,
-            cancellationToken);
+            cancellationToken,
+            commandArguments: "-UseDeviceCode -ContextScope 'CurrentUser'",
+            outputProgress: outputProgress,
+            useInteractiveWindow: true);
+    }
+
+    public async Task<GraphSignInResult> RunGraphDeviceCodeSignInAsync(
+        InstallerSession session,
+        IProgress<InstallerStepResult>? progress = null,
+        IProgress<GraphDeviceCodePrompt>? promptProgress = null,
+        CancellationToken cancellationToken = default)
+    {
+        session.CurrentPhase = "Microsoft Graph Sign In";
+        session.Status = InstallStatus.Running;
+        await _logger.WriteAsync(session, "phase.started", new { session.CurrentPhase, mode = "MSALDeviceCode" }, cancellationToken);
+
+        GraphSignInResult signInResult;
+        try
+        {
+            signInResult = await _graphAuthenticator.SignInAsync(
+                ResolveTenantId(session.Config),
+                ResolveInstallerGraphClientId(session.Config),
+                promptProgress,
+                cancellationToken);
+        }
+        catch (MsalException exception)
+        {
+            var failed = InstallerStepResult.Failed(
+                "Microsoft Graph Sign In",
+                "GraphSignInFailed",
+                "Microsoft Graph sign-in did not complete.",
+                exception.Message,
+                retrySafe: true);
+            await RecordResultAsync(session, failed, progress, cancellationToken);
+            await CompletePhaseAsync(session, cancellationToken);
+            return new GraphSignInResult { StepResult = failed };
+        }
+
+        var passed = InstallerStepResult.Passed(
+            "Microsoft Graph Sign In",
+            "GraphSignInCompleted",
+            "Microsoft Graph sign-in completed.",
+            $"Signed in as {ValueOrNotAvailable(signInResult.Account)} for tenant {ValueOrNotAvailable(signInResult.TenantId)}.");
+        passed.Data["tenantId"] = signInResult.TenantId;
+        passed.Data["account"] = signInResult.Account;
+        passed.Data["scopes"] = string.Join(", ", signInResult.Scopes);
+        passed.Data["authMode"] = "DeviceCode";
+
+        signInResult.StepResult = passed;
+        await RecordResultAsync(session, passed, progress, cancellationToken);
+        await CompletePhaseAsync(session, cancellationToken);
+        return signInResult;
     }
 
     public async Task<IReadOnlyList<InstallerStepResult>> RunWhatIfAsync(
@@ -157,9 +217,18 @@ public sealed class InstallerEngine
         InstallerSession session,
         string workspaceRoot,
         string configPath,
+        string graphAccessToken = "",
         IProgress<InstallerStepResult>? progress = null,
+        string deploymentArtifactPath = "",
         CancellationToken cancellationToken = default)
     {
+        var environmentVariables = string.IsNullOrWhiteSpace(graphAccessToken)
+            ? null
+            : new Dictionary<string, string> { ["PM365_GRAPH_ACCESS_TOKEN"] = graphAccessToken };
+        var commandArguments = string.IsNullOrWhiteSpace(deploymentArtifactPath)
+            ? ""
+            : $"-DeploymentArtifactPath '{EscapePowerShellSingleQuotedValue(deploymentArtifactPath)}'";
+
         return await RunPowerShellModuleCommandAsync(
             session,
             workspaceRoot,
@@ -167,7 +236,73 @@ public sealed class InstallerEngine
             "Validate",
             "Test-PM365SmokeTests",
             progress,
-            cancellationToken);
+            cancellationToken,
+            commandArguments,
+            environmentVariables: environmentVariables);
+    }
+
+    public async Task<IReadOnlyList<InstallerStepResult>> RunRemovalInventoryAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        string outputPath,
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var commandArguments = $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Removal Inventory",
+            "Get-PM365PartialInstallInventory",
+            progress,
+            cancellationToken,
+            commandArguments);
+    }
+
+    public async Task<IReadOnlyList<InstallerStepResult>> RunRemovalAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        string confirmationText,
+        string outputPath,
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var commandArguments =
+            $"-ConfirmationText '{EscapePowerShellSingleQuotedValue(confirmationText)}' " +
+            $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}' " +
+            "-RetainSoftDeletedKeyVault:$true -Confirm:$false";
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Remove",
+            "Remove-PM365PartialInstall",
+            progress,
+            cancellationToken,
+            commandArguments);
+    }
+
+    public async Task<IReadOnlyList<InstallerStepResult>> RunRemovalValidationAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        string outputPath,
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var commandArguments = $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Validate Cleanup",
+            "Get-PM365PartialInstallInventory",
+            progress,
+            cancellationToken,
+            commandArguments);
     }
 
     private async Task<IReadOnlyList<InstallerStepResult>> RunPowerShellModuleCommandAsync(
@@ -178,7 +313,10 @@ public sealed class InstallerEngine
         string commandName,
         IProgress<InstallerStepResult>? progress = null,
         CancellationToken cancellationToken = default,
-        string commandArguments = "")
+        string commandArguments = "",
+        IProgress<string>? outputProgress = null,
+        bool useInteractiveWindow = false,
+        IReadOnlyDictionary<string, string>? environmentVariables = null)
     {
         session.CurrentPhase = phase;
         session.Status = InstallStatus.Running;
@@ -198,9 +336,38 @@ public sealed class InstallerEngine
             return session.Results;
         }
 
-        await _logger.WriteAsync(session, "powershell.started", new { modulePath, command = commandName, configPath }, cancellationToken);
-        var command = BuildModuleCommand(modulePath, commandName, configPath, commandArguments);
-        var execution = await _powerShellRunner.RunAsync(command, workspaceRoot, cancellationToken);
+        await _logger.WriteAsync(session, "powershell.started", new { modulePath, command = commandName, configPath, useInteractiveWindow }, cancellationToken);
+        var resultPath = useInteractiveWindow
+            ? Path.Combine(session.LogDirectory, $"{SanitizeFileName(commandName)}-result.json")
+            : "";
+        var command = useInteractiveWindow
+            ? BuildModuleResultFileCommand(modulePath, commandName, configPath, resultPath, commandArguments)
+            : BuildModuleCommand(modulePath, commandName, configPath, commandArguments);
+        PowerShellExecutionResult execution;
+        try
+        {
+            execution = useInteractiveWindow
+                ? await _powerShellRunner.RunInteractiveFileResultAsync(command, workspaceRoot, resultPath, cancellationToken)
+                : await _powerShellRunner.RunAsync(
+                    command,
+                    workspaceRoot,
+                    cancellationToken,
+                    outputProgress: outputProgress,
+                    environmentVariables: environmentVariables);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            var failed = InstallerStepResult.Failed(
+                "PowerShell Command",
+                "PowerShellLaunchFailed",
+                "The installer could not start the PowerShell command.",
+                exception.Message,
+                retrySafe: true);
+            await RecordResultAsync(session, failed, progress, cancellationToken);
+            await CompletePhaseAsync(session, cancellationToken);
+            return session.Results;
+        }
+
         await _logger.WriteAsync(
             session,
             "powershell.completed",
@@ -287,6 +454,29 @@ public sealed class InstallerEngine
         return BuildModuleCommand(modulePath, "Start-PM365Preflight", configPath);
     }
 
+    private static string ResolveTenantId(CustomerInstallConfig config)
+    {
+        return !string.IsNullOrWhiteSpace(config.Customer.TenantId)
+            ? config.Customer.TenantId
+            : config.Azure.TenantId;
+    }
+
+    private static string ResolveInstallerGraphClientId(CustomerInstallConfig config)
+    {
+        var fromEnvironment = Environment.GetEnvironmentVariable("PM365_INSTALLER_GRAPH_CLIENT_ID");
+        if (!string.IsNullOrWhiteSpace(fromEnvironment))
+        {
+            return fromEnvironment;
+        }
+
+        return GraphDeviceCodeAuthenticator.DefaultClientId;
+    }
+
+    private static string ValueOrNotAvailable(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "not available" : value;
+    }
+
     private static string BuildModuleCommand(string modulePath, string commandName, string configPath, string commandArguments = "")
     {
         var escapedPath = EscapePowerShellSingleQuotedValue(modulePath);
@@ -298,9 +488,33 @@ public sealed class InstallerEngine
         return $"-NoProfile -ExecutionPolicy Bypass -Command \"{script}\"";
     }
 
+    private static string BuildModuleResultFileCommand(
+        string modulePath,
+        string commandName,
+        string configPath,
+        string resultPath,
+        string commandArguments = "")
+    {
+        var escapedPath = EscapePowerShellSingleQuotedValue(modulePath);
+        var escapedConfigPath = EscapePowerShellSingleQuotedValue(configPath);
+        var escapedResultPath = EscapePowerShellSingleQuotedValue(resultPath);
+        var arguments = string.IsNullOrWhiteSpace(commandArguments) ? "" : $" {commandArguments}";
+        var script = "$ErrorActionPreference = 'Stop'; " +
+                     $"Import-Module '{escapedPath}' -Force; " +
+                     $"$result = {commandName} -ConfigPath '{escapedConfigPath}'{arguments}; " +
+                     $"$result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath '{escapedResultPath}' -Encoding UTF8";
+        return $"-NoProfile -ExecutionPolicy Bypass -Command \"{script}\"";
+    }
+
     private static string EscapePowerShellSingleQuotedValue(string value)
     {
         return value.Replace("'", "''");
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return new string(value.Select(character => invalid.Contains(character) ? '-' : character).ToArray());
     }
 
     private static IReadOnlyList<InstallerStepResult> ParsePowerShellResults(string json)
@@ -318,12 +532,132 @@ public sealed class InstallerEngine
         }
 
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var trimmed = json.Trim();
-        var moduleResults = trimmed.StartsWith("[", StringComparison.Ordinal)
-            ? JsonSerializer.Deserialize<List<PowerShellModuleResult>>(trimmed, options) ?? []
-            : [JsonSerializer.Deserialize<PowerShellModuleResult>(trimmed, options) ?? new PowerShellModuleResult()];
+        var trimmed = TryExtractJsonPayload(json);
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return
+            [
+                InstallerStepResult.Failed(
+                    "PowerShell Result",
+                    "PowerShellResultParseFailed",
+                    "The PowerShell command completed, but the installer could not find a structured result in its output.",
+                    TrimForDetails(json),
+                    retrySafe: true)
+            ];
+        }
+
+        List<PowerShellModuleResult> moduleResults;
+        try
+        {
+            moduleResults = trimmed.StartsWith("[", StringComparison.Ordinal)
+                ? JsonSerializer.Deserialize<List<PowerShellModuleResult>>(trimmed, options) ?? []
+                : [JsonSerializer.Deserialize<PowerShellModuleResult>(trimmed, options) ?? new PowerShellModuleResult()];
+        }
+        catch (JsonException exception)
+        {
+            return
+            [
+                InstallerStepResult.Failed(
+                    "PowerShell Result",
+                    "PowerShellResultParseFailed",
+                    "The PowerShell command completed, but its structured result could not be parsed.",
+                    $"{exception.Message}{Environment.NewLine}{TrimForDetails(json)}",
+                    retrySafe: true)
+            ];
+        }
 
         return moduleResults.Select(ToInstallerStepResult).ToArray();
+    }
+
+    private static string TryExtractJsonPayload(string output)
+    {
+        var trimmed = output.Trim();
+        for (var index = 0; index < trimmed.Length; index++)
+        {
+            var current = trimmed[index];
+            if (current is not ('{' or '['))
+            {
+                continue;
+            }
+
+            var candidate = TryReadJsonValue(trimmed, index);
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var _ = JsonDocument.Parse(candidate);
+                return candidate;
+            }
+            catch (JsonException)
+            {
+                // Some Azure modules emit text such as "[Announcements]" before JSON.
+            }
+        }
+
+        return "";
+    }
+
+    private static string TryReadJsonValue(string value, int startIndex)
+    {
+        var opening = value[startIndex];
+        var closing = opening == '{' ? '}' : ']';
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+
+        for (var index = startIndex; index < value.Length; index++)
+        {
+            var current = value[index];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (inString)
+            {
+                if (current == '\\')
+                {
+                    escaped = true;
+                }
+                else if (current == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (current == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (current == opening)
+            {
+                depth++;
+            }
+            else if (current == closing)
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return value.Substring(startIndex, index - startIndex + 1);
+                }
+            }
+        }
+
+        return "";
+    }
+
+    private static string TrimForDetails(string value)
+    {
+        var compact = value.Trim();
+        return compact.Length <= 2000 ? compact : compact.Substring(0, 2000) + "...";
     }
 
     private static InstallerStepResult ToInstallerStepResult(PowerShellModuleResult result)
@@ -362,7 +696,8 @@ public sealed class InstallerEngine
             "GraphSignInCompleted" or "GraphSignInFailed" => "Microsoft Graph Sign In",
             "AzureTenantReady" or "AzureTenantMismatch" => "Azure Tenant",
             "AzureSubscriptionReady" or "AzureSubscriptionMismatch" or "AzureSubscriptionUnavailable" => "Azure Subscription",
-            "AzureResourceGroupReady" or "AzureResourceGroupMissing" => "Azure Resource Group",
+            "AzureResourceGroupReady" or "AzureResourceGroupWillBeCreated" or "AzureResourceGroupMissing" or "AzureResourceGroupOwnershipMismatch" => "Azure Resource Group",
+            "KeyVaultNameReady" or "KeyVaultRecoveryRequired" or "KeyVaultRecoveryCheckSkipped" or "KeyVaultRecoveryCheckUnavailable" or "KeyVaultRecoveryContractMissing" => "Key Vault Recovery",
             "AzureRbacReady" or "AzureRbacInsufficient" or "AzureRbacNotFound" or "AzureRbacCheckUnavailable" => "Azure RBAC",
             "GraphTenantReady" or "GraphTenantMismatch" => "Microsoft Graph Tenant",
             "GraphConsentScopesReady" or "GraphConsentScopesMissing" => "Microsoft Graph Consent",
@@ -371,10 +706,13 @@ public sealed class InstallerEngine
             "SharePointSiteResolved" or "SharePointSiteResolveFailed" => "SharePoint Site",
             "SharePointLibraryReady" or "SharePointLibraryNotFound" or "SharePointLibraryNotConfigured" => "SharePoint Library",
             "AzureWhatIfReady" or "AzureWhatIfFailed" => "Azure What-If",
-            "AzureDeploymentReady" or "AzureDeploymentFailed" => "Azure Deployment",
+            "AzureDeploymentReady" or "AzureDeploymentFailed" or "AppServiceCapacityUnavailable" => "Azure Deployment",
             "DeploymentSkipped" => "Deployment Approval",
             "AppUrlMissing" => "Application URL",
             "AppHealthReady" or "AppHealthFailed" => "Application Health",
+            "PartialInstallCleanupReady" or "PartialInstallCleanupBlocked" => "Removal Inventory",
+            "PartialInstallCleanupCompleted" or "PartialInstallCleanupSkipped" or "PartialInstallCleanupConfirmationMismatch" or "PartialInstallCleanupIncomplete" => "Azure Removal",
+            "PartialInstallAbsent" => "Cleanup Validation",
             _ when string.IsNullOrWhiteSpace(code) => "PowerShell Check",
             _ => code
         };

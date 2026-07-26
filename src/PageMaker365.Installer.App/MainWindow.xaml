@@ -21,42 +21,53 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border x:Name="HeaderBar" Grid.ColumnSpan="3" Padding="28,22" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,0,1">
-            <DockPanel LastChildFill="False">
-                <StackPanel DockPanel.Dock="Left" Width="420">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Image x:Name="HeaderWordmark"
-                               Source="Assets/pagemaker365-wordmark.png"
-                               Width="250"
-                               Height="38"
-                               Stretch="Uniform"
-                               Margin="0,0,12,0" />
-                        <TextBlock Text="Installer"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   VerticalAlignment="Center"
-                                   Margin="2,0,0,0" />
-                    </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="Guided Azure and SharePoint deployment" Foreground="{StaticResource PmMuted}" Margin="0,4,0,0" />
-                    </StackPanel>
+        <Border x:Name="HeaderBar" Grid.ColumnSpan="3" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="HeaderLeftColumn" Width="280" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition x:Name="HeaderRightColumn" Width="320" />
+                </Grid.ColumnDefinitions>
+                <StackPanel x:Name="HeaderBrand" Grid.Column="0" Margin="28,22">
+                    <Image x:Name="HeaderWordmark"
+                           Source="Assets/pagemaker365-wordmark.png"
+                           Width="224"
+                           Height="44"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Left" />
+                    <TextBlock x:Name="HeaderTagline"
+                               Text="Guided Azure and SharePoint deployment"
+                               Foreground="{StaticResource PmMuted}"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0" />
                 </StackPanel>
-                <Border DockPanel.Dock="Right"
+                <TextBlock x:Name="HeaderInstallerLabel"
+                           Grid.Column="1"
+                           Text="Installer"
+                           FontSize="24"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           Margin="30,0,0,0" />
+                <Border x:Name="HeaderVersionBadge"
+                        Grid.Column="1"
+                        Grid.ColumnSpan="2"
                         Background="#111B38"
                         BorderBrush="{StaticResource PmLine}"
                         BorderThickness="1"
                         CornerRadius="6"
                         Padding="12,7"
-                        VerticalAlignment="Top">
+                        Margin="0,0,28,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center">
                     <TextBlock Text="{Binding InstallerVersion}" FontWeight="SemiBold" />
                 </Border>
-            </DockPanel>
+            </Grid>
         </Border>
 
         <Border x:Name="LeftRail" Grid.Row="1" Grid.Column="0" Padding="22,24" BorderBrush="{StaticResource PmLine}" BorderThickness="0,0,1,0">
             <ScrollViewer Style="{StaticResource PmScrollViewer}">
                 <StackPanel>
-                <TextBlock Text="{Binding WorkflowTitle}" FontSize="24" FontWeight="Bold" />
+                <TextBlock x:Name="WorkflowTitleText" Text="{Binding WorkflowTitle}" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding WorkflowSubtitle}"
                            Foreground="{StaticResource PmMuted}"
                            TextWrapping="Wrap"
@@ -140,6 +151,31 @@
                         </UniformGrid>
                     </StackPanel>
                 </Border>
+
+                <Grid Visibility="{Binding IsOperationRunning, Converter={StaticResource BoolToVisibilityConverter}}"
+                      Margin="0,0,0,18">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DockPanel LastChildFill="True" Margin="0,0,0,8">
+                        <Ellipse DockPanel.Dock="Left"
+                                 Width="9"
+                                 Height="9"
+                                 Fill="{StaticResource PmCyan}"
+                                 Margin="0,0,10,0"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding FooterStatus}"
+                                   Foreground="{StaticResource PmMuted}"
+                                   TextWrapping="Wrap"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+                    <ProgressBar Grid.Row="1"
+                                 IsIndeterminate="True"
+                                 Height="8"
+                                 Foreground="{StaticResource PmCyan}"
+                                 Background="#101B33" />
+                </Grid>
 
                 <StackPanel Visibility="{Binding IsWelcomeStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="Welcome to the PageMaker365 Installer" FontSize="34" FontWeight="Bold" TextWrapping="Wrap" />
@@ -272,8 +308,8 @@
 
                 <StackPanel Visibility="{Binding IsPackageStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="Get or Load Customer Package" FontSize="34" FontWeight="Bold" />
-                        <TextBlock Text="Download the approved package from the PageMaker365 portal, or load a package file that was already generated for this customer."
+                        <TextBlock Text="Connect to PageMaker365" FontSize="34" FontWeight="Bold" />
+                        <TextBlock Text="Choose the PageMaker365 setup file provided for this customer. The installer will securely retrieve and verify the approved installation package."
                                    Foreground="{StaticResource PmMuted}"
                                    FontSize="16"
                                    TextWrapping="Wrap"
@@ -288,7 +324,65 @@
                                    Margin="0,8,0,24" />
                     </StackPanel>
 
-                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                    <Border Background="{StaticResource PmPanel}"
+                            BorderBrush="{Binding SetupAcquisitionStatusBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20"
+                            Margin="0,0,0,18"
+                            Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="PageMaker365 setup file" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="{Binding SetupAcquisitionTitle}"
+                                       FontSize="22"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding SetupAcquisitionSummary}"
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="20"
+                                       Margin="0,8,0,0" />
+
+                            <ProgressBar IsIndeterminate="True"
+                                         Height="8"
+                                         Margin="0,18,0,0"
+                                         Visibility="{Binding IsPortalPackageAcquisitionRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+                            <WrapPanel Margin="0,18,0,0"
+                                       Visibility="{Binding ShowChooseSetupAction, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Button Content="Choose Setup File" Command="{Binding BrowseBootstrapCommand}" />
+                            </WrapPanel>
+
+                            <UniformGrid x:Name="PackageRecoveryActionsGrid"
+                                         Columns="2"
+                                         Margin="0,18,0,0"
+                                         Visibility="{Binding ShowPackageRecoveryActions, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Button Content="Retry" Command="{Binding AcquirePortalPackageCommand}" Margin="0,0,6,0" />
+                                <Button Content="Choose Different Setup File" Command="{Binding BrowseBootstrapCommand}" Margin="6,0,0,0" />
+                            </UniformGrid>
+
+                            <StackPanel Margin="0,18,0,0"
+                                        Visibility="{Binding HasValidatedPackage, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Separator Margin="0,0,0,16" />
+                                <TextBlock Text="Installation package ready" Foreground="#42D8A0" FontWeight="Bold" />
+                                <TextBlock Text="{Binding CustomerName}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" Margin="0,6,0,12" />
+                                <UniformGrid x:Name="PackageReadyTargetGrid" Columns="2">
+                                    <StackPanel x:Name="PackageReadyAzurePanel" Margin="0,0,9,0">
+                                        <TextBlock Text="Azure target" Foreground="{StaticResource PmMuted}" />
+                                        <TextBlock Text="{Binding AzureSubscription}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="PackageReadySharePointPanel" Margin="9,0,0,0">
+                                        <TextBlock Text="SharePoint site" Foreground="{StaticResource PmMuted}" />
+                                        <TextBlock Text="{Binding SharePointSite}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </UniformGrid>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18"
+                            Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel>
                             <TextBlock Text="Current Customer Package" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                             <TextBlock Text="{Binding CustomerName}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Margin="0,8,0,0" />
@@ -330,7 +424,8 @@
                         </StackPanel>
                     </Border>
 
-                    <UniformGrid x:Name="PackageTargetSummaryGrid" Columns="2" Margin="0,0,0,18">
+                    <UniformGrid x:Name="PackageTargetSummaryGrid" Columns="2" Margin="0,0,0,18"
+                                 Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Border x:Name="AzureSummaryCard" Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,9,0">
                             <StackPanel>
                                 <TextBlock Text="Azure Subscription" Foreground="{StaticResource PmMuted}" />
@@ -345,10 +440,16 @@
                         </Border>
                     </UniformGrid>
 
-                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                    <Border Background="{StaticResource PmPanel}"
+                            BorderBrush="{StaticResource PmLine}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20"
+                            Margin="0,0,0,18"
+                            Visibility="Collapsed">
                         <StackPanel>
-                            <TextBlock Text="Download From Portal" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                            <TextBlock Text="Connect this desktop session to a portal onboarding record, sync read-only discovery when needed, then download the generated installer package."
+                            <TextBlock Text="Get Package From Portal" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                            <TextBlock Text="Choose the onboarding bootstrap once. The installer will connect, wait for the approved package, download it, verify it, and continue to sign-in."
                                        Foreground="{StaticResource PmMuted}"
                                        TextWrapping="Wrap"
                                        LineHeight="20"
@@ -393,20 +494,20 @@
                                 </Grid>
                             </Border>
 
-                            <UniformGrid x:Name="OnboardingActionsGrid" Columns="4" Margin="0,18,0,0">
-                                <Button Content="Load Sample Bootstrap" Command="{Binding LoadSampleBootstrapCommand}" Margin="0,0,8,8" />
-                                <Button Content="Browse Bootstrap" Command="{Binding BrowseBootstrapCommand}" Margin="4,0,4,8" />
-                                <Button Content="Connect Session" Command="{Binding ConnectOnboardingCommand}" Margin="8,0,0,8" />
-                                <Button Content="Create Discovery" Command="{Binding RunDiscoveryCommand}" Margin="0,0,8,0" />
-                                <Button Content="Save Redacted JSON" Command="{Binding SaveDiscoveryCommand}" Margin="4,0,4,0" />
-                                <Button Content="Sync To Portal" Command="{Binding SyncDiscoveryCommand}" Margin="8,0,8,0" />
-                                <Button Content="Check Readiness" Command="{Binding CheckPackageReadinessCommand}" Margin="4,0,4,0" />
-                                <Button Content="Download Package" Command="{Binding DownloadGeneratedPackageCommand}" Margin="8,0,0,0" />
+                            <UniformGrid x:Name="OnboardingActionsGrid" Columns="2" Margin="0,18,0,0">
+                                <Button Content="Choose Bootstrap and Get Package" Command="{Binding BrowseBootstrapCommand}" Margin="0,0,6,0" />
+                                <Button Content="Retry Portal Package" Command="{Binding AcquirePortalPackageCommand}" Margin="6,0,0,0" />
                             </UniformGrid>
                         </StackPanel>
                     </Border>
 
-                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                    <Border Background="{StaticResource PmPanel}"
+                            BorderBrush="{StaticResource PmLine}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20"
+                            Margin="0,0,0,18"
+                            Visibility="{Binding IsPortalDiscoveryRequired, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel>
                             <TextBlock Text="Discovery Review" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                             <TextBlock Text="{Binding DiscoveryReviewSummary}"
@@ -414,6 +515,11 @@
                                        TextWrapping="Wrap"
                                        LineHeight="20"
                                        Margin="0,8,0,16" />
+                            <UniformGrid Columns="3" Margin="0,0,0,16">
+                                <Button Content="Create Discovery" Command="{Binding RunDiscoveryCommand}" Margin="0,0,6,0" />
+                                <Button Content="Save Redacted JSON" Command="{Binding SaveDiscoveryCommand}" Margin="3,0,3,0" />
+                                <Button Content="Sync To Portal" Command="{Binding SyncDiscoveryCommand}" Margin="6,0,0,0" />
+                            </UniformGrid>
 
                             <ItemsControl ItemsSource="{Binding DiscoveryReadinessCards}" Margin="0,0,0,12">
                                 <ItemsControl.ItemsPanel>
@@ -509,7 +615,67 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                    <Expander Header="Alternative installation options"
+                              Foreground="{StaticResource PmText}"
+                              IsExpanded="False"
+                              Margin="0,0,0,14"
+                              Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <StackPanel Margin="0,12,0,4">
+                            <TextBlock Text="Use a downloaded installation package only when the customer portal provided one directly. The same integrity and contract checks will run before sign-in."
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="19"
+                                       Margin="0,0,0,12" />
+                            <WrapPanel>
+                                <Button Content="Use Downloaded Package" Command="{Binding BrowsePackageCommand}" Margin="0,0,10,8" />
+                                <Button Content="Load Test Package"
+                                        Command="{Binding LoadSamplePackageCommand}"
+                                        Margin="0,0,10,8"
+                                        Visibility="{Binding IsDevelopmentBuild, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="Technical details"
+                              Foreground="{StaticResource PmText}"
+                              IsExpanded="False"
+                              Margin="0,0,0,18"
+                              Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Border Background="{StaticResource PmPanel}"
+                                BorderBrush="{StaticResource PmLine}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="18"
+                                Margin="0,12,0,0">
+                            <UniformGrid x:Name="PackageTechnicalDetailsGrid" Columns="2">
+                                <StackPanel x:Name="PackageTechnicalFilePanel" Margin="0,0,9,0">
+                                    <TextBlock Text="Setup file" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding SetupFileDisplayName}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="Package trust" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageTrustStatus}" Foreground="{Binding PackageTrustStatusBrush}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,4" />
+                                    <TextBlock Text="{Binding PackageTrustSummary}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                    <TextBlock Text="Export ID" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageExportId}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="Package path" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackagePath}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel x:Name="PackageTechnicalPortalPanel" Margin="9,0,0,0">
+                                    <TextBlock Text="Portal session" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding OnboardingSessionId}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="Portal status" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding OnboardingStatus}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="Package readiness" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageReadinessStatus}" Foreground="{Binding PackageReadinessStatusBrush}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,4" />
+                                    <TextBlock Text="{Binding PackageReadinessSummary}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                    <TextBlock Text="Status output" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PortalStatusOutputPath}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </Border>
+                    </Expander>
+
+                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18"
+                            Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock Text="Portal Package Readiness" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                             <TextBlock Text="{Binding PackageReadinessSummary}"
@@ -618,11 +784,18 @@
 
                 <StackPanel Visibility="{Binding IsSignInStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="Sign In" FontSize="34" FontWeight="Bold" />
-                    <TextBlock Text="Authenticate to the customer Azure tenant and Microsoft Graph before running setup checks or removal inventory."
+                    <TextBlock Text="Authenticate to the customer Azure tenant and Microsoft Graph before running setup checks."
                                Foreground="{StaticResource PmMuted}"
                                FontSize="16"
                                TextWrapping="Wrap"
-                               Margin="0,8,0,24" />
+                               Margin="0,8,0,24"
+                               Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}" />
+                    <TextBlock Text="Authenticate to the customer Azure tenant before running Azure-only removal inventory. Microsoft Graph and SharePoint are outside the v1 removal scope."
+                               Foreground="{StaticResource PmMuted}"
+                               FontSize="16"
+                               TextWrapping="Wrap"
+                               Margin="0,8,0,24"
+                               Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}" />
 
                     <UniformGrid Columns="2">
                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,9,0">
@@ -631,19 +804,64 @@
                                 <TextBlock Text="Sign in with access to the target subscription and resource group."
                                            Foreground="{StaticResource PmMuted}"
                                            TextWrapping="Wrap"
-                                           Margin="0,8,0,16" />
+                                           Margin="0,8,0,10" />
+                                <TextBlock Text="{Binding AzureSignInStatus}"
+                                           Foreground="{Binding AzureSignInStatusBrush}"
+                                           FontWeight="Bold"
+                                           Margin="0,0,0,12" />
                                 <Button Content="Sign In Azure" Command="{Binding ConnectAzureCommand}" />
                             </StackPanel>
                         </Border>
                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="9,0,0,0">
-                            <StackPanel>
+                            <Grid>
+                            <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <TextBlock Text="Microsoft Graph" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                                 <TextBlock Text="Sign in with admin consent capability for Entra and SharePoint checks."
                                            Foreground="{StaticResource PmMuted}"
                                            TextWrapping="Wrap"
-                                           Margin="0,8,0,16" />
+                                           Margin="0,8,0,10" />
+                                <TextBlock Text="{Binding GraphSignInStatus}"
+                                           Foreground="{Binding GraphSignInStatusBrush}"
+                                           FontWeight="Bold"
+                                           Margin="0,0,0,12" />
                                 <Button Content="Sign In Graph" Command="{Binding ConnectGraphCommand}" />
+                                <Border Background="#111B38"
+                                        BorderBrush="{StaticResource PmCyan}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="14"
+                                        Margin="0,16,0,0"
+                                        Visibility="{Binding HasGraphDeviceCode, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <StackPanel>
+                                        <TextBlock Text="Device sign-in code"
+                                                   Foreground="{StaticResource PmCyan}"
+                                                   FontWeight="Bold" />
+                                        <TextBox Text="{Binding GraphDeviceCode, Mode=OneWay}"
+                                                 IsReadOnly="True"
+                                                 FontFamily="Consolas"
+                                                 FontSize="24"
+                                                 FontWeight="Bold"
+                                                 HorizontalContentAlignment="Center"
+                                                 Margin="0,10,0,8"
+                                                 Padding="8" />
+                                        <TextBlock Text="{Binding GraphDeviceCodeStatus}"
+                                                   Foreground="{StaticResource PmMuted}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,10" />
+                                        <Button Content="Copy Code"
+                                                Command="{Binding CopyGraphDeviceCodeCommand}"
+                                                HorizontalAlignment="Left" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
+                            <StackPanel Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="Microsoft 365" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                <TextBlock Text="No Microsoft Graph sign-in is required. Uninstall does not change SharePoint content, permissions, sites, or libraries."
+                                           Foreground="{StaticResource PmMuted}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,0" />
+                            </StackPanel>
+                            </Grid>
                         </Border>
                     </UniformGrid>
                 </StackPanel>
@@ -698,34 +916,35 @@
                                    FontSize="16"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,24" />
-                        <UniformGrid Columns="2">
-                            <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,9,12">
-                                <StackPanel>
-                                    <TextBlock Text="Azure Resources" FontSize="20" FontWeight="Bold" />
-                                    <TextBlock Text="Find owned resource groups, app services, storage, Key Vault references, managed identities, monitoring resources, and deployment tags."
-                                               Foreground="{StaticResource PmMuted}"
-                                               TextWrapping="Wrap"
-                                               LineHeight="20"
-                                               Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-                            <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="9,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="Microsoft 365 Access" FontSize="20" FontWeight="Bold" />
-                                    <TextBlock Text="Identify Entra app registrations, enterprise apps, Graph consent, SharePoint site permissions, and customer portal access that need cleanup."
-                                               Foreground="{StaticResource PmMuted}"
-                                               TextWrapping="Wrap"
-                                               LineHeight="20"
-                                               Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-                        </UniformGrid>
-                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18">
-                            <TextBlock Text="Inventory execution is intentionally a placeholder in this build. The next backend step is to add read-only discovery commands before enabling any removal action."
-                                       Foreground="{StaticResource PmMuted}"
-                                       TextWrapping="Wrap"
-                                       LineHeight="20" />
+                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
+                            <StackPanel>
+                                <DockPanel LastChildFill="True">
+                                    <Button DockPanel.Dock="Right" Content="Run Inventory" Command="{Binding RunRemovalInventoryCommand}" MinWidth="150" Margin="18,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="Azure-Only Removal" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding RemovalInventoryStatus}" FontSize="20" FontWeight="Bold" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <TextBlock Text="{Binding RemovalInventorySummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" LineHeight="20" Margin="0,12,0,0" />
+                                <TextBlock Text="{Binding RemovalInventoryOutputPath}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                            </StackPanel>
                         </Border>
+                        <ItemsControl ItemsSource="{Binding CheckResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,12">
+                                        <StackPanel>
+                                            <DockPanel LastChildFill="True">
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding StatusLabel}" Foreground="{Binding StatusBrush}" FontWeight="Bold" Margin="14,0,0,0" />
+                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                            <TextBlock Text="{Binding Details}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </StackPanel>
 
@@ -769,6 +988,28 @@
                                             VerticalAlignment="Top"
                                             Margin="18,0,0,0"
                                             MinWidth="190" />
+                                </Grid>
+                                <Grid Margin="0,20,0,0"
+                                      Visibility="{Binding IsPreviewRunning, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Margin="0,0,0,10">
+                                        <Ellipse Width="10"
+                                                 Height="10"
+                                                 Fill="{StaticResource PmCyan}"
+                                                 Margin="0,0,10,0" />
+                                        <TextBlock Text="Azure is calculating the deployment changes"
+                                                   Foreground="White"
+                                                   FontWeight="SemiBold" />
+                                    </DockPanel>
+                                    <ProgressBar Grid.Row="1"
+                                                 IsIndeterminate="True"
+                                                 Height="8"
+                                                 Foreground="{StaticResource PmCyan}"
+                                                 Background="#111B38"
+                                                 BorderThickness="0" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -834,7 +1075,7 @@
                             <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Will Remove" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                                    <TextBlock Text="PageMaker365-owned Azure resources, generated configuration, and managed deployment artifacts."
+                                    <TextBlock Text="The dedicated PageMaker365 resource group after every contained resource passes package ownership checks."
                                                Foreground="{StaticResource PmMuted}"
                                                TextWrapping="Wrap"
                                                Margin="0,8,0,0" />
@@ -843,7 +1084,7 @@
                             <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="4,0,4,0">
                                 <StackPanel>
                                     <TextBlock Text="Needs Approval" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                                    <TextBlock Text="Entra app consent, app registrations, SharePoint permission changes, and optional data retention choices."
+                                    <TextBlock Text="The operator must approve removal and type the exact resource-group name."
                                                Foreground="{StaticResource PmMuted}"
                                                TextWrapping="Wrap"
                                                Margin="0,8,0,0" />
@@ -852,13 +1093,23 @@
                             <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="8,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Will Keep" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
-                                    <TextBlock Text="Customer SharePoint content, customer-owned M365 data, audit records, and retained reports."
+                                    <TextBlock Text="All SharePoint content and Microsoft 365 data. Key Vault is never purged and remains recoverable through soft delete."
                                                Foreground="{StaticResource PmMuted}"
                                                TextWrapping="Wrap"
                                                Margin="0,8,0,0" />
                                 </StackPanel>
                             </Border>
                         </UniformGrid>
+                        <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,18,0,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding RemovalInventorySummary}" TextWrapping="Wrap" />
+                                <CheckBox IsChecked="{Binding RemovalApprovalConfirmed}" Margin="0,18,0,0">
+                                    <TextBlock Text="I reviewed the current inventory and approve deleting only the dedicated PageMaker365 Azure resource group. SharePoint will not be changed and Key Vault will not be purged." TextWrapping="Wrap" />
+                                </CheckBox>
+                                <TextBlock Text="{Binding RemovalConfirmationPrompt}" Foreground="{StaticResource PmMuted}" Margin="0,16,0,6" />
+                                <TextBox Text="{Binding RemovalConfirmationText, UpdateSourceTrigger=PropertyChanged}" Background="#0B1224" Foreground="{StaticResource PmText}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" Padding="12,9" MinHeight="40" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </StackPanel>
 
@@ -941,6 +1192,36 @@
                                          MinHeight="40" />
                             </StackPanel>
                         </Border>
+                        <Grid Margin="2,2,2,20"
+                              Visibility="{Binding IsDeploymentRunning, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <DockPanel LastChildFill="True">
+                                <TextBlock DockPanel.Dock="Right"
+                                           Text="In progress"
+                                           Foreground="{StaticResource PmCyan}"
+                                           FontWeight="SemiBold"
+                                           Margin="16,0,0,0" />
+                                <TextBlock Text="Provisioning Azure resources"
+                                           FontSize="17"
+                                           FontWeight="Bold" />
+                            </DockPanel>
+                            <ProgressBar Grid.Row="1"
+                                         IsIndeterminate="True"
+                                         Height="8"
+                                         Foreground="{StaticResource PmCyan}"
+                                         Background="#111B38"
+                                         BorderThickness="0"
+                                         Margin="0,12,0,0" />
+                            <TextBlock Grid.Row="2"
+                                       Text="Azure is creating or updating the approved resources. This can take several minutes; keep the installer open."
+                                       Foreground="{StaticResource PmMuted}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,10,0,0" />
+                        </Grid>
                         <ItemsControl ItemsSource="{Binding DeploymentResults}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -1000,10 +1281,18 @@
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,24" />
                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
-                            <TextBlock Text="Removal execution is not enabled yet. The production version should require explicit approval, typed confirmation, a current inventory, and a signed cleanup report before any tenant changes run."
-                                       Foreground="{StaticResource PmMuted}"
-                                       TextWrapping="Wrap"
-                                       LineHeight="20" />
+                            <StackPanel>
+                                <DockPanel LastChildFill="True">
+                                    <Button DockPanel.Dock="Right" Content="Run Removal" Command="{Binding RunRemovalCommand}" MinWidth="150" Margin="18,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="Removal Status" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding RemovalStatus}" FontSize="20" FontWeight="Bold" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <TextBlock Text="{Binding RemovalSummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                                <TextBlock Text="{Binding RemovalOutputPath}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                <ProgressBar IsIndeterminate="True" Height="8" Margin="0,14,0,0" Visibility="{Binding IsRemovalRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </StackPanel>
                         </Border>
                     </StackPanel>
                 </StackPanel>
@@ -1068,6 +1357,21 @@
                                         </StackPanel>
                                     </Border>
                                 </UniformGrid>
+                                <Grid Visibility="{Binding IsValidationRunning, Converter={StaticResource BoolToVisibilityConverter}}"
+                                      Margin="0,18,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Checking application health and SharePoint access"
+                                               Foreground="{StaticResource PmMuted}"
+                                               Margin="0,0,0,8" />
+                                    <ProgressBar Grid.Row="1"
+                                                 IsIndeterminate="True"
+                                                 Height="8"
+                                                 Foreground="{StaticResource PmCyan}"
+                                                 Background="#101B33" />
+                                </Grid>
                             </StackPanel>
                         </Border>
                         <ItemsControl ItemsSource="{Binding ValidationResults}">
@@ -1123,16 +1427,29 @@
                     </StackPanel>
                     <StackPanel Visibility="{Binding IsRemovalMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Validate Cleanup" FontSize="34" FontWeight="Bold" />
-                        <TextBlock Text="Confirm PageMaker365 tenant artifacts have been removed and customer-owned content is preserved."
+                        <TextBlock Text="Confirm the dedicated Azure resource group is absent. SharePoint is outside the removal scope and remains unchanged."
                                    Foreground="{StaticResource PmMuted}"
                                    FontSize="16"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,24" />
                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
-                            <TextBlock Text="Cleanup validation should check deleted Azure resources, removed app permissions, retained SharePoint content, revoked access paths, and generated support evidence."
-                                       Foreground="{StaticResource PmMuted}"
-                                       TextWrapping="Wrap"
-                                       LineHeight="20" />
+                            <StackPanel>
+                                <DockPanel LastChildFill="True">
+                                    <Button DockPanel.Dock="Right" Content="Validate Cleanup" Command="{Binding RunRemovalValidationCommand}" MinWidth="150" Margin="18,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="Cleanup Status" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding RemovalValidationStatus}" FontSize="20" FontWeight="Bold" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <TextBlock Text="{Binding RemovalValidationSummary}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                                <TextBlock Text="{Binding RemovalValidationOutputPath}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                <ProgressBar IsIndeterminate="True"
+                                             Height="8"
+                                             Margin="0,14,0,0"
+                                             Foreground="{StaticResource PmCyan}"
+                                             Background="#101B33"
+                                             Visibility="{Binding IsRemovalRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </StackPanel>
                         </Border>
                     </StackPanel>
                 </StackPanel>
@@ -1188,6 +1505,24 @@
                                          </StackPanel>
                                      </Border>
                                  </UniformGrid>
+                                 <DockPanel LastChildFill="True"
+                                            Margin="0,18,0,0"
+                                            Visibility="{Binding HasDeployedSiteUrl, Converter={StaticResource BoolToVisibilityConverter}}">
+                                     <Button DockPanel.Dock="Right"
+                                             Content="Open URL"
+                                             Command="{Binding OpenDeployedSiteCommand}"
+                                             MinWidth="120"
+                                             Margin="18,0,0,0" />
+                                     <StackPanel>
+                                         <TextBlock Text="Configured Runtime URL" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                         <TextBlock Text="{Binding DeployedSiteUrl}"
+                                                    Foreground="White"
+                                                    FontSize="16"
+                                                    FontWeight="SemiBold"
+                                                    TextWrapping="Wrap"
+                                                    Margin="0,6,0,0" />
+                                     </StackPanel>
+                                 </DockPanel>
                              </StackPanel>
                          </Border>
                          <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
@@ -1232,12 +1567,16 @@
                                     Margin="0,8,0,24" />
                          <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20">
                              <StackPanel>
-                                 <TextBlock Text="Session Evidence" FontSize="22" FontWeight="Bold" />
-                                 <TextBlock Text="The support bundle is redacted and includes the session, check results, logs, and markdown report."
+                                  <DockPanel LastChildFill="True">
+                                      <Button DockPanel.Dock="Right" Content="Create Removal Evidence" Command="{Binding CreateRemovalEvidenceCommand}" MinWidth="170" Margin="18,0,0,0" />
+                                      <TextBlock Text="Removal Evidence" FontSize="22" FontWeight="Bold" />
+                                  </DockPanel>
+                                  <TextBlock Text="Generate the final Azure-only removal report. The report records that SharePoint was unchanged, Key Vault was not purged, and reinstall requires a new package and vault name."
                                             Foreground="{StaticResource PmMuted}"
                                             TextWrapping="Wrap"
                                             Margin="0,6,0,16" />
-                                 <Button Content="Create Support Bundle" Command="{Binding CreateSupportBundleCommand}" HorizontalAlignment="Left" />
+                                  <TextBlock Text="{Binding FinalReportPath}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                  <TextBlock Text="{Binding FinalBundlePath}" TextWrapping="Wrap" />
                              </StackPanel>
                          </Border>
                      </StackPanel>
@@ -1271,6 +1610,8 @@
                         <TextBlock Text="Current Session" FontWeight="Bold" />
                         <TextBlock Text="{Binding SessionId}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,8,0,0" />
                         <TextBlock Text="{Binding SessionStatus}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding PortalSyncStatus}" Foreground="{StaticResource PmMuted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <Button Content="Retry Portal Sync" Command="{Binding RetryEvidenceSyncCommand}" Margin="0,12,0,0" />
                     </StackPanel>
                 </Border>
                 </StackPanel>

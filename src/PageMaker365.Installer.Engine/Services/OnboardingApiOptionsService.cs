@@ -45,6 +45,7 @@ public sealed class OnboardingApiOptionsService
         ApplyString("PM365_ONBOARDING_CONNECT_ENDPOINT_PATH", value => options.ConnectEndpointPath = value);
         ApplyString("PM365_ONBOARDING_DISCOVERY_ENDPOINT_PATH", value => options.DiscoveryEndpointPath = value);
         ApplyString("PM365_ONBOARDING_STATUS_ENDPOINT_PATH", value => options.StatusEndpointPath = value);
+        ApplyString("PM365_ONBOARDING_EVIDENCE_ENDPOINT_PATH", value => options.EvidenceEndpointPath = value);
         ApplyString("PM365_ONBOARDING_PACKAGE_ENDPOINT_TEMPLATE", value => options.PackageEndpointPathTemplate = value);
         ApplyString("PM365_ONBOARDING_API_KEY_ENV", value => options.ApiKeyEnvironmentVariable = value);
 
@@ -95,6 +96,11 @@ public sealed class OnboardingApiOptionsService
         if (string.IsNullOrWhiteSpace(options.StatusEndpointPath))
         {
             options.StatusEndpointPath = "/api/onboarding/installer/status";
+        }
+
+        if (string.IsNullOrWhiteSpace(options.EvidenceEndpointPath))
+        {
+            options.EvidenceEndpointPath = "/api/onboarding/installer/evidence";
         }
 
         if (string.IsNullOrWhiteSpace(options.PackageEndpointPathTemplate))

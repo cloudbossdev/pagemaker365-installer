@@ -15,12 +15,12 @@ function Get-PM365ObjectProperty {
     if ($InputObject -is [System.Collections.IDictionary]) {
         foreach ($candidate in $Name) {
             if ($InputObject.Contains($candidate)) {
-                return $InputObject[$candidate]
+                return ,$InputObject[$candidate]
             }
 
             foreach ($key in $InputObject.Keys) {
                 if ([string]::Equals([string]$key, $candidate, [System.StringComparison]::OrdinalIgnoreCase)) {
-                    return $InputObject[$key]
+                    return ,$InputObject[$key]
                 }
             }
         }
@@ -29,7 +29,7 @@ function Get-PM365ObjectProperty {
     foreach ($candidate in $Name) {
         foreach ($property in $InputObject.PSObject.Properties) {
             if ([string]::Equals($property.Name, $candidate, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return $property.Value
+                return ,$property.Value
             }
         }
     }
