@@ -111,12 +111,12 @@ Acceptance criteria:
 Goal: provide operator help without allowing unsafe automation.
 
 - [ ] Decide AI endpoint: PageMaker365 backend or approved local diagnostic endpoint.
-- [ ] Send only redacted diagnostic payloads.
+- [x] Send only redacted diagnostic payloads without local paths.
 - [ ] Map known errors to approved remediation playbooks.
 - [ ] Generate customer admin message drafts.
 - [ ] Add evaluation cases for wrong tenant, missing RBAC, missing Graph consent, SharePoint denial, and deployment failure.
-- [ ] Add assistant API contract tests.
-- [ ] Harden recommended action allowlist and approval requirements.
+- [x] Add assistant API contract tests for messages, redacted text attachments, ticket drafts, auth, receipts, size limits, and fallback.
+- [x] Harden recommended action allowlist and approval requirements with a local registry.
 
 Acceptance criteria:
 

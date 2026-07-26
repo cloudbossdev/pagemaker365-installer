@@ -188,7 +188,7 @@
                                        TextWrapping="Wrap"
                                        LineHeight="19"
                                        Margin="0,6,0,12" />
-                            <CheckBox Content="Upload attachments with handoff"
+                            <CheckBox Content="Upload redacted text attachments"
                                       IsChecked="{Binding UploadAttachmentsWithHandoff}"
                                       Foreground="{StaticResource PmText}"
                                       Margin="0,0,0,12" />

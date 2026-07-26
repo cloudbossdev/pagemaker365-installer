@@ -143,8 +143,8 @@ Scenario status meanings:
 | T02 | Operator needs administrator assistance | Generated message identifies required action without secrets. | Partial |
 | T03 | Operator creates a support bundle | Bundle contains manifest, sanitized evidence, versions, and correlations. | Partial |
 | T04 | Evidence and support artifacts are scanned | No prohibited secret or customer-content patterns are present. | Automated |
-| T05 | Assistant recommends a privileged or destructive action | Recommendation cannot bypass normal approval or execute the action directly. | Partial |
-| T06 | Customer approves a support handoff | Transferred scope and retention are explicit and traceable. | Planned |
+| T05 | Assistant recommends a privileged, unknown, duplicated, or approval-downgraded action | Only the locally registered action renders, with the local label and approval floor; destructive actions cannot execute. | Automated |
+| T06 | Customer approves a support handoff | Transfer is off by default; only explicitly approved redacted text artifacts enter a draft, while binary/local-only items are omitted. | Partial |
 
 ## Lifecycle Scenarios
 

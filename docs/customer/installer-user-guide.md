@@ -38,6 +38,8 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - Blockers explain what failed, why progression stopped, and the next corrective action.
 - Restarting the app does not restore tokens, secrets, or destructive approval.
 - Successful validation displays the verified PageMaker365 customer URL.
+- Assistant recommendations cannot add privileged commands or lower installer approval requirements.
+- Support attachments remain local unless the operator explicitly enables handoff; only redacted text artifacts are eligible, and the portal result is a reviewable draft rather than a submitted ticket.
 - Removal never deletes SharePoint content or purges Key Vault.
 
 ## Content Still Required Before Publication
@@ -48,5 +50,6 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - Supported upgrade instructions from issue #6.
 - Signed distribution and verification instructions from issue #13.
 - Clean-operator walkthrough results from issue #10.
+- Portal assistant retention and approved support-handoff evidence from issue #28.
 
 Until these items are complete, `docs/using-the-installer.md` remains the engineering operator reference rather than a customer publication.

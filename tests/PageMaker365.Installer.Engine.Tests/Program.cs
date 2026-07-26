@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -75,6 +76,20 @@ internal static class Program
             ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
             ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
+            ("Assistant API rejects untrusted portal origin", AssistantApiRejectsUntrustedPortalOrigin),
+            ("Assistant message sends trusted sanitized contract", AssistantMessageSendsTrustedSanitizedContract),
+            ("Assistant message rejects prohibited payload before transport", AssistantMessageRejectsProhibitedPayloadBeforeTransport),
+            ("Assistant message falls back only for transient failure", AssistantMessageFallsBackOnlyForTransientFailure),
+            ("Assistant message does not fall back for unauthorized response", AssistantMessageDoesNotFallbackForUnauthorizedResponse),
+            ("Assistant message rejects mismatched receipt", AssistantMessageRejectsMismatchedReceipt),
+            ("Assistant attachment import redacts text and retains images locally", AssistantAttachmentImportRedactsTextAndRetainsImagesLocally),
+            ("Support bundle excludes local binary assistant attachments", SupportBundleExcludesLocalBinaryAssistantAttachments),
+            ("Assistant attachment upload enforces exact prepared artifact", AssistantAttachmentUploadEnforcesExactPreparedArtifact),
+            ("Assistant attachment rejects oversize payload before transport", AssistantAttachmentRejectsOversizePayloadBeforeTransport),
+            ("Assistant attachment rejects hash mismatch before transport", AssistantAttachmentRejectsHashMismatchBeforeTransport),
+            ("Assistant support ticket requires exact draft receipt", AssistantSupportTicketRequiresExactDraftReceipt),
+            ("Assistant support ticket rejects submitted terminal state", AssistantSupportTicketRejectsSubmittedTerminalState),
+            ("Assistant action policy prevents approval downgrade", AssistantActionPolicyPreventsApprovalDowngrade),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
@@ -1406,6 +1421,388 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static async Task AssistantApiRejectsUntrustedPortalOrigin()
+    {
+        var options = CreateAssistantOptions();
+        options.PortalApiBaseUrl = "https://example.invalid";
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() => Task.Run(() =>
+            new AssistantApiClient(options, new HttpClient(new RecordingHttpMessageHandler(_ => JsonResponse("{}"))))));
+
+        AssertEx.StringContains(exception.Message, "not a trusted PageMaker365 endpoint");
+    }
+
+    private static async Task AssistantMessageSendsTrustedSanitizedContract()
+    {
+        using var apiKey = new EnvironmentVariableScope("PM365_ASSISTANT_TEST_KEY", "assistant-test-key");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "2026-07-05",
+              "conversationId": "assistant-test-001",
+              "correlationId": "corr-assistant-message-001",
+              "source": "PortalApi",
+              "message": {
+                "role": "Assistant",
+                "content": "Review C:\\Users\\operator\\diagnostic.log before retrying.",
+                "attachments": []
+              },
+              "recommendedActions": []
+            }
+            """));
+        var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+
+        var response = await client.SendMessageAsync(CreateAssistantMessageRequest());
+
+        AssertEx.Equal("corr-assistant-message-001", response.CorrelationId);
+        AssertEx.StringContains(response.Message.Content, "[local path omitted]");
+        AssertEx.False(response.Message.Content.Contains("C:\\Users", StringComparison.Ordinal));
+        AssertEx.Equal("Bearer", handler.Requests[0].Authorization?.Scheme);
+        AssertEx.Equal("assistant-test-key", handler.Requests[0].Authorization?.Parameter);
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertJsonString(body, "localTranscriptPath", "");
+        AssertJsonString(body.RootElement.GetProperty("diagnosticContext"), "packagePath", "");
+    }
+
+    private static async Task AssistantMessageRejectsProhibitedPayloadBeforeTransport()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+        var request = CreateAssistantMessageRequest();
+        request.UserMessage.Content = "Authorization: Bearer secret-token-value";
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() => client.SendMessageAsync(request));
+
+        AssertEx.StringContains(exception.Message, "prohibited secret-like");
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static async Task AssistantMessageFallsBackOnlyForTransientFailure()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var options = CreateAssistantOptions();
+        options.FallbackToMockOnFailure = true;
+        var client = new AssistantApiClient(options, new HttpClient(handler));
+
+        var response = await client.SendMessageAsync(CreateAssistantMessageRequest());
+
+        AssertEx.True(response.UsedFallback);
+        AssertEx.Equal("LocalMockFallback", response.Source);
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task AssistantMessageDoesNotFallbackForUnauthorizedResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var options = CreateAssistantOptions();
+        options.FallbackToMockOnFailure = true;
+        var client = new AssistantApiClient(options, new HttpClient(handler));
+
+        var exception = await AssertEx.ThrowsAsync<AssistantApiException>(() =>
+            client.SendMessageAsync(CreateAssistantMessageRequest()));
+
+        AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task AssistantMessageRejectsMismatchedReceipt()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "2026-07-05",
+              "conversationId": "assistant-other",
+              "correlationId": "corr-assistant-mismatch",
+              "message": { "role": "Assistant", "content": "Done." }
+            }
+            """));
+        var options = CreateAssistantOptions();
+        options.FallbackToMockOnFailure = true;
+        var client = new AssistantApiClient(options, new HttpClient(handler));
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SendMessageAsync(CreateAssistantMessageRequest()));
+
+        AssertEx.StringContains(exception.Message, "does not match");
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task AssistantAttachmentImportRedactsTextAndRetainsImagesLocally()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var sourceText = Path.Combine(root, "diagnostic.log");
+            var sourceImage = Path.Combine(root, "screenshot.png");
+            await File.WriteAllTextAsync(sourceText, "Authorization: Bearer secret-token-value");
+            await File.WriteAllBytesAsync(sourceImage, [0x89, 0x50, 0x4E, 0x47]);
+            var service = new AssistantAttachmentService();
+
+            var textAttachment = await service.ImportAsync(sourceText, Path.Combine(root, "attachments"));
+            var imageAttachment = await service.ImportAsync(sourceImage, Path.Combine(root, "attachments"));
+
+            AssertEx.True(textAttachment.PortalUploadAllowed);
+            AssertEx.Equal("RedactedText", textAttachment.ContentTreatment);
+            AssertEx.StringContains(await File.ReadAllTextAsync(textAttachment.StoredPath), "[REDACTED]");
+            AssertEx.False(imageAttachment.PortalUploadAllowed);
+            AssertEx.Equal("LocalOnlyBinary", imageAttachment.ContentTreatment);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task SupportBundleExcludesLocalBinaryAssistantAttachments()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var outputRoot = Path.Combine(root, "support-bundle");
+            var conversationRoot = Path.Combine(outputRoot, "assistant", "assistant-test-001");
+            var attachmentRoot = Path.Combine(conversationRoot, "attachments");
+            var outboxAttachmentRoot = Path.Combine(conversationRoot, "portal-outbox", "attachments");
+            Directory.CreateDirectory(attachmentRoot);
+            Directory.CreateDirectory(outboxAttachmentRoot);
+            await File.WriteAllTextAsync(
+                Path.Combine(conversationRoot, "assistant-conversation.redacted.json"),
+                "{\"status\":\"Review C:\\\\Users\\\\operator\\\\diagnostic.log\"}");
+            await File.WriteAllBytesAsync(Path.Combine(attachmentRoot, "screenshot.png"), [0x89, 0x50, 0x4E, 0x47]);
+            await File.WriteAllTextAsync(
+                Path.Combine(outboxAttachmentRoot, "attachment-att_test.log"),
+                "Authorization: Bearer secret-token-value");
+            var session = InstallerSession.Create(CreateConfig(), root);
+            var bundle = await new SupportBundleService(new RedactionService()).CreateAsync(session, outputRoot);
+
+            using var archive = ZipFile.OpenRead(bundle);
+            AssertEx.False(archive.Entries.Any(entry => entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase)));
+            var transcript = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith("assistant-conversation.redacted.json", StringComparison.Ordinal));
+            await using (var stream = transcript.Open())
+            using (var reader = new StreamReader(stream))
+            {
+                var content = await reader.ReadToEndAsync();
+                AssertEx.StringContains(content, "[local path omitted]");
+            }
+
+            var diagnostic = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith("attachment-att_test.log", StringComparison.Ordinal));
+            await using (var stream = diagnostic.Open())
+            using (var reader = new StreamReader(stream))
+            {
+                var content = await reader.ReadToEndAsync();
+                AssertEx.StringContains(content, "[REDACTED]");
+                AssertEx.False(content.Contains("secret-token-value", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantAttachmentUploadEnforcesExactPreparedArtifact()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var storedPath = Path.Combine(root, "prepared.log");
+            await File.WriteAllTextAsync(storedPath, "Sanitized diagnostic output.");
+            var attachmentId = "att_test_001";
+            var request = new AssistantAttachmentUploadRequest
+            {
+                ConversationId = "assistant-test-001",
+                AttachmentId = attachmentId,
+                FileName = AssistantTransferPolicy.CreateTransferFileName(attachmentId, "diagnostic.log"),
+                ContentType = "text/plain",
+                SizeBytes = new FileInfo(storedPath).Length,
+                Sha256 = ComputeSha256(storedPath),
+                ContentTreatment = "RedactedText",
+                DiagnosticContext = CreateAssistantContext()
+            };
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+                {
+                  "contractVersion": "2026-07-05",
+                  "conversationId": "assistant-test-001",
+                  "attachmentId": "att_test_001",
+                  "uploadedAttachmentId": "portal-attachment-001",
+                  "correlationId": "corr-assistant-upload-001",
+                  "source": "PortalApi",
+                  "status": "Uploaded",
+                  "message": "Uploaded"
+                }
+                """));
+            var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+
+            var response = await client.UploadAttachmentAsync(request, storedPath, Path.Combine(root, "outbox"));
+
+            AssertEx.Equal("portal-attachment-001", response.UploadedAttachmentId);
+            AssertEx.StringContains(handler.RequestBodies[0], request.FileName);
+            AssertEx.False(handler.RequestBodies[0].Contains(storedPath, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantAttachmentRejectsOversizePayloadBeforeTransport()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var storedPath = Path.Combine(root, "prepared.log");
+            await File.WriteAllTextAsync(storedPath, "1234567890");
+            var options = CreateAssistantOptions();
+            options.MaxAttachmentBytes = 5;
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+            var client = new AssistantApiClient(options, new HttpClient(handler));
+            var request = new AssistantAttachmentUploadRequest
+            {
+                ConversationId = "assistant-test-001",
+                AttachmentId = "att_test_002",
+                FileName = AssistantTransferPolicy.CreateTransferFileName("att_test_002", "diagnostic.log"),
+                ContentType = "text/plain",
+                SizeBytes = new FileInfo(storedPath).Length,
+                Sha256 = ComputeSha256(storedPath),
+                ContentTreatment = "RedactedText",
+                DiagnosticContext = CreateAssistantContext()
+            };
+
+            var exception = await AssertEx.ThrowsAsync<InvalidOperationException>(() =>
+                client.UploadAttachmentAsync(request, storedPath, Path.Combine(root, "outbox")));
+
+            AssertEx.StringContains(exception.Message, "upload limit");
+            AssertEx.Equal(0, handler.Requests.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantAttachmentRejectsHashMismatchBeforeTransport()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var storedPath = Path.Combine(root, "prepared.log");
+            await File.WriteAllTextAsync(storedPath, "Sanitized diagnostic output.");
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+            var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+            var request = new AssistantAttachmentUploadRequest
+            {
+                ConversationId = "assistant-test-001",
+                AttachmentId = "att_test_003",
+                FileName = AssistantTransferPolicy.CreateTransferFileName("att_test_003", "diagnostic.log"),
+                ContentType = "text/plain",
+                SizeBytes = new FileInfo(storedPath).Length,
+                Sha256 = new string('A', 64),
+                ContentTreatment = "RedactedText",
+                DiagnosticContext = CreateAssistantContext()
+            };
+
+            var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+                client.UploadAttachmentAsync(request, storedPath, Path.Combine(root, "outbox")));
+
+            AssertEx.StringContains(exception.Message, "hash does not match");
+            AssertEx.Equal(0, handler.Requests.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantSupportTicketRequiresExactDraftReceipt()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+                {
+                  "contractVersion": "2026-07-05",
+                  "conversationId": "assistant-test-001",
+                  "ticketDraftId": "ticket-draft-001",
+                  "portalRecordUrl": "https://pagemaker365.com/support/ticket-draft-001",
+                  "correlationId": "corr-assistant-ticket-001",
+                  "source": "PortalApi",
+                  "status": "Drafted",
+                  "message": "Draft created",
+                  "uploadedAttachments": []
+                }
+                """));
+            var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+            var request = CreateAssistantSupportTicketRequest();
+
+            var response = await client.CreateSupportTicketDraftAsync(request, root);
+
+            AssertEx.Equal("Drafted", response.Status);
+            using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+            AssertJsonString(body, "localTranscriptPath", "");
+            AssertJsonString(body, "description", "Sanitized operator summary.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantSupportTicketRejectsSubmittedTerminalState()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+                {
+                  "contractVersion": "2026-07-05",
+                  "conversationId": "assistant-test-001",
+                  "ticketDraftId": "ticket-submitted-001",
+                  "portalRecordUrl": "https://pagemaker365.com/support/ticket-submitted-001",
+                  "correlationId": "corr-assistant-ticket-submitted",
+                  "source": "PortalApi",
+                  "status": "Submitted",
+                  "message": "Ticket submitted"
+                }
+                """));
+            var options = CreateAssistantOptions();
+            options.FallbackToMockOnFailure = true;
+            var client = new AssistantApiClient(options, new HttpClient(handler));
+
+            var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+                client.CreateSupportTicketDraftAsync(CreateAssistantSupportTicketRequest(), root));
+
+            AssertEx.StringContains(exception.Message, "does not match");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static Task AssistantActionPolicyPreventsApprovalDowngrade()
+    {
+        var policy = new AssistantActionPolicy();
+        var actions = policy.Normalize(
+        [
+            new AssistantRecommendedAction
+            {
+                ActionId = "rerun-preflight",
+                Label = "Run without approval",
+                Description = "Server-controlled text",
+                Category = "Unsafe",
+                RequiresApproval = false,
+                Enabled = true
+            },
+            new AssistantRecommendedAction { ActionId = "rerun-preflight", Enabled = true },
+            new AssistantRecommendedAction { ActionId = "delete-resource-group", Enabled = true }
+        ]);
+
+        AssertEx.Equal(1, actions.Count);
+        AssertEx.Equal("Rerun preflight", actions[0].Label);
+        AssertEx.True(actions[0].RequiresApproval);
+        AssertEx.Equal("Installer", actions[0].Category);
+        return Task.CompletedTask;
+    }
+
     private static Task OptionsServiceLoadsFileAndEnvironmentOverrides()
     {
         var workspaceRoot = CreateTempDirectory();
@@ -2299,6 +2696,91 @@ internal static class Program
     {
         AssertEx.True(element.TryGetProperty(propertyName, out var property), $"Missing JSON property: {propertyName}");
         AssertEx.Equal(expected, property.GetString());
+    }
+
+    private static AssistantApiOptions CreateAssistantOptions()
+    {
+        return new AssistantApiOptions
+        {
+            Mode = "Portal",
+            PortalApiBaseUrl = "https://localhost:5443",
+            ApiKeyEnvironmentVariable = "PM365_ASSISTANT_TEST_KEY",
+            FallbackToMockOnFailure = false
+        };
+    }
+
+    private static AssistantDiagnosticContext CreateAssistantContext()
+    {
+        return new AssistantDiagnosticContext
+        {
+            WorkflowMode = "Setup",
+            WorkflowTitle = "Install PageMaker365",
+            CurrentStep = "Preflight",
+            CustomerName = "Example Customer",
+            PackagePath = "",
+            AzureSubscription = "Example Subscription",
+            SharePointSite = "https://example.sharepoint.com/sites/intranet",
+            OnboardingSessionId = "onb_test_001",
+            OnboardingStatus = "Ready",
+            OnboardingApiBaseUrl = "https://api-staging.pagemaker365.com",
+            PortalSyncStatus = "Ready",
+            DiscoverySummary = "Discovery complete.",
+            DiscoveryOutputPath = "",
+            InstallerSessionId = "pm365-install-test-001",
+            InstallerSessionStatus = "Warning",
+            FooterStatus = "Review the preflight warning.",
+            Checks =
+            [
+                new AssistantCheckSummary
+                {
+                    Name = "SharePoint access",
+                    Code = "SharePointSiteReady",
+                    Status = "Warning",
+                    Summary = "Review access.",
+                    RetrySafe = true
+                }
+            ]
+        };
+    }
+
+    private static AssistantMessageRequest CreateAssistantMessageRequest()
+    {
+        var userMessage = new AssistantMessage
+        {
+            Role = "User",
+            Content = "Explain the current warning.",
+            Attachments = []
+        };
+        return new AssistantMessageRequest
+        {
+            ConversationId = "assistant-test-001",
+            IncludeDiagnostics = true,
+            DiagnosticContext = CreateAssistantContext(),
+            UserMessage = userMessage,
+            ConversationHistory = [userMessage],
+            LocalTranscriptPath = ""
+        };
+    }
+
+    private static AssistantSupportTicketRequest CreateAssistantSupportTicketRequest()
+    {
+        return new AssistantSupportTicketRequest
+        {
+            ConversationId = "assistant-test-001",
+            IncludeDiagnostics = true,
+            DiagnosticContext = CreateAssistantContext(),
+            Subject = "PageMaker365 installer assistance",
+            Description = "Sanitized operator summary.",
+            ConversationHistory = CreateAssistantMessageRequest().ConversationHistory,
+            UploadedAttachments = [],
+            LocalTranscriptPath = ""
+        };
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream));
     }
 
     private static string CreateTempDirectory()

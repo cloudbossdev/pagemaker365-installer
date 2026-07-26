@@ -1,6 +1,6 @@
 # Assistant API Contract
 
-The installer defaults to local mock mode. A production build can switch to the PageMaker365 portal broker API by placing `assistant-api.json` at the repo/package root, `config/assistant-api.json`, or the app output folder.
+The installer defaults to local mock mode. A production build can switch to the PageMaker365 portal broker API by placing `assistant-api.json` at the repo/package root, `config/assistant-api.json`, or the app output folder. Portal mode accepts only HTTPS production/staging PageMaker365 origins or HTTP(S) localhost development origins. Every endpoint path must remain on that configured origin.
 
 ## Configuration
 
@@ -46,7 +46,7 @@ The desktop app sends metadata and local attachment manifests. Binary attachment
   "diagnosticContext": {},
   "userMessage": {},
   "conversationHistory": [],
-  "localTranscriptPath": "support-bundle/assistant/assistant-20260705-155900"
+  "localTranscriptPath": ""
 }
 ```
 
@@ -65,18 +65,18 @@ The desktop app sends metadata and local attachment manifests. Binary attachment
 }
 ```
 
-Recommended actions are advisory until the installer explicitly wires approved buttons to them.
+Responses must echo contract version and conversation identity and include a correlation ID and an `Assistant` message. HTTP success with a mismatched response is rejected. Server message text is redacted again before display or persistence.
 
 ## Recommended Actions
 
-The message response can include advisory action cards. The desktop app only executes known action IDs and keeps risky actions approval-gated.
+The message response can include advisory action IDs. The desktop app ignores server labels, descriptions, categories, enabled-state escalation, and approval flags. A local registry supplies all displayed metadata and approval requirements. Unknown, duplicate, disabled, or malformed recommendations are dropped.
 
 Supported installer action IDs:
 
 - `create-support-bundle`: create a local redacted support bundle from the current installer session.
-- `create-support-ticket-draft`: create a support ticket draft from the assistant conversation and attachments.
+- `create-support-ticket-draft`: create a reviewable support ticket draft from the assistant conversation and explicitly approved attachments. Local approval is mandatory.
 - `draft-admin-message`: generate an administrator-facing message in the installer guidance state.
-- `rerun-preflight`: rerun preflight after explicit user approval.
+- `rerun-preflight`: rerun preflight after explicit user approval. The portal cannot lower this requirement.
 - `open-portal-outbox`: open the local mock portal handoff folder.
 - `copy-escalation-summary`: copy a redacted issue summary to the clipboard.
 
@@ -93,28 +93,29 @@ Example:
 }
 ```
 
-The assistant service should not recommend irreversible install, uninstall, cleanup, or destructive tenant actions until the desktop app has explicit approval controls for those operations.
+No install, upgrade, uninstall, cleanup, Azure mutation, consent grant, or tenant write action exists in the local registry. A server response cannot introduce one.
 
 ## Attachment Upload Endpoint
 
 `POST /api/installer/assistant/attachments`
 
-The desktop app sends `multipart/form-data` with:
+Attachment transfer is off by default. After explicit operator opt-in, the desktop app sends `multipart/form-data` with:
 
 - `metadata`: JSON using `AssistantAttachmentUploadRequest`
 - `file`: binary attachment stream
 
-The JSON metadata does not include full local paths. The file stream is sourced from the local support-bundle attachment copy.
+Only `.txt`, `.log`, `.json`, and `.md` are eligible. The installer creates a redacted local copy, recalculates its size and SHA-256 hash, and replaces the original filename with `attachment-<opaque-id>.<extension>`. Original paths and filenames are never sent. Screenshots and other binary attachments remain local-only and are omitted from ticket requests.
 
 ```json
 {
   "contractVersion": "2026-07-05",
   "conversationId": "assistant-20260705-155900",
   "attachmentId": "local-attachment-id",
-  "fileName": "error-screenshot.png",
-  "contentType": "image/png",
+  "fileName": "attachment-local-attach.log",
+  "contentType": "text/plain",
   "sizeBytes": 123456,
-  "sha256": "ABC123",
+  "sha256": "<sha256-of-redacted-copy>",
+  "contentTreatment": "RedactedText",
   "diagnosticContext": {}
 }
 ```
@@ -139,7 +140,7 @@ Response:
 
 `POST /api/installer/support-tickets`
 
-The desktop app creates a draft, not a final submitted ticket. The portal should allow staff or the customer to review before submission.
+The desktop app creates a draft, not a final submitted ticket. It accepts only an exact `Drafted` response for the submitted conversation. A `Submitted` or mismatched HTTP-success response is rejected and cannot be represented as a successful draft.
 
 ```json
 {
@@ -151,7 +152,7 @@ The desktop app creates a draft, not a final submitted ticket. The portal should
   "description": "Latest issue summary",
   "conversationHistory": [],
   "uploadedAttachments": [],
-  "localTranscriptPath": "support-bundle/assistant/assistant-20260705-155900"
+  "localTranscriptPath": ""
 }
 ```
 
@@ -180,3 +181,16 @@ In mock mode, the installer writes a local portal handoff package under:
 `support-bundle/assistant/{conversationId}/portal-outbox/`
 
 That folder includes uploaded attachment copies, upload manifests, and `support-ticket-draft.json`. The normal support bundle includes this folder.
+
+## Failure And Fallback Policy
+
+- Authentication/authorization failures, invalid requests, contract mismatches, and explicit cancellation never fall back to mock success.
+- Network failures, client timeouts, HTTP 408/429, and HTTP 5xx may fall back only when configured.
+- Fallback responses are labeled `LocalMockFallback`; they create local outbox artifacts and do not claim portal delivery.
+- API error bodies are not copied into the UI or transcript. Only sanitized status and correlation metadata are surfaced.
+
+## Data And Retention Boundary
+
+Portal requests may contain the operator-authored sanitized message, selected sanitized diagnostic fields, sanitized conversation history, opaque attachment metadata, and explicitly approved redacted text attachments. They must not contain tokens, one-time codes, secrets, connection strings, local paths, original filenames, raw logs, screenshots, binary files, document content, mailbox content, or broad tenant exports.
+
+Local assistant transcripts and attachments remain under `support-bundle/assistant/<conversation-id>/` until the customer deletes them. Portal retention and final support-ticket submission remain portal responsibilities and require separate operational approval under issue #28.

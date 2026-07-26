@@ -36,6 +36,7 @@ Product behavior, customer documentation, and technical claims must not be treat
 | Upgrade | Supported version transitions and recovery behavior are explicit | [#6](https://github.com/cloudbossdev/pagemaker365-installer/issues/6) |
 | Secrets | Runtime values are provisioned through customer Key Vault without disclosure | [#7](https://github.com/cloudbossdev/pagemaker365-installer/issues/7) |
 | Security contract | Permissions, resources, networking, storage, data flows, and retention are verified | [#8](https://github.com/cloudbossdev/pagemaker365-installer/issues/8) |
+| Support handoff | Assistant API, local actions, attachments, fallback, and support-ticket drafts fail closed at the customer data boundary | [#28](https://github.com/cloudbossdev/pagemaker365-installer/issues/28) |
 | Removal reporting | Hardened removal lifecycle callbacks and outbox behavior are implemented | [#9](https://github.com/cloudbossdev/pagemaker365-installer/issues/9) |
 | Acceptance testing | Clean workstation and repeated lifecycle scenarios pass in staging | [#10](https://github.com/cloudbossdev/pagemaker365-installer/issues/10) |
 | User guide | Customer operator guide is validated against the released UI | [#11](https://github.com/cloudbossdev/pagemaker365-installer/issues/11) |
@@ -86,6 +87,7 @@ A story is complete only when all applicable items are proven:
 Customer release is blocked until:
 
 - Issues #4 through #10 and #13 are closed or explicitly removed from v1 scope with an approved rationale.
+- Issue #28 is closed after the staging assistant and customer-approved support-handoff runbook passes.
 - All v1 stories show verified automated and live evidence.
 - The user and technical guides pass operator and security review.
 - The release candidate is signed and passes the clean-workstation lifecycle suite.

@@ -406,12 +406,12 @@ Owner pattern: one engine-test worker, one app/UX worker after safety tests exis
 
 Scope:
 
-- Test portal message request/response.
-- Test attachment upload metadata.
-- Test support ticket draft.
-- Test auth headers.
-- Test fallback and no-fallback behavior.
-- Test max attachment enforcement.
+- [x] Test portal message request/response.
+- [x] Test attachment upload metadata.
+- [x] Test support ticket draft.
+- [x] Test auth headers.
+- [x] Test fallback and no-fallback behavior.
+- [x] Test max attachment enforcement.
 
 Acceptance criteria:
 
@@ -424,9 +424,9 @@ Needs customer: no.
 
 Scope:
 
-- Prove assistant payloads omit secrets, bearer tokens, connection strings, and local paths.
-- Decide whether text/log attachments are redacted locally before upload.
-- Keep screenshot/file upload explicit and human initiated.
+- [x] Prove assistant payloads omit secrets, bearer tokens, connection strings, and local paths.
+- [x] Redact text/log/JSON/Markdown copies locally before upload.
+- [x] Keep transfer disabled by default and binary/screenshots local-only.
 
 Acceptance criteria:
 
@@ -439,9 +439,9 @@ Needs customer: attachment policy decision.
 
 Scope:
 
-- Add local action registry.
-- Local labels, descriptions, enabled states, and approval requirements override server risk settings.
-- Unknown actions never execute.
+- [x] Add local action registry.
+- [x] Make local labels, descriptions, enabled states, and approval requirements authoritative.
+- [x] Drop unknown and duplicate actions before rendering or execution.
 
 Acceptance criteria:
 
