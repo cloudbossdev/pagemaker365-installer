@@ -92,6 +92,10 @@ support-bundle/
 
 Start here before wiring the production payload:
 
+- `docs/customer-readiness-program.md`
+- `docs/install-uninstall-user-stories.md`
+- `docs/install-uninstall-test-matrix.md`
+- `docs/installer-requirements-traceability.md`
 - `docs/deployment-contract.md`
 - `docs/onboarding-discovery-contract.md`
 - `docs/using-the-installer.md`
@@ -99,6 +103,8 @@ Start here before wiring the production payload:
 - `schemas/customer-install.schema.json`
 - `schemas/onboarding-bootstrap.schema.json`
 - `schemas/tenant-discovery.schema.json`
+
+The controlled customer publication drafts are under `docs/customer/`. They remain explicitly marked as drafts until the customer-readiness traceability gates are satisfied.
 
 The control plane should first create an onboarding session, then use installer discovery results to pre-fill onboarding forms and generate customer install packages that match the install package schema. Portal mode is strict: API responses must include required session/correlation fields, status responses must include package readiness, and generated package downloads must be JSON that pass local package validation before the UI marks them downloaded. The installer accepts the older alpha package shape for now, but warns when export trust metadata is missing and fails when blocked raw secret containers or package hash mismatches are present.
 
