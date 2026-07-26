@@ -38,9 +38,19 @@ try {
     Get-ChildItem -Path (Join-Path $moduleRoot 'Public') -Filter '*.ps1' -File |
         ForEach-Object { . $_.FullName }
 
+    $normalizedChange = ConvertTo-PM365WhatIfChange -Change ([pscustomobject]@{
+        FullyQualifiedResourceId = '/subscriptions/sub-test/resourceGroups/rg-pagemaker365-contoso-prod'
+        ChangeType = 'Create'
+    })
+    Assert-Equal '/subscriptions/sub-test/resourceGroups/rg-pagemaker365-contoso-prod' $normalizedChange.resourceId 'What-if normalization should preserve fully qualified resource IDs.'
+    Assert-Equal 'Microsoft.Resources/resourceGroups' $normalizedChange.resourceType 'What-if normalization should identify resource group changes.'
+    Assert-Equal 'rg-pagemaker365-contoso-prod' $normalizedChange.resourceName 'What-if normalization should derive the resource name.'
+
     $script:structuredCallCount = 0
     $script:unstructuredCallCount = 0
     $script:lastDeploymentArguments = $null
+    $script:lastStructuredResultFormat = ''
+    $script:lastStructuredSkipTemplateParameterPrompt = $false
 
     function Invoke-PM365BicepBuild {
         param([string] $TemplateFile)
@@ -58,7 +68,7 @@ try {
             [System.Management.Automation.ActionPreference] $ErrorAction
         )
 
-        if ($Name -eq 'Get-AzResourceGroupDeploymentWhatIfResult') {
+        if ($Name -eq 'Get-AzSubscriptionDeploymentWhatIfResult') {
             return [pscustomobject]@{ Name = $Name }
         }
 
@@ -124,24 +134,32 @@ try {
         [pscustomobject]@{
             ResourceGroupName = $Name
             Location = 'eastus'
+            Tags = @{
+                product = 'PageMaker365'
+                managedBy = 'PageMaker365'
+            }
         }
     }
 
-    function Get-AzResourceGroupDeploymentWhatIfResult {
+    function Get-AzSubscriptionDeploymentWhatIfResult {
         param(
-            [string] $ResourceGroupName,
+            [string] $Location,
             [string] $TemplateFile,
             [hashtable] $TemplateParameterObject,
+            [string] $ResultFormat,
+            [switch] $SkipTemplateParameterPrompt,
             [System.Management.Automation.ActionPreference] $ErrorAction
         )
 
         $script:structuredCallCount++
+        $script:lastStructuredResultFormat = $ResultFormat
+        $script:lastStructuredSkipTemplateParameterPrompt = [bool]$SkipTemplateParameterPrompt
         throw 'Structured what-if mock failure.'
     }
 
-    function New-AzResourceGroupDeployment {
+    function New-AzSubscriptionDeployment {
         param(
-            [string] $ResourceGroupName,
+            [string] $Location,
             [string] $TemplateFile,
             [hashtable] $TemplateParameterObject,
             [System.Management.Automation.ActionPreference] $ErrorAction,
@@ -150,7 +168,7 @@ try {
 
         $script:unstructuredCallCount++
         $script:lastDeploymentArguments = @{
-            ResourceGroupName = $ResourceGroupName
+            Location = $Location
             TemplateFile = $TemplateFile
             TemplateParameterObject = $TemplateParameterObject
             WhatIf = [bool]$WhatIf
@@ -169,14 +187,17 @@ try {
     Assert-Equal 'AzureWhatIfReady' $result.code 'Structured failure fallback should preserve the ready result code.'
     Assert-Equal 1 $script:structuredCallCount 'Structured what-if should be called once.'
     Assert-Equal 1 $script:unstructuredCallCount 'Unstructured fallback should be called once.'
+    Assert-Equal 'FullResourcePayloads' $script:lastStructuredResultFormat 'Structured what-if should preserve precise resource change types.'
+    Assert-True $script:lastStructuredSkipTemplateParameterPrompt 'Structured what-if should skip dynamic parameter prompting.'
     Assert-True (Test-Path -LiteralPath $artifactPath) 'What-if fallback artifact was not written.'
-    Assert-Equal 'rg-pagemaker365-contoso-prod' $script:lastDeploymentArguments.ResourceGroupName 'Fallback used the wrong resource group.'
+    Assert-Equal 'eastus' $script:lastDeploymentArguments.Location 'Fallback used the wrong deployment location.'
+    Assert-Equal 'rg-pagemaker365-contoso-prod' $script:lastDeploymentArguments.TemplateParameterObject.resourceGroupName 'Fallback used the wrong resource group.'
     Assert-True $script:lastDeploymentArguments.WhatIf 'Fallback did not pass -WhatIf.'
     Assert-Equal 'pagemaker365-contoso' $script:lastDeploymentArguments.TemplateParameterObject.appName 'Fallback used the wrong template parameters.'
 
     $artifact = Get-Content -LiteralPath $artifactPath -Raw | ConvertFrom-Json
     Assert-Equal 'Warning' $artifact.status 'Fallback artifact should be warning status.'
-    Assert-Equal 'New-AzResourceGroupDeployment -WhatIf' $artifact.method 'Fallback artifact should identify the unstructured method.'
+    Assert-Equal 'New-AzSubscriptionDeployment -WhatIf' $artifact.method 'Fallback artifact should identify the unstructured method.'
     Assert-Equal 'StructuredWhatIfFailedFallbackUsed' $artifact.error.code 'Fallback artifact should identify structured failure fallback.'
     Assert-True ($artifact.error.message -like '*Structured what-if mock failure*') 'Fallback artifact should preserve the structured failure message.'
     Assert-True (($artifact.output -join "`n") -like '*Resource changes: 9 to create*') 'Fallback artifact should preserve unstructured output.'

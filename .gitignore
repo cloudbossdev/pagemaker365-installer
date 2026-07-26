@@ -14,4 +14,9 @@ support-bundle/*
 *.zip
 *.log
 *.tmp
+.tmp/
+*.onboarding.bootstrap.json
+*.handoff-summary.json
+*.deployment-export*.json
+*.installer-status.json
 *.bak

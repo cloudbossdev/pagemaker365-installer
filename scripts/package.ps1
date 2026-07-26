@@ -48,12 +48,31 @@ dotnet publish $appProject `
     --self-contained false `
     --output $publishPath
 
-@('modules', 'infra', 'rules', 'ai', 'samples', 'schemas', 'docs') | ForEach-Object {
+@('modules', 'infra', 'rules', 'ai', 'samples', 'schemas') | ForEach-Object {
     Copy-Item `
         -LiteralPath (Join-Path $repoRoot $_) `
         -Destination (Join-Path $OutputPath $_) `
         -Recurse `
         -Force
+}
+
+$packageDocs = @(
+    'assistant-api-contract.md',
+    'deployment-contract.md',
+    'onboarding-discovery-contract.md',
+    'portal-install-package-handoff.md',
+    'removal-policy.md',
+    'using-the-installer.md'
+)
+$packageDocsPath = Join-Path $OutputPath 'docs'
+New-Item -ItemType Directory -Path $packageDocsPath -Force | Out-Null
+$packageDocs | ForEach-Object {
+    $sourcePath = Join-Path $repoRoot "docs\$_"
+    if (-not (Test-Path -LiteralPath $sourcePath)) {
+        throw "Required package documentation is missing: $sourcePath"
+    }
+
+    Copy-Item -LiteralPath $sourcePath -Destination $packageDocsPath -Force
 }
 
 Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination $OutputPath -Force

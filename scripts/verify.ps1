@@ -8,6 +8,12 @@ if (Test-Path -LiteralPath $dotnetPath) {
     $env:Path = "$dotnetPath;$env:Path"
 }
 
+Write-Host 'Checking repository hygiene...'
+& (Join-Path $repoRoot 'scripts\test-repository-hygiene.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Repository hygiene checks failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Checking JSON files...'
 Get-ChildItem -Path $repoRoot -Recurse -File -Include *.json |
     Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\|\\logs\\|\\support-bundle\\' } |
@@ -83,6 +89,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "Onboarding API contract tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Running installer app workflow tests...'
+$appTestProject = Join-Path $repoRoot 'tests\PageMaker365.Installer.App.Tests\PageMaker365.Installer.App.Tests.csproj'
+dotnet run --project $appTestProject --no-build
+if ($LASTEXITCODE -ne 0) {
+    throw "Installer app workflow tests failed with exit code $LASTEXITCODE."
+}
+
 $modulePath = Join-Path $repoRoot 'modules\PageMaker365.Install\PageMaker365.Install.psd1'
 $configPath = Join-Path $repoRoot 'samples\contoso.customer.install.json'
 $reportPath = Join-Path $repoRoot 'support-bundle\verify-install-report.md'
@@ -94,10 +107,13 @@ Write-Host 'Checking exported commands...'
     'Connect-PM365Graph',
     'Get-PM365AzureDiscovery',
     'Get-PM365GraphDiscovery',
+    'Get-PM365PartialInstallInventory',
     'Start-PM365Preflight',
     'Test-PM365DeploymentContract',
+    'Test-PM365KeyVaultRecoveryState',
     'Invoke-PM365WhatIf',
     'Invoke-PM365Deployment',
+    'Remove-PM365PartialInstall',
     'Test-PM365SmokeTests'
 ) | ForEach-Object {
     Get-Command $_ -Module PageMaker365.Install -ErrorAction Stop | Out-Null
@@ -119,6 +135,24 @@ Write-Host 'Testing what-if fallback contracts...'
 & (Join-Path $repoRoot 'scripts\test-whatif.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "What-if fallback contract tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing deployment artifact contracts...'
+& (Join-Path $repoRoot 'scripts\test-deployment-artifact.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Deployment artifact contract tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing partial-install cleanup safety contracts...'
+& (Join-Path $repoRoot 'scripts\test-partial-cleanup.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Partial-install cleanup tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing Key Vault recovery preflight contracts...'
+& (Join-Path $repoRoot 'scripts\test-keyvault-recovery.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Running preflight...'
@@ -157,8 +191,11 @@ if (-not (Test-Path -LiteralPath $whatIfArtifactPath)) {
 
 Get-Content -LiteralPath $whatIfArtifactPath -Raw | ConvertFrom-Json | Out-Null
 
-Write-Host 'Running smoke test scaffold...'
-Test-PM365SmokeTests -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
+Write-Host 'Testing runtime smoke-test contracts...'
+& (Join-Path $repoRoot 'scripts\test-smoke-tests.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Runtime smoke-test contract tests failed with exit code $LASTEXITCODE."
+}
 
 Write-Host 'Generating report...'
 New-PM365InstallReport -ConfigPath $configPath -OutputPath $reportPath | ConvertTo-Json -Depth 12 | Out-Null
