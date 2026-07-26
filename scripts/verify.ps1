@@ -70,6 +70,7 @@ Write-Host 'Checking PowerShell syntax...'
 $scriptRoots = @(
     (Join-Path $repoRoot 'modules')
     (Join-Path $repoRoot 'scripts')
+    (Join-Path $repoRoot 'distribution')
 )
 $scriptRoots |
     ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Include *.ps1,*.psm1 } |

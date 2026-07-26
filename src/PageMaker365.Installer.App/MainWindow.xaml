@@ -59,7 +59,7 @@
                         Margin="0,0,28,0"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center">
-                    <TextBlock Text="{Binding InstallerVersion}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding InstallerVersionDisplay}" FontWeight="SemiBold" />
                 </Border>
             </Grid>
         </Border>

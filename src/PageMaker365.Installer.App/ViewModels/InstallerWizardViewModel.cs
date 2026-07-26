@@ -228,7 +228,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RefreshStepNavigation();
     }
 
-    public string InstallerVersion => "Alpha scaffold 0.1-dev";
+    public string InstallerVersion => InstallerBuildInfo.Version;
+    public string InstallerVersionDisplay => InstallerBuildInfo.DisplayVersion;
     public ObservableCollection<StepViewModel> Steps { get; }
     public ObservableCollection<CheckResultViewModel> CheckResults { get; } = [];
     public ObservableCollection<PreviewResultViewModel> PreviewResults { get; } = [];

@@ -16,7 +16,7 @@ This document prevents drift between requirements, implementation, tests, live e
 
 | Story | Primary workflow surface | Scenario groups | Automated evidence | Live evidence | Customer documentation | Status | Issue |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| US-01 Start or resume | Welcome | L05, S01-S05 | App workflow tests cover saved-session load and resume | Resume across every destructive boundary is pending | User guide draft | Implemented | [#3](https://github.com/cloudbossdev/pagemaker365-installer/issues/3) |
+| US-01 Start or resume | Distribution, Welcome | W01-W08, L05, S01-S05 | Release verifier/package tests and app workflow tests cover distribution integrity, metadata, saved-session load, and resume | Signed candidate, clean-workstation launch, and resume across every destructive boundary are pending | User guide and distribution verification drafts | Partial | [#3](https://github.com/cloudbossdev/pagemaker365-installer/issues/3), [#13](https://github.com/cloudbossdev/pagemaker365-installer/issues/13) |
 | US-02 Acquire package | Package | P01-P09 | Engine/API and app package tests | Fresh staging setup-file acquisition has been exercised; expiry/reuse matrix pending | User and technical drafts | Partial | [#4](https://github.com/cloudbossdev/pagemaker365-installer/issues/4) |
 | US-03 Discover missing data | Package recovery | P10-P13 | Azure/Graph discovery and portal app tests | Missing-field recovery requires repeat staging evidence | User and technical drafts | Implemented | [#4](https://github.com/cloudbossdev/pagemaker365-installer/issues/4) |
 | US-04 Authenticate | Sign In | A01-A09 | Engine Graph tests and sign-in gating app tests | Wrong-context, cancellation, and expiry suite pending | User and technical drafts | Partial | [#4](https://github.com/cloudbossdev/pagemaker365-installer/issues/4) |
@@ -43,7 +43,7 @@ This document prevents drift between requirements, implementation, tests, live e
 | Upgrade compatibility | Version policy, preview semantics, recovery, and live upgrade evidence | [#6](https://github.com/cloudbossdev/pagemaker365-installer/issues/6) |
 | Network allowlist | Machine-readable endpoint inventory and trusted PageMaker365 host enforcement implemented; enterprise proxy acceptance remains | [#8](https://github.com/cloudbossdev/pagemaker365-installer/issues/8) |
 | Removal portal lifecycle | Hardened event contract, outbox, API tests, and staging proof | [#9](https://github.com/cloudbossdev/pagemaker365-installer/issues/9) |
-| Customer distribution | Code-signing chain, clean-workstation launch, hashes, and release evidence | [#13](https://github.com/cloudbossdev/pagemaker365-installer/issues/13) |
+| Customer distribution | Versioned deterministic ZIP, signing/verifier, manifest, hashes, and CI evidence implemented; production certificate and clean-workstation launch evidence remain | [#13](https://github.com/cloudbossdev/pagemaker365-installer/issues/13) |
 
 ## Pull Request Requirement
 

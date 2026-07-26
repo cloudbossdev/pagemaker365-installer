@@ -29,7 +29,8 @@ $unexpectedDocs = @(
             'onboarding-discovery-contract.md',
             'portal-install-package-handoff.md',
             'removal-policy.md',
-            'using-the-installer.md'
+            'using-the-installer.md',
+            'installer-distribution-verification.md'
         )
 )
 if ($unexpectedDocs.Count -gt 0) {
@@ -38,6 +39,22 @@ if ($unexpectedDocs.Count -gt 0) {
 
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedPackagePath 'app\PageMaker365.Installer.exe'))) {
     throw 'Package does not contain the installer executable.'
+}
+
+$debugFiles = @($files | Where-Object Extension -EQ '.pdb')
+if ($debugFiles.Count -gt 0) {
+    throw "Package contains development symbol files: $($debugFiles.FullName -join ', ')"
+}
+
+@(
+    'release-manifest.json',
+    'SHA256SUMS.txt',
+    'RELEASE-NOTES.md',
+    'Verify-PageMaker365Installer.ps1'
+) | ForEach-Object {
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedPackagePath $_) -PathType Leaf)) {
+        throw "Package release evidence is missing: $_"
+    }
 }
 
 Write-Host 'Package hygiene checks passed.'

@@ -10,7 +10,7 @@ Contract source: `config/installer-security-profile.json`
 
 This guide describes the security-relevant behavior implemented by the PageMaker365 Installer. It is intended for customer architecture, identity, security, networking, and operations reviewers.
 
-The current alpha provisions the Azure foundation but does not yet deploy production API or portal application content, provision runtime secrets, implement a supported upgrade contract, or ship a production-signed installer. Those gaps remain release blockers and are not represented here as completed capabilities.
+The current alpha provisions the Azure foundation but does not yet deploy production API or portal application content, provision runtime secrets, implement a supported upgrade contract, or have a production certificate and clean-workstation proof for its signed distribution. Those gaps remain release blockers and are not represented here as completed capabilities.
 
 ## Trust Boundaries And Data Flow
 
@@ -108,7 +108,7 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 - Signed-required packages use Ed25519 verification against a trusted key from the PageMaker365 JWKS endpoint.
 - Raw secret containers and secret-looking payload fields are rejected.
 
-Production code signing for the installer executable and distribution wrapper is not yet implemented; see #13.
+The pilot distribution is a deterministic versioned ZIP. The executable, PageMaker365 first-party libraries, and shipped PowerShell files support Authenticode signing. The manifest and SHA-256 files record the exact payload and ZIP integrity. Unsigned CI packages are labeled `UnsignedDevelopment` and are rejected by the customer verifier by default. Production certificate configuration and clean-workstation verification remain open under #13.
 
 ## Token And Secret Handling
 
@@ -157,7 +157,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 | Removal lifecycle callbacks | Not implemented | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
-| Production code signing and distribution | Not implemented | #13 |
+| Production code signing and distribution | Signing and verification implemented; certificate-backed release and clean-workstation proof pending | #13 |
 
 ## Verification And Review
 
