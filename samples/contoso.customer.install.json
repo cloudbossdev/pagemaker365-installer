@@ -52,6 +52,23 @@
       "email"
     ]
   },
+  "runtimeArtifacts": {
+    "contractVersion": "1.0",
+    "releaseId": "pm365-runtime-1.0.0+sample",
+    "runtimeVersion": "1.0.0",
+    "api": {
+      "fileName": "pagemaker365-api-1.0.0.zip",
+      "downloadUrl": "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-api-1.0.0.zip",
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "startupCommand": "node dist/index.js"
+    },
+    "portal": {
+      "fileName": "pagemaker365-portal-1.0.0.zip",
+      "downloadUrl": "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-portal-1.0.0.zip",
+      "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "startupCommand": "pm2 serve /home/site/wwwroot --no-daemon --spa"
+    }
+  },
   "controlPlane": {
     "baseUrl": "https://pagemaker365.com",
     "deploymentExportId": "export_contoso_sandbox_001",
@@ -66,7 +83,7 @@
     "licenseActivationId": "lic_contoso_sandbox_001",
     "entitlementSyncUrl": "https://api.pagemaker365.com/api/runtime/entitlements/sync",
     "publicKeyId": "pm365-runtime-signing-key-001",
-    "packageHash": "sha256:db36833d0d46648ee43784fea9015114b12f99c448d0573a4817bd5363e9259c",
+    "packageHash": "sha256:9c6c7abe8635f6111f6f4b48e28b4d9c82c04b4db7639ea1da1ecfb0311e3bc4",
     "packageHashAlgorithm": "SHA-256",
     "canonicalization": "json-c14n-v1",
     "signature": "",

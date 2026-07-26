@@ -30,6 +30,7 @@ public static class RuntimeContractValidator
         "azure",
         "sharePoint",
         "app",
+        "runtimeArtifacts",
         "features"
     ];
 
@@ -101,6 +102,19 @@ public static class RuntimeContractValidator
             RequireString(root, "sharePoint.defaultDocumentLibrary", result);
             RequireString(root, "app.appName", result);
             RequireString(root, "app.supportEmail", result);
+            RequireString(root, "runtimeArtifacts.contractVersion", result);
+            RequireString(root, "runtimeArtifacts.releaseId", result);
+            RequireString(root, "runtimeArtifacts.runtimeVersion", result);
+            RequireObject(root, "runtimeArtifacts.api", result);
+            RequireString(root, "runtimeArtifacts.api.fileName", result);
+            RequireAbsoluteUri(root, "runtimeArtifacts.api.downloadUrl", result);
+            RequireString(root, "runtimeArtifacts.api.sha256", result);
+            RequireString(root, "runtimeArtifacts.api.startupCommand", result);
+            RequireObject(root, "runtimeArtifacts.portal", result);
+            RequireString(root, "runtimeArtifacts.portal.fileName", result);
+            RequireAbsoluteUri(root, "runtimeArtifacts.portal.downloadUrl", result);
+            RequireString(root, "runtimeArtifacts.portal.sha256", result);
+            RequireString(root, "runtimeArtifacts.portal.startupCommand", result);
             RequireBoolean(root, "features.knowledgeBase", "features.knowledgeBase", result);
             RequireBoolean(root, "features.customerPortal", "features.customerPortal", result);
             RequireBoolean(root, "features.billingIntegration", "features.billingIntegration", result);

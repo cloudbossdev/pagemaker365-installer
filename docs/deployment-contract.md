@@ -42,12 +42,19 @@ Required launch sections:
 - `sharePoint`
 - `app`
 - `entra`
+- `runtimeArtifacts`
 - `controlPlane`
 - `secrets`
 - `features`
 - `smokeTests`
 
-The installer currently accepts the older alpha package shape, but preflight warns when launch contract fields are missing. Explicit package hash mismatches and raw secret containers are blocking failures.
+Contract `0.3` requires `runtimeArtifacts` to bind the signed package to one
+immutable pair of ready-to-run API and portal ZIP files. The installer validates
+trusted download hosts, SHA-256, ZIP safety, expected contents, and fixed startup
+commands before publishing either artifact. See `runtime-artifact-contract.md`.
+
+Explicit package hash mismatches, raw secret containers, and invalid or missing
+runtime artifact metadata are blocking failures.
 
 ## Package Export Trust Metadata
 

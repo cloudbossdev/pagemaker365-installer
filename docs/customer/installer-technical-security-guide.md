@@ -79,7 +79,13 @@ The package supplies names, region, environment, and target subscription. The in
 | Portal Linux App Service | HTTPS only, minimum TLS 1.2, FTPS disabled, managed identity attached. |
 | Key Vault role assignment | Grants `Key Vault Secrets User` to the managed identity at the vault scope. |
 
-The current App Services are infrastructure shells until production application artifact delivery in #5 is complete. Protected secret provisioning is implemented locally under #7 and awaits a fresh signed staging package plus live runtime verification.
+The installer now requires `Az.Websites` in addition to `Az.Accounts` and
+`Az.Resources`. After resource provisioning it downloads the package-bound API
+and portal ZIP files, verifies SHA-256 and archive safety, and publishes both to
+the named App Services. Live staging proof and durable runtime release
+publication remain open under #5. Protected secret provisioning is implemented
+locally under #7 and awaits a fresh signed staging package plus live runtime
+verification.
 
 ## Network Requirements
 
@@ -93,6 +99,8 @@ All non-local installer endpoints use HTTPS on TCP 443. Local development may us
 | `management.azure.com:443` | Azure discovery, What-If, deployment, inventory, validation, and removal through Az PowerShell. |
 | `pagemaker365.com:443`, `api.pagemaker365.com:443` | Production portal, onboarding APIs, package download, JWKS, and evidence callbacks. |
 | `staging.pagemaker365.com:443`, `api-staging.pagemaker365.com:443` | Staging equivalents used during acceptance testing. |
+| `downloads.pagemaker365.com:443` | Immutable production customer-runtime API and portal ZIP files. |
+| `downloads-staging.pagemaker365.com:443` | Immutable staging customer-runtime API and portal ZIP files. |
 | Customer `*.sharepoint.com:443` | Customer site URL and browser/runtime target. Graph-based installer discovery itself uses `graph.microsoft.com`. |
 | Deployed `*.azurewebsites.net:443` | API and portal health and deployment-identity smoke tests. |
 
@@ -107,6 +115,12 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 - SHA-256 integrity is recalculated locally.
 - Signed-required packages use Ed25519 verification against a trusted key from the PageMaker365 JWKS endpoint.
 - Raw secret containers and secret-looking payload fields are rejected.
+- `runtimeArtifacts` URLs are restricted to the exact production or staging
+  download hosts, do not allow redirects, credentials, queries, or fragments,
+  and are limited to 256 MiB while streaming.
+- API and portal ZIP files must match the signed SHA-256 values and pass archive
+  traversal, expanded-size, expected-content, and release-marker checks before
+  `Publish-AzWebApp` is called.
 
 Production code signing for the installer executable and distribution wrapper is not yet implemented; see #13.
 
@@ -154,7 +168,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 
 | Capability | Current state | Issue |
 | --- | --- | --- |
-| API and portal application delivery | Not implemented | #5 |
+| API and portal application delivery | Installer implementation complete locally; runtime release, portal package, and staging proof pending | #5 |
 | Supported upgrade/version policy | Not defined | #6 |
 | Runtime secret inventory and protected provisioning | Implemented locally; live staging proof pending | #7 |
 | Removal lifecycle callbacks | Not implemented | #9 |

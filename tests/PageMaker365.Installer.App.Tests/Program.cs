@@ -593,8 +593,8 @@ internal static class Program
         AssertEx.Equal("Downloaded Customer", viewModel.CustomerName);
         AssertEx.Equal("Downloaded", viewModel.PackageReadinessStatus);
         AssertEx.Equal("0.2-test", viewModel.PackageReadinessVersion);
-        AssertEx.Equal("https://download.pagemaker365.example", viewModel.DeployedSiteUrl);
-        AssertEx.True(viewModel.HasDeployedSiteUrl, "A loaded package should expose its deployed runtime URL.");
+        AssertEx.Equal("", viewModel.DeployedSiteUrl);
+        AssertEx.False(viewModel.HasDeployedSiteUrl, "An unverified package URL must not be presented as the deployed customer site.");
         AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "Azure sign-in should unlock after loading the generated package.");
         AssertEx.True(File.Exists(viewModel.PackageDownloadPath), viewModel.PackageDownloadPath);
         AssertEx.True(File.Exists(viewModel.PortalSyncReceipt.ReceiptOutputPath), viewModel.PortalSyncReceipt.ReceiptOutputPath);
@@ -805,6 +805,26 @@ internal static class Program
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
+            },
+            RuntimeArtifacts =
+            {
+                ContractVersion = "1.0",
+                ReleaseId = "pm365-runtime-1.0.0+test",
+                RuntimeVersion = "1.0.0",
+                Api = new RuntimeArtifactInfo
+                {
+                    FileName = "pagemaker365-api-1.0.0.zip",
+                    DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-api-1.0.0.zip",
+                    Sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    StartupCommand = "node dist/index.js"
+                },
+                Portal = new RuntimeArtifactInfo
+                {
+                    FileName = "pagemaker365-portal-1.0.0.zip",
+                    DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-portal-1.0.0.zip",
+                    Sha256 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                    StartupCommand = "pm2 serve /home/site/wwwroot --no-daemon --spa"
+                }
             },
             ControlPlane =
             {

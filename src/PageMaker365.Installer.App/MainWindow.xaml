@@ -1573,7 +1573,7 @@
                                              MinWidth="120"
                                              Margin="18,0,0,0" />
                                      <StackPanel>
-                                         <TextBlock Text="Configured Runtime URL" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                         <TextBlock Text="Verified Customer Site" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
                                          <TextBlock Text="{Binding DeployedSiteUrl}"
                                                     Foreground="White"
                                                     FontSize="16"

@@ -55,6 +55,18 @@ param resourceNames ResourceNames
 @description('Secret-name-only App Service references. Values are provisioned separately through a secure ARM parameter.')
 param runtimeSecretReferences RuntimeSecretReference[]
 
+@description('Immutable PageMaker365 runtime release identifier.')
+@minLength(1)
+param runtimeReleaseId string
+
+@description('Stable semantic PageMaker365 runtime version.')
+@minLength(5)
+param runtimeVersion string
+
+@description('Signed control-plane deployment export identifier.')
+@minLength(1)
+param deploymentExportId string
+
 @description('Common tags applied to PageMaker365 resources.')
 param tags object = {
   product: 'PageMaker365'
@@ -145,6 +157,9 @@ module apiApp 'modules/api-app-service.bicep' = {
     keyVaultUri: keyVault.outputs.keyVaultUri
     keyVaultName: resourceNames.keyVaultName
     runtimeSecretReferences: runtimeSecretReferences
+    runtimeReleaseId: runtimeReleaseId
+    runtimeVersion: runtimeVersion
+    deploymentExportId: deploymentExportId
   }
 }
 
@@ -158,6 +173,7 @@ module portalApp 'modules/frontend-app-service.bicep' = {
     managedIdentityResourceId: managedIdentity.outputs.managedIdentityResourceId
     applicationInsightsConnectionString: appInsights.outputs.connectionString
     apiUrl: apiApp.outputs.apiUrl
+    runtimeReleaseId: runtimeReleaseId
   }
 }
 

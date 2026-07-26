@@ -40,6 +40,9 @@ function New-PM365TemplateParameterObject {
         customerTenantId = [string]$Config.customer.tenantId
         resourceNames = $resourceNames
         runtimeSecretReferences = $runtimeSecretReferences
+        runtimeReleaseId = [string]$Config.runtimeArtifacts.releaseId
+        runtimeVersion = [string]$Config.runtimeArtifacts.runtimeVersion
+        deploymentExportId = [string]$Config.controlPlane.deploymentExportId
         tags = @{
             product = 'PageMaker365'
             customer = [string]$Config.customer.tenantName

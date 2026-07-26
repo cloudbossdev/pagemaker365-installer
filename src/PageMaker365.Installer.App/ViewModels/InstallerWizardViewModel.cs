@@ -112,6 +112,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _validationStatusBrush = "#8290AA";
     private string _validationSummary = "Complete install before running validation.";
     private string _validationOutputPath = "Not saved";
+    private string _verifiedDeployedSiteUrl = "";
     private string _finishStatus = "Waiting for validation";
     private string _finishStatusBrush = "#8290AA";
     private string _finishSummary = "Complete validation before generating final evidence.";
@@ -856,16 +857,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ? "Complete validation before generating final evidence."
         : $"Validation evidence: {ValidationOutputPath}";
 
-    public string DeployedSiteUrl
-    {
-        get
-        {
-            var customDomain = NormalizeSiteUrl(_config?.App.CustomDomain ?? "");
-            return string.IsNullOrWhiteSpace(customDomain)
-                ? NormalizeSiteUrl(_config?.App.RuntimeBaseUrl ?? "")
-                : customDomain;
-        }
-    }
+    public string DeployedSiteUrl => NormalizeSiteUrl(_verifiedDeployedSiteUrl);
 
     public bool HasDeployedSiteUrl => !string.IsNullOrWhiteSpace(DeployedSiteUrl);
 
@@ -2828,6 +2820,20 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return Task.CompletedTask;
     }
 
+    private void SetVerifiedDeployedSiteUrl(string value)
+    {
+        var normalized = NormalizeSiteUrl(value);
+        if (string.Equals(_verifiedDeployedSiteUrl, normalized, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _verifiedDeployedSiteUrl = normalized;
+        OnPropertyChanged(nameof(DeployedSiteUrl));
+        OnPropertyChanged(nameof(HasDeployedSiteUrl));
+        OpenDeployedSiteCommand?.RaiseCanExecuteChanged();
+    }
+
     private static string NormalizeSiteUrl(string value)
     {
         var candidate = value.Trim();
@@ -3342,6 +3348,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ValidationStatusBrush = SavedOrDefault(state.ValidationStatusBrush, ValidationStatusBrush);
         ValidationSummary = SavedOrDefault(state.ValidationSummary, ValidationSummary);
         ValidationOutputPath = SavedOrDefault(state.ValidationOutputPath, ValidationOutputPath);
+        _verifiedDeployedSiteUrl = state.VerifiedDeployedSiteUrl;
         FinishStatus = SavedOrDefault(state.FinishStatus, FinishStatus);
         FinishStatusBrush = SavedOrDefault(state.FinishStatusBrush, FinishStatusBrush);
         FinishSummary = SavedOrDefault(state.FinishSummary, FinishSummary);
@@ -3519,6 +3526,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             ValidationStatusBrush = ValidationStatusBrush,
             ValidationSummary = ValidationSummary,
             ValidationOutputPath = ValidationOutputPath,
+            VerifiedDeployedSiteUrl = DeployedSiteUrl,
             FinishStatus = FinishStatus,
             FinishStatusBrush = FinishStatusBrush,
             FinishSummary = FinishSummary,
@@ -5009,6 +5017,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ValidationStatusBrush = "#19D8E9";
         ValidationSummary = "Running smoke tests against the deployed environment.";
         ValidationOutputPath = "Not saved";
+        SetVerifiedDeployedSiteUrl("");
         FooterStatus = "Running deployment validation.";
         _session = _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
@@ -5047,6 +5056,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         var validationStatus = GetPhaseStatus(validationResults);
+        var verifiedPortalResult = validationResults.FirstOrDefault(result =>
+            result.Code == "PortalAppReady" && result.Status == InstallStatus.Passed);
+        SetVerifiedDeployedSiteUrl(
+            verifiedPortalResult is not null && verifiedPortalResult.Data.TryGetValue("portalUrl", out var verifiedPortalUrl)
+                ? verifiedPortalUrl
+                : "");
         _lastValidationStatus = validationStatus;
         ValidationStatus = validationStatus.ToString();
         ValidationStatusBrush = BrushForStatus(validationStatus);

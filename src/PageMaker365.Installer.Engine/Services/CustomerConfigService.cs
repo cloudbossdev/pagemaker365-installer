@@ -102,6 +102,7 @@ public sealed class CustomerConfigService
 
         ValidateRequiredPackageProperties(packageJson, result);
         ValidateRuntimeSecretContract(config, result);
+        ValidateRuntimeArtifactContract(config, result);
         ValidatePackageTrust(config, packageJson, result, trustOptions ?? PackageTrustOptions.FromEnvironment());
 
         if (provenanceContext is not null)
@@ -110,6 +111,76 @@ public sealed class CustomerConfigService
         }
 
         return result;
+    }
+
+    private static void ValidateRuntimeArtifactContract(CustomerInstallConfig config, ConfigValidationResult result)
+    {
+        var contract = config.RuntimeArtifacts;
+        if (!contract.ContractVersion.Equals("1.0", StringComparison.Ordinal))
+        {
+            result.Errors.Add("runtimeArtifacts.contractVersion must be 1.0.");
+        }
+
+        if (string.IsNullOrWhiteSpace(contract.ReleaseId) ||
+            contract.ReleaseId.Length > 128 ||
+            !char.IsAsciiLetterOrDigit(contract.ReleaseId[0]) ||
+            contract.ReleaseId.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not '.' and not '+' and not '-' and not '_'))
+        {
+            result.Errors.Add("runtimeArtifacts.releaseId must be a safe immutable release identifier.");
+        }
+
+        var versionParts = contract.RuntimeVersion.Split('.');
+        if (versionParts.Length != 3 || versionParts.Any(part =>
+            string.IsNullOrWhiteSpace(part) ||
+            (part.Length > 1 && part[0] == '0') ||
+            !part.All(char.IsAsciiDigit) ||
+            !int.TryParse(part, out _)))
+        {
+            result.Errors.Add("runtimeArtifacts.runtimeVersion must be a stable major.minor.patch version.");
+        }
+
+        ValidateRuntimeArtifact(
+            contract.Api,
+            "runtimeArtifacts.api",
+            "node dist/index.js",
+            result);
+        ValidateRuntimeArtifact(
+            contract.Portal,
+            "runtimeArtifacts.portal",
+            "pm2 serve /home/site/wwwroot --no-daemon --spa",
+            result);
+    }
+
+    private static void ValidateRuntimeArtifact(
+        RuntimeArtifactInfo artifact,
+        string path,
+        string expectedStartupCommand,
+        ConfigValidationResult result)
+    {
+        if (string.IsNullOrWhiteSpace(artifact.FileName) ||
+            !artifact.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+            !char.IsAsciiLetterOrDigit(artifact.FileName[0]) ||
+            !artifact.FileName.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_'))
+        {
+            result.Errors.Add($"{path}.fileName must be a simple ZIP file name.");
+        }
+
+        if (!TrustedPageMaker365EndpointPolicy.TryValidateArtifactUrl(artifact.DownloadUrl, out _, out var urlError))
+        {
+            result.Errors.Add($"{path}.downloadUrl {urlError}");
+        }
+
+        if (artifact.Sha256.Length != 64 ||
+            artifact.Sha256.Any(character => !char.IsAsciiHexDigit(character) || char.IsAsciiLetterUpper(character)))
+        {
+            result.Errors.Add($"{path}.sha256 must contain exactly 64 lowercase hexadecimal characters.");
+        }
+
+        if (!artifact.StartupCommand.Equals(expectedStartupCommand, StringComparison.Ordinal))
+        {
+            result.Errors.Add($"{path}.startupCommand is not supported by runtime artifact contract 1.0.");
+        }
     }
 
     private static void ValidateRuntimeSecretContract(CustomerInstallConfig config, ConfigValidationResult result)

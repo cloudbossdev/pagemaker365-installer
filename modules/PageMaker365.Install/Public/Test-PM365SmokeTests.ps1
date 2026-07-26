@@ -10,6 +10,8 @@ function Test-PM365SmokeTests {
     $config = Get-PM365Config -ConfigPath $ConfigPath
     $results = @()
     $expectedExportId = [string]$config.controlPlane.deploymentExportId
+    $expectedReleaseId = [string]$config.runtimeArtifacts.releaseId
+    $expectedRuntimeVersion = [string]$config.runtimeArtifacts.runtimeVersion
     $apiUrl = ''
     $portalUrl = ''
 
@@ -52,10 +54,16 @@ function Test-PM365SmokeTests {
             $health = $response.Content | ConvertFrom-Json -ErrorAction Stop
             $product = [string]$health.product
             $deploymentExportId = [string]$health.deploymentExportId
+            $releaseId = [string]$health.releaseId
+            $runtimeVersion = [string]$health.runtimeVersion
             if ($health.ok -ne $true -or
                 $product -ne 'PageMaker365' -or
                 [string]::IsNullOrWhiteSpace($expectedExportId) -or
-                -not [string]::Equals($deploymentExportId, $expectedExportId, [System.StringComparison]::OrdinalIgnoreCase)) {
+                -not [string]::Equals($deploymentExportId, $expectedExportId, [System.StringComparison]::OrdinalIgnoreCase) -or
+                [string]::IsNullOrWhiteSpace($expectedReleaseId) -or
+                -not [string]::Equals($releaseId, $expectedReleaseId, [System.StringComparison]::Ordinal) -or
+                [string]::IsNullOrWhiteSpace($expectedRuntimeVersion) -or
+                -not [string]::Equals($runtimeVersion, $expectedRuntimeVersion, [System.StringComparison]::Ordinal)) {
                 throw 'Runtime health response did not match the PageMaker365 deployment identity.'
             }
 
@@ -64,7 +72,12 @@ function Test-PM365SmokeTests {
                 -Code 'AppHealthReady' `
                 -Summary 'PageMaker365 runtime identity was verified.' `
                 -Details "$healthUrl returned the expected deployment identity." `
-                -Data @{ apiUrl = $apiUrl; deploymentExportId = $deploymentExportId }
+                -Data @{
+                    apiUrl = $apiUrl
+                    deploymentExportId = $deploymentExportId
+                    releaseId = $releaseId
+                    runtimeVersion = $runtimeVersion
+                }
         } catch {
             $results += New-PM365Result `
                 -Status 'Failed' `
@@ -79,9 +92,13 @@ function Test-PM365SmokeTests {
         try {
             $response = Invoke-WebRequest -Uri $portalUrl -Method Get -TimeoutSec 20 -ErrorAction Stop
             $content = [string]$response.Content
+            $escapedReleaseId = [regex]::Escape($expectedReleaseId)
+            $hasReleaseMarker = $content -match "(?is)<meta\s+[^>]*name=[`"']pm365-release-id[`"'][^>]*content=[`"']$escapedReleaseId[`"']" -or
+                $content -match "(?is)<meta\s+[^>]*content=[`"']$escapedReleaseId[`"'][^>]*name=[`"']pm365-release-id[`"']"
             if ($content -notmatch '(?i)PageMaker365' -or
+                -not $hasReleaseMarker -or
                 $content -match '(?i)web app is running and waiting for your content') {
-                throw 'Portal response did not contain the PageMaker365 application marker.'
+                throw 'Portal response did not contain the expected PageMaker365 release identity.'
             }
 
             $results += New-PM365Result `
@@ -89,7 +106,7 @@ function Test-PM365SmokeTests {
                 -Code 'PortalAppReady' `
                 -Summary 'PageMaker365 portal content was verified.' `
                 -Details "$portalUrl returned PageMaker365 application content." `
-                -Data @{ portalUrl = $portalUrl }
+                -Data @{ portalUrl = $portalUrl; releaseId = $expectedReleaseId }
         } catch {
             $results += New-PM365Result `
                 -Status 'Failed' `

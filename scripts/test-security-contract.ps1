@@ -52,7 +52,7 @@ Assert-True ($roleSets -contains 'Contributor+User Access Administrator') 'The s
 
 Assert-True ($profile.network.transport -eq 'HTTPS') 'The security profile must require HTTPS.'
 Assert-True ($profile.network.defaultPort -eq 443) 'The security profile must require default port 443.'
-foreach ($requiredHost in @('login.microsoftonline.com', 'microsoft.com', 'graph.microsoft.com', 'management.azure.com', 'api.pagemaker365.com', 'api-staging.pagemaker365.com')) {
+foreach ($requiredHost in @('login.microsoftonline.com', 'microsoft.com', 'graph.microsoft.com', 'management.azure.com', 'api.pagemaker365.com', 'api-staging.pagemaker365.com', 'downloads.pagemaker365.com', 'downloads-staging.pagemaker365.com')) {
     Assert-True (@($profile.network.destinations.host) -contains $requiredHost) "The network contract is missing $requiredHost."
 }
 
@@ -64,6 +64,7 @@ $apiTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\api-
 $installerEngine = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Services\InstallerEngine.cs') -Raw
 $runtimeCommand = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PageMaker365.Install\Public\Set-PM365RuntimeConfiguration.ps1') -Raw
 $stateModel = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Models\PersistedInstallerState.cs') -Raw
+$runtimeArtifactCommand = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PageMaker365.Install\Private\Publish-PM365RuntimeArtifacts.ps1') -Raw
 
 Assert-True ($runtimeTemplate.Contains('@secure()')) 'Runtime secret values must enter ARM through a secure Bicep parameter.'
 Assert-True ($runtimeTemplate.Contains('Microsoft.KeyVault/vaults/secrets')) 'Runtime secrets must be provisioned directly as customer Key Vault resources.'
@@ -73,6 +74,10 @@ Assert-True ($installerEngine.Contains('standardInputWriter:')) 'Protected value
 Assert-True ($runtimeCommand.Contains('[Console]::In.ReadLine()')) 'The runtime configuration command must read protected input from standard input.'
 Assert-True ($runtimeCommand.Contains('valuesPersisted = $false')) 'Runtime configuration evidence must explicitly record that values were not persisted.'
 Assert-True (-not $stateModel.Contains('RuntimeSecretMaterial')) 'Resumable installer state must not contain protected runtime material.'
+Assert-True ($runtimeArtifactCommand.Contains('Publish-AzWebApp')) 'Verified runtime ZIP files must be published with the authenticated Az.Websites module.'
+Assert-True ($runtimeArtifactCommand.Contains('Get-FileHash')) 'Runtime artifact SHA-256 must be recomputed before Azure publish.'
+Assert-True ($runtimeArtifactCommand.Contains('AllowAutoRedirect = $false')) 'Runtime artifact downloads must not follow an untrusted redirect.'
+Assert-True ($runtimeArtifactCommand.Contains('MaximumBytes 268435456')) 'Runtime artifact downloads must enforce a bounded response size.'
 
 $samplePackage = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
 $runtimeSecretNames = @($samplePackage.secrets.runtimeSecrets | ForEach-Object { [string]$_.appSettingName })

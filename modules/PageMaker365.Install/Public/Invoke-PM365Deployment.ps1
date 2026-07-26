@@ -102,12 +102,13 @@ function Invoke-PM365Deployment {
     try {
         Import-Module Az.Accounts -ErrorAction Stop
         Import-Module Az.Resources -ErrorAction Stop
+        Import-Module Az.Websites -ErrorAction Stop
     } catch {
         $artifactPath = ''
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
             $artifact = New-PM365DeploymentArtifact `
                 -Config $config `
-                -Status 'Warning' `
+                -Status 'Failed' `
                 -ErrorCode 'AzModuleImportFailed' `
                 -ErrorMessage $_.Exception.Message
             $artifactPath = Write-PM365JsonArtifact `
@@ -121,9 +122,9 @@ function Invoke-PM365Deployment {
         }
 
         New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'AzModuleImportFailed' `
-            -Summary 'Azure PowerShell modules could not be loaded for deployment.' `
+            -Summary 'Required Azure deployment modules could not be loaded.' `
             -Details $_.Exception.Message `
             -RetrySafe $true `
             -Data $data
@@ -304,6 +305,47 @@ function Invoke-PM365Deployment {
         return
     }
 
+    $runtimeDeployment = Publish-PM365RuntimeArtifacts -Config $config
+    if ($runtimeDeployment.status -ne 'Passed') {
+        $runtimeErrorCode = [string]$runtimeDeployment.error.code
+        if ([string]::IsNullOrWhiteSpace($runtimeErrorCode)) {
+            $runtimeErrorCode = 'RuntimeArtifactDeploymentFailed'
+        }
+        $runtimeErrorMessage = [string]$runtimeDeployment.error.message
+        if ([string]::IsNullOrWhiteSpace($runtimeErrorMessage)) {
+            $runtimeErrorMessage = 'The PageMaker365 runtime artifacts could not be deployed.'
+        }
+        $artifactPath = ''
+        if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+            $artifact = New-PM365DeploymentArtifact `
+                -Config $config `
+                -Context $context `
+                -Deployment $deployment `
+                -RuntimeDeployment $runtimeDeployment `
+                -Status 'Failed' `
+                -ErrorCode $runtimeErrorCode `
+                -ErrorMessage $runtimeErrorMessage
+            $artifactPath = Write-PM365JsonArtifact `
+                -OutputPath $OutputPath `
+                -DefaultFileName 'deployment-result.json' `
+                -InputObject $artifact
+        }
+
+        $details = $runtimeErrorMessage
+        if (-not [string]::IsNullOrWhiteSpace($artifactPath)) {
+            $details = "$details$([Environment]::NewLine)Artifact: $artifactPath"
+        }
+
+        New-PM365Result `
+            -Status 'Failed' `
+            -Code $runtimeErrorCode `
+            -Summary 'PageMaker365 runtime application deployment failed.' `
+            -Details $details `
+            -RetrySafe $true `
+            -Data @{ artifactPath = $artifactPath; artifactKind = [string]$runtimeDeployment.error.artifactKind }
+        return
+    }
+
     $operations = @()
     $operationCommand = Get-Command -Name Get-AzSubscriptionDeploymentOperation -ErrorAction SilentlyContinue
     if ($operationCommand -and -not [string]::IsNullOrWhiteSpace([string]$deployment.DeploymentName)) {
@@ -327,6 +369,7 @@ function Invoke-PM365Deployment {
                 -Context $context `
                 -Deployment $deployment `
                 -Operations $operations `
+                -RuntimeDeployment $runtimeDeployment `
                 -Status 'Passed'
             $artifactPath = Write-PM365JsonArtifact `
                 -OutputPath $OutputPath `
@@ -364,7 +407,7 @@ function Invoke-PM365Deployment {
     New-PM365Result `
         -Status 'Passed' `
         -Code 'AzureDeploymentReady' `
-        -Summary 'Azure deployment completed.' `
+        -Summary 'Azure resources and PageMaker365 runtime applications were deployed.' `
         -Details $details `
         -Data $data
 }

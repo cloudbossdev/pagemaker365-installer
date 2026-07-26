@@ -108,6 +108,14 @@
         "purpose": "Staging onboarding, package, JWKS, and evidence APIs"
       },
       {
+        "host": "downloads.pagemaker365.com",
+        "purpose": "Immutable production customer-runtime API and portal release artifacts"
+      },
+      {
+        "host": "downloads-staging.pagemaker365.com",
+        "purpose": "Immutable staging customer-runtime API and portal release artifacts"
+      },
+      {
         "host": "{customer-tenant}.sharepoint.com",
         "purpose": "Customer SharePoint URL validation and runtime target identification"
       },
@@ -167,6 +175,7 @@
     "modules/PageMaker365.Install/Public/Test-PM365AzureContext.ps1",
     "modules/PageMaker365.Install/Public/Test-PM365EntraPermissions.ps1",
     "modules/PageMaker365.Install/Public/Get-PM365GraphDiscovery.ps1",
+    "modules/PageMaker365.Install/Private/Publish-PM365RuntimeArtifacts.ps1",
     "infra/subscription.bicep",
     "infra/main.bicep",
     "infra/modules/key-vault.bicep",

@@ -12,6 +12,9 @@ function New-PM365DeploymentArtifact {
 
         [object[]] $Operations = @(),
 
+        [AllowNull()]
+        [object] $RuntimeDeployment,
+
         [string] $Status = '',
 
         [string] $ErrorCode = '',
@@ -68,6 +71,7 @@ function New-PM365DeploymentArtifact {
         redactedOutputCount = $outputs.redactedOutputCount
         operations = @($operationDetails)
         operationCount = $operationDetails.Count
+        runtimeDeployment = ConvertTo-PM365RedactedObject -InputObject $RuntimeDeployment -Depth 8
         error = if ([string]::IsNullOrWhiteSpace($ErrorCode) -and [string]::IsNullOrWhiteSpace($ErrorMessage)) {
             $null
         } else {

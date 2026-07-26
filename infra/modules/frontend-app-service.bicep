@@ -25,6 +25,10 @@ param applicationInsightsConnectionString string
 @minLength(1)
 param apiUrl string
 
+@description('Immutable PageMaker365 runtime release identifier.')
+@minLength(1)
+param runtimeReleaseId string
+
 resource frontendApp 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
@@ -42,6 +46,7 @@ resource frontendApp 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       alwaysOn: true
       linuxFxVersion: 'NODE|22-lts'
+      appCommandLine: 'pm2 serve /home/site/wwwroot --no-daemon --spa'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       appSettings: [
@@ -56,6 +61,18 @@ resource frontendApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: applicationInsightsConnectionString
+        }
+        {
+          name: 'PM365_RUNTIME_RELEASE_ID'
+          value: runtimeReleaseId
+        }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'false'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'false'
         }
       ]
     }

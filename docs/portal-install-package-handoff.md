@@ -159,6 +159,28 @@ Blocking provenance rules:
 
 Alpha packages may use `trustMode: "UnsignedAllowed"`. Missing hash/signature metadata produces warnings, but a declared hash mismatch always blocks.
 
+## Runtime Artifact Contract
+
+The portal must select an approved immutable customer-runtime release and copy
+its manifest values into the signed package as `runtimeArtifacts`. The required
+shape and security rules are defined in `runtime-artifact-contract.md`.
+
+Required fields:
+
+- `runtimeArtifacts.contractVersion`: `1.0`
+- `runtimeArtifacts.releaseId`: immutable release identifier
+- `runtimeArtifacts.runtimeVersion`: stable `major.minor.patch` version
+- `runtimeArtifacts.api` and `runtimeArtifacts.portal`
+- for each artifact: simple ZIP `fileName`, approved HTTPS `downloadUrl`, 64
+  character lowercase `sha256`, and the contract-fixed `startupCommand`
+
+The release values come from the runtime release manifest and are covered by
+the customer package hash and signature. The portal must not create hashes from
+operator-entered URLs, place download credentials or SAS tokens in the package,
+or use ephemeral CI artifact URLs. Package readiness remains blocked until both
+artifacts are present and the runtime version matches the approved deployment
+target.
+
 ## Secrets Contract
 
 The portal must generate contract version `0.3`. `secrets.runtimeSecrets` must contain exactly `DATABASE_URL`, `API_ENTRA_CLIENT_SECRET`, and `API_SESSION_SECRET` using the metadata shape in `samples/contoso.customer.install.json` and `docs/runtime-secret-contract.md`.
@@ -214,6 +236,7 @@ The portal side is ready for installer validation when:
 - The package contains real CloudBoss tenant/subscription/resource values.
 - The package does not contain raw secrets.
 - The package declares `contractVersion: "0.3"` and the exact required runtime secret metadata.
+- The package includes the approved immutable `runtimeArtifacts` release manifest values.
 - The package includes `controlPlane.deploymentExportId`.
 - The package binds to the active onboarding session and discovery payload.
 - The package passes `Test-PM365DeploymentContract`.

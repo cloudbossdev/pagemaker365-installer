@@ -74,6 +74,9 @@ internal static class Program
             ("CustomerConfigService rejects invalid package signature", CustomerConfigServiceRejectsInvalidPackageSignature),
             ("CustomerConfigService rejects unsupported signature algorithm", CustomerConfigServiceRejectsUnsupportedSignatureAlgorithm),
             ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
+            ("CustomerConfigService validates immutable runtime artifacts", CustomerConfigServiceValidatesImmutableRuntimeArtifacts),
+            ("CustomerConfigService rejects untrusted runtime artifact URL", CustomerConfigServiceRejectsUntrustedRuntimeArtifactUrl),
+            ("CustomerConfigService rejects arbitrary runtime startup command", CustomerConfigServiceRejectsArbitraryRuntimeStartupCommand),
             ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
             ("CustomerConfigService rejects legacy runtime secret contract", CustomerConfigServiceRejectsLegacyRuntimeSecretContract),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
@@ -1355,6 +1358,37 @@ internal static class Program
         AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
     }
 
+    private static Task CustomerConfigServiceValidatesImmutableRuntimeArtifacts()
+    {
+        var config = CreateConfig();
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsUntrustedRuntimeArtifactUrl()
+    {
+        var config = CreateConfig();
+        config.RuntimeArtifacts.Api.DownloadUrl = "https://example.com/pagemaker365-api.zip";
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "trusted PageMaker365 endpoint");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsArbitraryRuntimeStartupCommand()
+    {
+        var config = CreateConfig();
+        config.RuntimeArtifacts.Api.StartupCommand = "pwsh -File arbitrary.ps1";
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "startupCommand is not supported");
+        return Task.CompletedTask;
+    }
+
     private static Task CustomerConfigServiceRejectsPackageMissingRequiredContractFields()
     {
         var json = """
@@ -2268,6 +2302,26 @@ internal static class Program
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
+            },
+            RuntimeArtifacts =
+            {
+                ContractVersion = "1.0",
+                ReleaseId = "pm365-runtime-1.0.0+test",
+                RuntimeVersion = "1.0.0",
+                Api = new RuntimeArtifactInfo
+                {
+                    FileName = "pagemaker365-api-1.0.0.zip",
+                    DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-api-1.0.0.zip",
+                    Sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    StartupCommand = "node dist/index.js"
+                },
+                Portal = new RuntimeArtifactInfo
+                {
+                    FileName = "pagemaker365-portal-1.0.0.zip",
+                    DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-portal-1.0.0.zip",
+                    Sha256 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                    StartupCommand = "pm2 serve /home/site/wwwroot --no-daemon --spa"
+                }
             },
             ControlPlane =
             {

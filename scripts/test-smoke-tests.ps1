@@ -25,12 +25,18 @@ try {
         ForEach-Object { . $_.FullName }
 
     $script:healthExportId = 'export-001'
-    $script:portalContent = '<html><title>PageMaker365</title></html>'
+    $script:healthReleaseId = 'pm365-runtime-1.0.0+test'
+    $script:healthRuntimeVersion = '1.0.0'
+    $script:portalContent = '<html><head><title>PageMaker365</title><meta name="pm365-release-id" content="pm365-runtime-1.0.0+test"></head></html>'
 
     function Get-PM365Config {
         param([string] $ConfigPath)
         [pscustomobject]@{
             controlPlane = [pscustomobject]@{ deploymentExportId = 'export-001' }
+            runtimeArtifacts = [pscustomobject]@{
+                releaseId = 'pm365-runtime-1.0.0+test'
+                runtimeVersion = '1.0.0'
+            }
             azure = [pscustomobject]@{ resourceGroupName = 'rg-pm365-test' }
         }
     }
@@ -50,6 +56,8 @@ try {
                     ok = $true
                     product = 'PageMaker365'
                     deploymentExportId = $script:healthExportId
+                    releaseId = $script:healthReleaseId
+                    runtimeVersion = $script:healthRuntimeVersion
                 } | ConvertTo-Json -Compress)
             }
         }
@@ -87,6 +95,11 @@ try {
     Assert-True ($identityMismatch.code -contains 'AppHealthFailed') 'Mismatched deployment identity was accepted.'
 
     $script:healthExportId = 'export-001'
+    $script:healthReleaseId = 'wrong-release'
+    $releaseMismatch = @(Test-PM365SmokeTests -ConfigPath 'test.json' -DeploymentArtifactPath $artifactPath)
+    Assert-True ($releaseMismatch.code -contains 'AppHealthFailed') 'Mismatched runtime release identity was accepted.'
+
+    $script:healthReleaseId = 'pm365-runtime-1.0.0+test'
     $script:portalContent = '<html><title>Your web app is running and waiting for your content</title></html>'
     $defaultPage = @(Test-PM365SmokeTests -ConfigPath 'test.json' -DeploymentArtifactPath $artifactPath)
     Assert-True ($defaultPage.code -contains 'PortalAppFailed') 'Azure default portal content was accepted.'

@@ -4,7 +4,7 @@
   "title": "PageMaker365 Customer Install Package",
   "type": "object",
   "additionalProperties": true,
-  "required": ["contractVersion", "customer", "azure", "sharePoint", "app", "secrets", "features"],
+  "required": ["contractVersion", "customer", "azure", "sharePoint", "app", "runtimeArtifacts", "secrets", "features"],
   "properties": {
     "contractVersion": {
       "type": "string",
@@ -69,6 +69,21 @@
         "runtimeBaseUrl": { "type": "string" },
         "apiBaseUrl": { "type": "string" },
         "supportEmail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "runtimeArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "releaseId", "runtimeVersion", "api", "portal"],
+      "properties": {
+        "contractVersion": { "const": "1.0" },
+        "releaseId": { "type": "string", "minLength": 1 },
+        "runtimeVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "api": { "$ref": "#/$defs/runtimeArtifact" },
+        "portal": { "$ref": "#/$defs/runtimeArtifact" }
       }
     },
     "entra": {
@@ -231,6 +246,25 @@
         "portalPath": { "type": "string" },
         "licenseValidationPath": { "type": "string" },
         "entitlementSyncPath": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "runtimeArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileName", "downloadUrl", "sha256", "startupCommand"],
+      "properties": {
+        "fileName": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.zip$"
+        },
+        "downloadUrl": { "type": "string", "format": "uri" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "startupCommand": { "type": "string", "minLength": 1 }
       }
     }
   }

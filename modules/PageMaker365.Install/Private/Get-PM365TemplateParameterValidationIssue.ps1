@@ -100,6 +100,18 @@ function Get-PM365TemplateParameterValidationIssue {
         $issues += Add-Issue -Field 'customer.tenantId' -Value $customerTenantId -Message 'Customer tenant ID must be a GUID.'
     }
 
+    if ([string]::IsNullOrWhiteSpace([string]$Config.runtimeArtifacts.releaseId)) {
+        $issues += Add-Issue -Field 'runtimeArtifacts.releaseId' -Message 'Runtime release ID is required.'
+    }
+
+    if ([string]::IsNullOrWhiteSpace([string]$Config.runtimeArtifacts.runtimeVersion)) {
+        $issues += Add-Issue -Field 'runtimeArtifacts.runtimeVersion' -Message 'Runtime version is required.'
+    }
+
+    if ([string]::IsNullOrWhiteSpace([string]$Config.controlPlane.deploymentExportId)) {
+        $issues += Add-Issue -Field 'controlPlane.deploymentExportId' -Message 'Deployment export ID is required.'
+    }
+
     $resourceGroupName = [string]$Config.azure.resourceGroupName
     if ([string]::IsNullOrWhiteSpace($resourceGroupName)) {
         $issues += Add-Issue -Field 'azure.resourceGroupName' -Message 'Target resource group name is required.'

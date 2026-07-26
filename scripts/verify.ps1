@@ -156,6 +156,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Deployment artifact contract tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Testing immutable runtime artifact contracts...'
+& (Join-Path $repoRoot 'scripts\test-runtime-artifacts.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Runtime artifact contract tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Testing partial-install cleanup safety contracts...'
 & (Join-Path $repoRoot 'scripts\test-partial-cleanup.ps1')
 if ($LASTEXITCODE -ne 0) {

@@ -37,6 +37,18 @@ type RuntimeSecretReference = {
 @description('Secret-name-only runtime App Service references.')
 param runtimeSecretReferences RuntimeSecretReference[]
 
+@description('Immutable PageMaker365 runtime release identifier.')
+@minLength(1)
+param runtimeReleaseId string
+
+@description('Stable semantic PageMaker365 runtime version.')
+@minLength(5)
+param runtimeVersion string
+
+@description('Signed control-plane deployment export identifier.')
+@minLength(1)
+param deploymentExportId string
+
 var runtimeSecretAppSettings = [for secret in runtimeSecretReferences: {
   name: secret.appSettingName
   value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=${secret.keyVaultSecretName})'
@@ -60,6 +72,7 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       alwaysOn: true
       linuxFxVersion: 'NODE|22-lts'
+      appCommandLine: 'node dist/index.js'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       appSettings: concat([
@@ -78,6 +91,30 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'PM365_KEY_VAULT_URI'
           value: keyVaultUri
+        }
+        {
+          name: 'PM365_PRODUCT'
+          value: 'PageMaker365'
+        }
+        {
+          name: 'PM365_DEPLOYMENT_EXPORT_ID'
+          value: deploymentExportId
+        }
+        {
+          name: 'PM365_RUNTIME_RELEASE_ID'
+          value: runtimeReleaseId
+        }
+        {
+          name: 'PM365_RUNTIME_VERSION'
+          value: runtimeVersion
+        }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'false'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'false'
         }
       ], runtimeSecretAppSettings)
     }

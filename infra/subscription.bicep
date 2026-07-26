@@ -43,6 +43,18 @@ param resourceNames ResourceNames
 @description('Secret-name-only App Service references. Values are never deployment parameters in this template.')
 param runtimeSecretReferences RuntimeSecretReference[]
 
+@description('Immutable PageMaker365 runtime release identifier.')
+@minLength(1)
+param runtimeReleaseId string
+
+@description('Stable semantic PageMaker365 runtime version.')
+@minLength(5)
+param runtimeVersion string
+
+@description('Signed control-plane deployment export identifier.')
+@minLength(1)
+param deploymentExportId string
+
 @description('Common tags applied to PageMaker365 resources.')
 param tags object = {
   product: 'PageMaker365'
@@ -70,6 +82,9 @@ module pageMaker365 'main.bicep' = {
     customerTenantId: customerTenantId
     resourceNames: resourceNames
     runtimeSecretReferences: runtimeSecretReferences
+    runtimeReleaseId: runtimeReleaseId
+    runtimeVersion: runtimeVersion
+    deploymentExportId: deploymentExportId
     tags: managedTags
   }
 }
