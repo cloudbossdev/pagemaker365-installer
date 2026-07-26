@@ -43,9 +43,12 @@ The endpoint must accept these fields for both install and removal evidence:
 | `outcome` | See below | Describes the individual event result. |
 | `removalOutcomes` | Sanitized counts/categories | Never contains raw resource inventory. |
 
-The portal response must echo `attemptId` or `removalAttemptId`, plus `eventId`,
-`eventType`, `sequence`, session, status, and correlation ID. During the v0.3
-migration it may also echo the compatibility `installAttemptId`.
+The portal response must use `contractVersion: "0.3"` and `status: "Accepted"`
+and must echo `lifecycle`, `attemptId`, `removalAttemptId`, `eventId`,
+`eventType`, `sequence`, `lifecycleStatus`, `outcome`, session, and correlation
+ID. During the v0.3 migration it may also echo the compatibility
+`installAttemptId`. The installer keeps the event queued when any echoed
+identity or semantic field differs, even when the HTTP response is successful.
 
 ## Event Order
 
@@ -57,6 +60,12 @@ Normal successful order within one `removalAttemptId`:
 4. `removal_validation_completed`
 5. `removal_completed`
 
+Read-only inventory may be refreshed more than once before execution. Each
+successful refresh emits another `removal_inventory_completed` event with the
+same attempt ID and the next sequence. This prevents an active, nonterminal
+attempt from being abandoned merely because the operator refreshed safety
+evidence.
+
 Terminal alternatives:
 
 - `removal_blocked` follows `removal_started` when inventory cannot prove a
@@ -65,9 +74,9 @@ Terminal alternatives:
   or cleanup validation fails.
 
 `removal_completed`, `removal_blocked`, and `removal_failed` are terminal. No
-later event is valid for that attempt. Retrying inventory creates a new
-`removalAttemptId` and resets sequence to 1; pending events from the earlier
-attempt remain unchanged in the outbox.
+later event is valid for that attempt. Retrying after a terminal blocker or
+failure creates a new `removalAttemptId` and resets sequence to 1; pending
+events from the earlier attempt remain unchanged in the outbox.
 
 The portal must reject a terminal event before `removal_started`, execution
 before successful inventory, validation before execution, completion before
@@ -113,6 +122,14 @@ Allowed retained categories are `key_vault_soft_deleted`,
 provide customer-visible disposition without transmitting subscription
 inventory, resource IDs, file names, paths, or provider responses.
 
+Disposition categories are emitted only after they are established. Started,
+inventory, blocked, and failed events do not claim final retained resources.
+`key_vault_soft_deleted` is reported only when inventory found the package-named
+vault before a successful resource-group deletion. When the resource group was
+already absent, the installer reports the idempotent skip but does not invent a
+Key Vault disposition. When the vault was never created, `not_applicable` is
+reported instead.
+
 ## Sanitized Errors
 
 Blocked and failed events use the existing error object with stable codes:
@@ -128,10 +145,11 @@ one-time codes, artifact contents, and customer content are prohibited.
 
 ## Idempotency, Conflict, And Stale Events
 
-The key format is `<attemptId>:<sequence>:<eventId>`. The installer persists the
-complete payload and key before delivery and reuses them unchanged for every
-retry. Portal synchronization failures leave the event queued and do not change
-inventory, deletion, validation, or final local evidence results.
+The key format is `<attemptId>:<sequence>:<eventId>`. The installer rejects a
+persisted or supplied key that does not exactly match those payload fields,
+persists the complete payload and key before delivery, and reuses them unchanged
+for every retry. Portal synchronization failures leave the event queued and do
+not change inventory, deletion, validation, or final local evidence results.
 
 The portal must:
 

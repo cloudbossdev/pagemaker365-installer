@@ -42,6 +42,13 @@ try {
             Location = 'eastus2'
             ResourceId = '/subscriptions/sub-1/resourceGroups/rg-pm365-test/providers/Microsoft.ManagedIdentity/userAssignedIdentities/pm365-identity'
             Tags = @{ product = 'PageMaker365'; appName = 'pagemaker365-test' }
+        },
+        [pscustomobject]@{
+            Name = 'kv-pm365-test'
+            ResourceType = 'Microsoft.KeyVault/vaults'
+            Location = 'eastus2'
+            ResourceId = '/subscriptions/sub-1/resourceGroups/rg-pm365-test/providers/Microsoft.KeyVault/vaults/kv-pm365-test'
+            Tags = @{ product = 'PageMaker365'; appName = 'pagemaker365-test' }
         }
     )
 
@@ -101,11 +108,21 @@ try {
     $preview = Get-PM365PartialInstallInventory -ConfigPath 'test.json' -OutputPath $previewPath
     Assert-Equal 'Passed' $preview.status 'Owned partial install preview should pass.'
     Assert-Equal 'PartialInstallCleanupReady' $preview.code 'Preview returned the wrong code.'
-    Assert-Equal 2 $preview.data.resourceCount 'Preview returned the wrong resource count.'
+    Assert-Equal 3 $preview.data.resourceCount 'Preview returned the wrong resource count.'
     Assert-True $preview.data.safeToRemove 'Preview should mark owned resources safe to remove.'
+    Assert-True $preview.data.keyVaultFound 'Preview should identify the package-named Key Vault before removal.'
+    Assert-Equal 'RetainSoftDeletedRecoverable' $preview.data.keyVaultDisposition 'Preview returned the wrong Key Vault disposition.'
     Assert-True (Test-Path -LiteralPath $previewPath) 'Preview artifact was not written.'
     $previewJson = Get-Content -LiteralPath $previewPath -Raw
     Assert-True ($previewJson -notlike '*do-not-export*') 'Preview artifact included non-ownership Azure tags.'
+
+    $resourcesWithVault = @($script:resources)
+    $script:resources = @($script:resources | Where-Object ResourceType -ne 'Microsoft.KeyVault/vaults')
+    $missingVaultPreview = Get-PM365PartialInstallInventory -ConfigPath 'test.json'
+    Assert-Equal 'PartialInstallCleanupReady' $missingVaultPreview.code 'A never-created Key Vault should not block removal of owned resources.'
+    Assert-True (-not $missingVaultPreview.data.keyVaultFound) 'Inventory incorrectly reported a missing Key Vault as present.'
+    Assert-Equal 'NotPresent' $missingVaultPreview.data.keyVaultDisposition 'Missing Key Vault disposition was not explicit.'
+    $script:resources = $resourcesWithVault
 
     $mismatch = Remove-PM365PartialInstall -ConfigPath 'test.json' -ConfirmationText 'wrong-name' -Confirm:$false
     Assert-Equal 'PartialInstallCleanupConfirmationMismatch' $mismatch.code 'Mismatched confirmation should fail closed.'
@@ -121,6 +138,8 @@ try {
     Assert-Equal 1 $script:removeCallCount 'Approved cleanup should invoke deletion once.'
     Assert-True $cleanup.data.removed 'Approved cleanup should report resource removal.'
     Assert-True (-not $cleanup.data.keyVaultPurged) 'Partial cleanup must never report Key Vault purge.'
+    Assert-True $cleanup.data.keyVaultFound 'Cleanup should preserve the pre-removal Key Vault presence result.'
+    Assert-Equal 'SoftDeletedRecoverable' $cleanup.data.keyVaultDisposition 'Cleanup returned an unverified Key Vault disposition.'
     Assert-True (Test-Path -LiteralPath $cleanupPath) 'Cleanup result artifact was not written.'
 
     $script:resourceGroupExists = $true

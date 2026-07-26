@@ -220,10 +220,17 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 EnsureSessionMatches("installer evidence", endpoint, session, receipt.SessionId);
                 var submittedAttemptId = EvidenceAttemptId(evidence);
                 var receivedAttemptId = First(receipt.AttemptId, receipt.RemovalAttemptId, receipt.InstallAttemptId);
-                if (!receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
+                var lifecycle = EvidenceLifecycle(evidence);
+                if (!receipt.Status.Equals("Accepted", StringComparison.OrdinalIgnoreCase) ||
+                    !receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
+                    !receipt.EventType.Equals(evidence.EventType, StringComparison.Ordinal) ||
                     receipt.Sequence != evidence.Sequence ||
                     string.IsNullOrWhiteSpace(receivedAttemptId) ||
-                    !receivedAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal))
+                    !receivedAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) ||
+                    (!string.IsNullOrWhiteSpace(receipt.Lifecycle) &&
+                        !receipt.Lifecycle.Equals(lifecycle, StringComparison.Ordinal)) ||
+                    (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+                        !IsMatchingRemovalReceipt(receipt, evidence, submittedAttemptId)))
                 {
                     throw new OnboardingApiException(
                         "Portal onboarding API installer evidence response did not match the submitted event.",
@@ -460,11 +467,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         InstallerEvidenceEvent evidence,
         string idempotencyKey)
     {
-        var lifecycle = string.IsNullOrWhiteSpace(evidence.Lifecycle)
-            ? evidence.EventType.StartsWith("removal_", StringComparison.Ordinal)
-                ? InstallerEvidenceLifecycle.Removal
-                : InstallerEvidenceLifecycle.Install
-            : evidence.Lifecycle;
+        var lifecycle = EvidenceLifecycle(evidence);
         var attemptId = EvidenceAttemptId(evidence);
         if (string.IsNullOrWhiteSpace(idempotencyKey) ||
             string.IsNullOrWhiteSpace(evidence.EventId) ||
@@ -483,9 +486,22 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             (lifecycle.Equals(InstallerEvidenceLifecycle.Install, StringComparison.Ordinal) &&
                 !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal)) ||
             (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
-                !attemptId.Equals(evidence.RemovalAttemptId, StringComparison.Ordinal)))
+                (!attemptId.Equals(evidence.AttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.RemovalAttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal))))
         {
             throw new InvalidDataException("Installer evidence lifecycle and attempt identity do not match.");
+        }
+
+        if (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal))
+        {
+            var expectedIdempotencyKey = $"{attemptId}:{evidence.Sequence}:{evidence.EventId}";
+            if (!idempotencyKey.Equals(expectedIdempotencyKey, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Removal evidence idempotency identity does not match its persisted event identity.");
+            }
+
+            RemovalEvidenceLifecycleService.ValidatePayload(evidence);
         }
 
         if (!evidence.OnboardingSessionId.Equals(session.SessionId, StringComparison.OrdinalIgnoreCase))
@@ -494,11 +510,46 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         }
 
         ValidateSanitizedEvidenceText(evidence.Message, "message");
+        ValidateSanitizedEvidenceText(evidence.RuntimeUrl, "runtimeUrl");
+        ValidateSanitizedEvidenceText(evidence.ApiUrl, "apiUrl");
+        ValidateSanitizedEvidenceText(evidence.AzureResourceGroup, "azureResourceGroup");
         if (evidence.Error is not null)
         {
+            ValidateSanitizedEvidenceText(evidence.Error.Code, "error.code");
             ValidateSanitizedEvidenceText(evidence.Error.Message, "error.message");
+            ValidateSanitizedEvidenceText(evidence.Error.Category, "error.category");
             ValidateSanitizedEvidenceText(evidence.Error.Detail, "error.detail");
         }
+
+        foreach (var smokeTest in evidence.SmokeTests)
+        {
+            ValidateSanitizedEvidenceText(smokeTest.Name, "smokeTests.name");
+            ValidateSanitizedEvidenceText(smokeTest.Status, "smokeTests.status");
+        }
+    }
+
+    private static bool IsMatchingRemovalReceipt(
+        InstallerEvidenceReceipt receipt,
+        InstallerEvidenceEvent evidence,
+        string submittedAttemptId)
+    {
+        return receipt.ContractVersion.Equals("0.3", StringComparison.Ordinal) &&
+            receipt.Lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+            receipt.AttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) &&
+            receipt.RemovalAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) &&
+            (string.IsNullOrWhiteSpace(receipt.InstallAttemptId) ||
+                receipt.InstallAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal)) &&
+            receipt.LifecycleStatus.Equals(evidence.LifecycleStatus, StringComparison.Ordinal) &&
+            receipt.Outcome.Equals(evidence.Outcome, StringComparison.Ordinal);
+    }
+
+    private static string EvidenceLifecycle(InstallerEvidenceEvent evidence)
+    {
+        return string.IsNullOrWhiteSpace(evidence.Lifecycle)
+            ? evidence.EventType.StartsWith("removal_", StringComparison.Ordinal)
+                ? InstallerEvidenceLifecycle.Removal
+                : InstallerEvidenceLifecycle.Install
+            : evidence.Lifecycle;
     }
 
     private static string EvidenceAttemptId(InstallerEvidenceEvent evidence)

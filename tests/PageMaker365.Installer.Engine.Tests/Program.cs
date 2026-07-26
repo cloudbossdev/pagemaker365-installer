@@ -31,7 +31,12 @@ internal static class Program
             ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
             ("SubmitEvidenceAsync sends hardened removal callback contract", SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract),
             ("SubmitEvidenceAsync rejects secret-looking removal error", SubmitEvidenceAsyncRejectsSecretLookingRemovalError),
+            ("SubmitEvidenceAsync rejects non-accepted receipt", SubmitEvidenceAsyncRejectsNonAcceptedReceipt),
+            ("SubmitEvidenceAsync rejects mismatched removal receipt", SubmitEvidenceAsyncRejectsMismatchedRemovalReceipt),
+            ("SubmitEvidenceAsync rejects mismatched removal idempotency identity", SubmitEvidenceAsyncRejectsMismatchedRemovalIdempotencyIdentity),
             ("Removal evidence lifecycle enforces ordered terminal flow", RemovalEvidenceLifecycleEnforcesOrderedTerminalFlow),
+            ("Removal evidence lifecycle supports inventory refresh", RemovalEvidenceLifecycleSupportsInventoryRefresh),
+            ("Removal evidence lifecycle rejects inconsistent event semantics", RemovalEvidenceLifecycleRejectsInconsistentEventSemantics),
             ("Removal evidence lifecycle preserves prior attempt outbox", RemovalEvidenceLifecyclePreservesPriorAttemptOutbox),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
@@ -269,7 +274,7 @@ internal static class Program
         AssertJsonString(body, "attemptId", evidence.AttemptId);
         AssertJsonString(body, "removalAttemptId", evidence.RemovalAttemptId);
         AssertJsonString(body, "installAttemptId", evidence.RemovalAttemptId);
-        AssertEx.Equal(3, body.RootElement.GetProperty("removalOutcomes").GetProperty("retained").GetInt32());
+        AssertEx.Equal(0, body.RootElement.GetProperty("removalOutcomes").GetProperty("retained").GetInt32());
         AssertEx.False(handler.RequestBodies[0].Contains("TEST-CODE-001", StringComparison.Ordinal));
     }
 
@@ -278,21 +283,89 @@ internal static class Program
         var lifecycle = new RemovalEvidenceLifecycleService();
         var state = new RemovalEvidenceOutboxState();
         lifecycle.StartNewAttempt(state);
+        lifecycle.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
         var evidence = lifecycle.Queue(
             state,
-            CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted)).Payload;
-        evidence.Error = new InstallerEvidenceError
-        {
-            Code = "REMOVAL_TEST_FAILURE",
-            Message = "Authorization: Bearer test-secret-token",
-            Category = "network",
-            Retryable = true
-        };
+            CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalFailed)).Payload;
+        evidence.Error!.Message = "Authorization: Bearer test-secret-token";
         var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
         var client = CreatePortalClient(handler);
 
         await AssertEx.ThrowsAsync<InvalidDataException>(() =>
             client.SubmitEvidenceAsync(CreateSession(), evidence, $"{evidence.AttemptId}:1:{evidence.EventId}"));
+
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsNonAcceptedReceipt()
+    {
+        var evidence = CreateInstallerEvidence();
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "status": "Rejected",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "correlationId": "corr-rejected-001"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.InstallAttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedRemovalReceipt()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var pending = lifecycle.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var evidence = pending.Payload;
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "removal_inventory_completed",
+              "lifecycle": "removal",
+              "attemptId": "{{evidence.AttemptId}}",
+              "removalAttemptId": "{{evidence.RemovalAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "removing",
+              "outcome": "passed",
+              "correlationId": "corr-mismatch-001"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, pending.IdempotencyKey));
+
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedRemovalIdempotencyIdentity()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var evidence = lifecycle.Queue(
+            state,
+            CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted)).Payload;
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, "ra_wrong:1:evt_wrong"));
 
         AssertEx.Equal(0, handler.Requests.Count);
     }
@@ -349,6 +422,43 @@ internal static class Program
         AssertEx.Equal(startedIdentity.IdempotencyKey, state.PendingEvents[0].IdempotencyKey);
         AssertEx.Equal(startedIdentity.EventId, state.PendingEvents[0].Payload.EventId);
         AssertEx.Equal(startedIdentity.Sequence, state.PendingEvents[0].Payload.Sequence);
+        return Task.CompletedTask;
+    }
+
+    private static Task RemovalEvidenceLifecycleSupportsInventoryRefresh()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        var attemptId = service.StartNewAttempt(state);
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted));
+        var refreshed = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted));
+
+        AssertEx.Equal(attemptId, refreshed.Payload.AttemptId);
+        AssertEx.Equal(3, refreshed.Payload.Sequence);
+        AssertEx.False(state.IsTerminal);
+        AssertEx.True(state.InventoryCompleted);
+        return Task.CompletedTask;
+    }
+
+    private static Task RemovalEvidenceLifecycleRejectsInconsistentEventSemantics()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        service.StartNewAttempt(state);
+        var payload = CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted);
+        payload.LifecycleStatus = "removed";
+
+        AssertEx.Throws<InvalidDataException>(() => service.Queue(state, payload));
+        AssertEx.Equal(0, state.PendingEvents.Count);
+        AssertEx.Equal(1, state.NextSequence);
+
+        var prematureDisposition = CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted);
+        prematureDisposition.RemovalOutcomes!.Retained = 1;
+        prematureDisposition.RemovalOutcomes.RetainedCategories.Add("key_vault_soft_deleted");
+        AssertEx.Throws<InvalidDataException>(() => service.Queue(state, prematureDisposition));
+        AssertEx.Equal(0, state.PendingEvents.Count);
+        AssertEx.Equal(1, state.NextSequence);
         return Task.CompletedTask;
     }
 
@@ -1641,7 +1751,8 @@ internal static class Program
                             }
                         }
                     }
-                }
+                },
+                RemovalKeyVaultDisposition = "SoftDeletedRecoverable"
             });
 
             var loaded = store.LoadMostRecentActive();
@@ -1658,6 +1769,7 @@ internal static class Program
             AssertEx.Equal("removal-attempt-persisted-001", loaded.RemovalEvidenceOutbox.RemovalAttemptId);
             AssertEx.Equal(2, loaded.RemovalEvidenceOutbox.NextSequence);
             AssertEx.Equal("event-removal-persisted-001", loaded.RemovalEvidenceOutbox.PendingEvents[0].Payload.EventId);
+            AssertEx.Equal("SoftDeletedRecoverable", loaded.RemovalKeyVaultDisposition);
         }
         finally
         {
@@ -2284,26 +2396,38 @@ internal static class Program
 
     private static InstallerEvidenceEvent CreateRemovalEvidencePayload(string eventType)
     {
+        var blocked = eventType.Equals(InstallerEvidenceEventType.RemovalBlocked, StringComparison.Ordinal);
+        var failed = eventType.Equals(InstallerEvidenceEventType.RemovalFailed, StringComparison.Ordinal);
         return new InstallerEvidenceEvent
         {
             EventType = eventType,
             OccurredAt = new DateTimeOffset(2026, 7, 26, 18, 0, 0, TimeSpan.Zero),
             OnboardingSessionId = "onb_test_001",
             DeploymentExportId = "7f2d7c2e-4f1f-4c7d-8e7d-111111111111",
-            LifecycleStatus = eventType == InstallerEvidenceEventType.RemovalCompleted ? "removed" : "removing",
-            Outcome = "passed",
+            LifecycleStatus = eventType == InstallerEvidenceEventType.RemovalCompleted
+                ? "removed"
+                : blocked
+                ? "needs_attention"
+                : failed
+                ? "failed"
+                : "removing",
+            Outcome = blocked ? "blocked" : failed ? "failed" : "passed",
+            Error = blocked || failed
+                ? new InstallerEvidenceError
+                {
+                    Code = blocked ? "REMOVAL_INVENTORY_BLOCKED" : "REMOVAL_EXECUTION_FAILED",
+                    Message = "Removal lifecycle test failure.",
+                    Category = "azure",
+                    Retryable = true
+                }
+                : null,
             InstallerVersion = "test-version",
             PackageHash = "sha256:test-hash",
             AzureResourceGroup = "rg-pm365-example",
             RemovalOutcomes = new RemovalEvidenceOutcomeSummary
             {
-                Retained = 3,
-                RetainedCategories =
-                [
-                    "key_vault_soft_deleted",
-                    "sharepoint_content_unchanged",
-                    "local_evidence_retained"
-                ]
+                Blocked = blocked ? 1 : 0,
+                Failed = failed ? 1 : 0
             },
             Message = "Removal lifecycle milestone."
         };

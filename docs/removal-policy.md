@@ -34,7 +34,7 @@ Missing or conflicting evidence blocks removal. The operator cannot override an 
 
 ### Retain
 
-- Soft-deleted Key Vault and its recoverability metadata.
+- The package-named Key Vault and its recoverability metadata when inventory established that the vault existed before approved deletion.
 - Customer SharePoint sites, libraries, documents, lists, and other content.
 - Local and control-plane audit/evidence records.
 - Any shared or ambiguous Azure resource.
@@ -64,4 +64,4 @@ The control plane must generate a new deployment export and a package with a new
 
 ## Control-Plane Reporting
 
-The v1 installer writes local removal inventory, execution, validation, report, manifest, and bundle artifacts. It also implements the distinct v0.3 removal lifecycle and persisted retry outbox defined in `removal-evidence-callback-contract.md`. Callbacks require the existing `RemovalStatusSync` authorization operation and never reuse install event types or install state. Portal/control-plane acceptance, UI state, API negative tests, and staging proof remain pending under issue #9; delivery failure leaves the original event queued and never changes the Azure removal result.
+The v1 installer writes local removal inventory, execution, validation, report, manifest, and bundle artifacts. It records Key Vault presence before deletion and does not infer a retained vault when the resource group was already absent or the vault was never created. It also implements the distinct v0.3 removal lifecycle and persisted retry outbox defined in `removal-evidence-callback-contract.md`. Callbacks require the existing `RemovalStatusSync` authorization operation and never reuse install event types or install state. Portal/control-plane acceptance, UI state, API negative tests, and staging proof remain pending under issue #9; delivery failure or a mismatched/non-accepted receipt leaves the original event queued and never changes the Azure removal result.

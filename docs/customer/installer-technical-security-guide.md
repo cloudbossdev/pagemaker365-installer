@@ -143,9 +143,9 @@ Application Insights is deployed for the customer runtime. The installer itself 
 - Ambiguous ownership, unexpected contained resources, active deployments, or context mismatch blocks removal.
 - The installer removes only the dedicated PageMaker365 resource group after explicit confirmation.
 - SharePoint content and customer-created SharePoint data are not removed.
-- Key Vault purge is never performed. Azure soft-delete recovery remains available for the configured 90-day vault retention period.
+- Key Vault purge is never performed. When inventory proves that the package-named vault exists before successful resource-group deletion, final evidence records it as soft-deleted and recoverable for the configured 90-day retention period. A missing or already-absent resource group does not produce an unverified vault-retention claim.
 - A later reinstall uses a new package and new disposable Key Vault name during testing.
-- Authorized removal callbacks use a distinct `ra_` attempt, ordered removal-only event types, sanitized disposition counts, stable idempotency keys, and a persisted outbox. Portal v0.3 acceptance and staging proof remain open under #9.
+- Authorized removal callbacks use a distinct `ra_` attempt, ordered removal-only event types, sanitized disposition counts, identity-derived idempotency keys, exact `Accepted` receipt validation, and a persisted outbox. Portal v0.3 acceptance and staging proof remain open under #9.
 
 ## Known Release Blockers
 

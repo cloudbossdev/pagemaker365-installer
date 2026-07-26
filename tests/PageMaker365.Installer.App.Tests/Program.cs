@@ -38,6 +38,7 @@ internal static class Program
             ("Evidence sync failure keeps package event in persisted outbox", EvidenceSyncFailureKeepsPackageEventInPersistedOutbox),
             ("Removal workflow enables Azure inventory but keeps removal gated", RemovalWorkflowEnablesAzureInventoryButKeepsRemovalGated),
             ("Removal evidence outbox resumes and retries stable event", RemovalEvidenceOutboxResumesAndRetriesStableEvent),
+            ("Terminal removal attempt disables duplicate final evidence", TerminalRemovalAttemptDisablesDuplicateFinalEvidence),
             ("DownloadGeneratedPackageCommand rejects provenance mismatch without loading package", DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage),
             ("DownloadGeneratedPackageCommand rejects invalid downloaded package", DownloadGeneratedPackageCommandRejectsInvalidDownloadedPackage)
         };
@@ -651,6 +652,48 @@ internal static class Program
         AssertEx.Equal(idempotencyKey, client.EvidenceIdempotencyKeys[1]);
         AssertEx.False(viewModel.RetryEvidenceSyncCommand.CanExecute(null), "The retry command must disable after delivery succeeds.");
         AssertEx.True(scope.LoadActiveState() is null, "A locally complete removal should close after the pending callback is delivered.");
+    }
+
+    private static async Task TerminalRemovalAttemptDisablesDuplicateFinalEvidence()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true, allowRemovalStatusSync: true);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var config = CreateConfig("Completed Removal Customer");
+        var packagePath = scope.WritePackage(config);
+        scope.SaveState(new PersistedInstallerState
+        {
+            StateId = "state-terminal-removal-001",
+            WorkflowMode = "Removal",
+            WorkflowSelected = true,
+            CurrentStepNumber = 8,
+            MaxAccessibleStepNumber = 8,
+            PackagePath = packagePath,
+            Config = config,
+            BootstrapSourcePath = bootstrapPath,
+            LastRemovalInventoryStatus = InstallStatus.Passed,
+            LastRemovalStatus = InstallStatus.Passed,
+            LastRemovalValidationStatus = InstallStatus.Passed,
+            FinishStatus = "Ready",
+            RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+            {
+                RemovalAttemptId = "ra_terminal_removal_001",
+                NextSequence = 6,
+                RemovalStarted = true,
+                InventoryCompleted = true,
+                ExecutionCompleted = true,
+                ValidationCompleted = true,
+                IsTerminal = true,
+                LastEventType = InstallerEvidenceEventType.RemovalCompleted
+            }
+        });
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.ResumeSessionCommand.ExecuteAsync();
+
+        AssertEx.False(
+            viewModel.CreateRemovalEvidenceCommand.CanExecute(null),
+            "A terminal removal attempt must not generate or queue a second removal_completed event.");
     }
 
     private static async Task DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage()

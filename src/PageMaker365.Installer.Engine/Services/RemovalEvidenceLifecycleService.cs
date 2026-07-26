@@ -44,7 +44,6 @@ public sealed class RemovalEvidenceLifecycleService
         }
 
         ValidateTransition(state, payload.EventType);
-        ValidateOutcomes(payload.RemovalOutcomes);
 
         payload.Lifecycle = InstallerEvidenceLifecycle.Removal;
         payload.AttemptId = state.RemovalAttemptId;
@@ -53,11 +52,13 @@ public sealed class RemovalEvidenceLifecycleService
         payload.EventId = string.IsNullOrWhiteSpace(payload.EventId)
             ? $"evt_{Guid.NewGuid():N}"
             : payload.EventId;
-        payload.Sequence = state.NextSequence++;
+        payload.Sequence = state.NextSequence;
         if (payload.OccurredAt == default)
         {
             payload.OccurredAt = DateTimeOffset.UtcNow;
         }
+        ValidatePayload(payload);
+        state.NextSequence++;
 
         var pending = new PendingInstallerEvidenceEvent
         {
@@ -79,7 +80,7 @@ public sealed class RemovalEvidenceLifecycleService
         var allowed = eventType switch
         {
             InstallerEvidenceEventType.RemovalStarted => !state.RemovalStarted && string.IsNullOrWhiteSpace(state.LastEventType),
-            InstallerEvidenceEventType.RemovalInventoryCompleted => state.RemovalStarted && !state.InventoryCompleted,
+            InstallerEvidenceEventType.RemovalInventoryCompleted => state.RemovalStarted && !state.ExecutionCompleted,
             InstallerEvidenceEventType.RemovalExecutionCompleted => state.InventoryCompleted && !state.ExecutionCompleted,
             InstallerEvidenceEventType.RemovalValidationCompleted => state.ExecutionCompleted && !state.ValidationCompleted,
             InstallerEvidenceEventType.RemovalCompleted => state.ValidationCompleted,
@@ -117,13 +118,69 @@ public sealed class RemovalEvidenceLifecycleService
         }
     }
 
-    private static void ValidateOutcomes(RemovalEvidenceOutcomeSummary? outcomes)
+    public static void ValidatePayload(InstallerEvidenceEvent payload)
     {
-        if (outcomes is null)
+        ArgumentNullException.ThrowIfNull(payload);
+        if (!payload.Lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) ||
+            !payload.EventType.StartsWith("removal_", StringComparison.Ordinal))
         {
-            return;
+            throw new InvalidDataException("Removal evidence must use the removal lifecycle and an allowed removal event type.");
         }
 
+        var outcomes = payload.RemovalOutcomes ??
+            throw new InvalidDataException("Removal evidence must include a sanitized outcome summary.");
+        ValidateOutcomes(outcomes);
+
+        var valid = payload.EventType switch
+        {
+            InstallerEvidenceEventType.RemovalStarted =>
+                IsEvent(payload, "removing", "passed", requiresError: false) &&
+                OutcomeTotal(outcomes) == 0,
+            InstallerEvidenceEventType.RemovalInventoryCompleted =>
+                IsEvent(payload, "removing", "passed", requiresError: false) &&
+                outcomes.Blocked == 0 && outcomes.Failed == 0,
+            InstallerEvidenceEventType.RemovalExecutionCompleted =>
+                payload.Outcome is "passed" or "skipped" &&
+                payload.LifecycleStatus.Equals("removing", StringComparison.Ordinal) &&
+                payload.Error is null && outcomes.Blocked == 0 && outcomes.Failed == 0,
+            InstallerEvidenceEventType.RemovalValidationCompleted =>
+                IsEvent(payload, "removing", "passed", requiresError: false) &&
+                outcomes.Blocked == 0 && outcomes.Failed == 0,
+            InstallerEvidenceEventType.RemovalCompleted =>
+                IsEvent(payload, "removed", "passed", requiresError: false) &&
+                outcomes.Blocked == 0 && outcomes.Failed == 0,
+            InstallerEvidenceEventType.RemovalBlocked =>
+                IsEvent(payload, "needs_attention", "blocked", requiresError: true) &&
+                outcomes.Blocked > 0 && outcomes.Removed == 0 && outcomes.Failed == 0,
+            InstallerEvidenceEventType.RemovalFailed =>
+                IsEvent(payload, "failed", "failed", requiresError: true) &&
+                outcomes.Failed > 0,
+            _ => false
+        };
+        if (!valid)
+        {
+            throw new InvalidDataException("Removal evidence event status, outcome, error, and disposition counts are inconsistent.");
+        }
+    }
+
+    private static bool IsEvent(
+        InstallerEvidenceEvent payload,
+        string lifecycleStatus,
+        string outcome,
+        bool requiresError)
+    {
+        return payload.LifecycleStatus.Equals(lifecycleStatus, StringComparison.Ordinal) &&
+            payload.Outcome.Equals(outcome, StringComparison.Ordinal) &&
+            (requiresError ? payload.Error is not null : payload.Error is null);
+    }
+
+    private static int OutcomeTotal(RemovalEvidenceOutcomeSummary outcomes)
+    {
+        return outcomes.Removed + outcomes.Retained + outcomes.Skipped + outcomes.Blocked + outcomes.Failed;
+    }
+
+    private static void ValidateOutcomes(RemovalEvidenceOutcomeSummary outcomes)
+    {
         if (outcomes.Removed < 0 || outcomes.Retained < 0 || outcomes.Skipped < 0 ||
             outcomes.Blocked < 0 || outcomes.Failed < 0)
         {
@@ -135,6 +192,14 @@ public sealed class RemovalEvidenceLifecycleService
         if (invalidRetained is not null || invalidSkipped is not null)
         {
             throw new InvalidDataException("Removal evidence contains a non-allowlisted outcome category.");
+        }
+
+        if (outcomes.RetainedCategories.Count != outcomes.RetainedCategories.Distinct(StringComparer.Ordinal).Count() ||
+            outcomes.SkippedCategories.Count != outcomes.SkippedCategories.Distinct(StringComparer.Ordinal).Count() ||
+            outcomes.RetainedCategories.Count > outcomes.Retained ||
+            outcomes.SkippedCategories.Count > outcomes.Skipped)
+        {
+            throw new InvalidDataException("Removal evidence outcome categories do not match their disposition counts.");
         }
     }
 }

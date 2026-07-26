@@ -163,6 +163,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private InstallStatus _lastRemovalStatus = InstallStatus.NotStarted;
     private InstallStatus _lastRemovalValidationStatus = InstallStatus.NotStarted;
     private bool _removalResourceGroupAlreadyAbsent;
+    private string _removalKeyVaultDisposition = "NotChecked";
 
     public InstallerWizardViewModel()
         : this(null, null, null)
@@ -3254,6 +3255,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastRemovalStatus = state.LastRemovalStatus;
         _lastRemovalValidationStatus = state.LastRemovalValidationStatus;
         _removalResourceGroupAlreadyAbsent = state.RemovalResourceGroupAlreadyAbsent;
+        _removalKeyVaultDisposition = SavedOrDefault(state.RemovalKeyVaultDisposition, "NotChecked");
         AiTitle = SavedOrDefault(state.AiTitle, AiTitle);
         AiSummary = SavedOrDefault(state.AiSummary, AiSummary);
         SessionId = SavedOrDefault(state.SessionId, SessionId);
@@ -3432,6 +3434,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             LastRemovalStatus = _lastRemovalStatus,
             LastRemovalValidationStatus = _lastRemovalValidationStatus,
             RemovalResourceGroupAlreadyAbsent = _removalResourceGroupAlreadyAbsent,
+            RemovalKeyVaultDisposition = _removalKeyVaultDisposition,
             AiTitle = AiTitle,
             AiSummary = AiSummary,
             SessionId = SessionId,
@@ -3579,6 +3582,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastRemovalStatus = InstallStatus.NotStarted;
         _lastRemovalValidationStatus = InstallStatus.NotStarted;
         _removalResourceGroupAlreadyAbsent = false;
+        _removalKeyVaultDisposition = "NotChecked";
         RemovalInventoryStatus = "Not run";
         RemovalInventorySummary = "Run read-only inventory before previewing removal.";
         RemovalInventoryOutputPath = "Not saved";
@@ -3663,7 +3667,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _config is not null &&
             File.Exists(PackagePath) &&
             SignInRequirementsSatisfied() &&
-            _currentStepNumber >= 4;
+            _currentStepNumber >= 4 &&
+            _lastRemovalStatus != InstallStatus.Passed;
     }
 
     private async Task RunRemovalInventoryAsync()
@@ -3689,13 +3694,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SessionStatus = "Removal inventory running";
         if (CanUseRemovalEvidence(_config))
         {
-            StartNewRemovalEvidenceAttempt();
-            await QueueRemovalEvidenceAsync(
-                InstallerEvidenceEventType.RemovalStarted,
-                "removing",
-                "passed",
-                "Installer started read-only removal inventory.",
-                CreateRemovalOutcomeSummary());
+            if (string.IsNullOrWhiteSpace(_removalEvidenceOutbox.RemovalAttemptId) ||
+                !_removalEvidenceOutbox.RemovalStarted ||
+                _removalEvidenceOutbox.IsTerminal)
+            {
+                StartNewRemovalEvidenceAttempt();
+                await QueueRemovalEvidenceAsync(
+                    InstallerEvidenceEventType.RemovalStarted,
+                    "removing",
+                    "passed",
+                    "Installer started read-only removal inventory.",
+                    CreateRemovalOutcomeSummary());
+            }
         }
 
         IReadOnlyList<InstallerStepResult> results;
@@ -3733,6 +3743,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RemovalInventoryStatus = _lastRemovalInventoryStatus.ToString();
         var absent = results.Any(result => result.Code == "PartialInstallAbsent");
         _removalResourceGroupAlreadyAbsent = absent;
+        _removalKeyVaultDisposition = results
+            .Select(result => result.Data.GetValueOrDefault("keyVaultDisposition"))
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ??
+            (absent ? "UnverifiedResourceGroupAbsent" : "NotChecked");
         RemovalInventorySummary = _lastRemovalInventoryStatus == InstallStatus.Passed
             ? absent
                 ? "The target resource group is already absent. Cleanup can be validated as an idempotent removal."
@@ -3861,6 +3875,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         _lastRemovalStatus = GetPhaseStatus(results);
+        if (_lastRemovalStatus == InstallStatus.Passed)
+        {
+            _removalKeyVaultDisposition = results
+                .Select(result => result.Data.GetValueOrDefault("keyVaultDisposition"))
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? _removalKeyVaultDisposition;
+        }
         RemovalStatus = _lastRemovalStatus.ToString();
         RemovalSummary = _lastRemovalStatus == InstallStatus.Passed
             ? "Azure removal completed. Validate that the resource group is absent."
@@ -3988,7 +4008,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "Cleanup validation confirmed the dedicated resource group is absent.",
                 CreateRemovalOutcomeSummary(
                     removed: _removalResourceGroupAlreadyAbsent ? 0 : 1,
-                    skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0));
+                    skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0,
+                    includeFinalRetained: true));
         }
         else
         {
@@ -4009,7 +4030,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return IsRemovalMode &&
             _config is not null &&
             _currentStepNumber >= 8 &&
-            _lastRemovalValidationStatus == InstallStatus.Passed;
+            _lastRemovalValidationStatus == InstallStatus.Passed &&
+            !FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase) &&
+            (!CanUseRemovalEvidence(_config) || !_removalEvidenceOutbox.IsTerminal);
     }
 
     private async Task CreateRemovalEvidenceAsync()
@@ -4038,6 +4061,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             - Result: Azure resource group absent
             - SharePoint cleanup: Not performed
             - Key Vault purge: Not performed
+            - Key Vault disposition: {_removalKeyVaultDisposition}
             - Reinstall requirement: Generate a new package with a new Key Vault name
             """;
         var manifest = new
@@ -4057,7 +4081,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             validationArtifact = RemovalValidationOutputPath,
             sharePointCleanupPerformed = false,
             keyVaultPurged = false,
-            keyVaultDisposition = "SoftDeletedRecoverable",
+            keyVaultDisposition = _removalKeyVaultDisposition,
             reinstallRequiresNewKeyVaultName = true
         };
         await File.WriteAllTextAsync(reportPath, report);
@@ -4086,7 +4110,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             "PageMaker365 Azure removal completed and cleanup validation passed.",
             CreateRemovalOutcomeSummary(
                 removed: _removalResourceGroupAlreadyAbsent ? 0 : 1,
-                skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0));
+                skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0,
+                includeFinalRetained: true));
         SaveWizardState(markCompleted: _removalEvidenceOutbox.PendingEvents.Count == 0);
     }
 
@@ -4624,24 +4649,40 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         int removed = 0,
         int skipped = 0,
         int blocked = 0,
-        int failed = 0)
+        int failed = 0,
+        bool includeFinalRetained = false)
     {
+        var retainedCategories = new List<string>();
+        var skippedCategories = new List<string>();
+        if (skipped > 0)
+        {
+            skippedCategories.Add("resource_group_already_absent");
+        }
+
+        if (includeFinalRetained)
+        {
+            retainedCategories.Add("sharepoint_content_unchanged");
+            retainedCategories.Add("local_evidence_retained");
+            if (_removalKeyVaultDisposition.Equals("SoftDeletedRecoverable", StringComparison.Ordinal))
+            {
+                retainedCategories.Insert(0, "key_vault_soft_deleted");
+            }
+            else if (_removalKeyVaultDisposition.Equals("NotPresent", StringComparison.Ordinal))
+            {
+                skipped++;
+                skippedCategories.Add("not_applicable");
+            }
+        }
+
         return new RemovalEvidenceOutcomeSummary
         {
             Removed = removed,
-            Retained = 3,
+            Retained = retainedCategories.Count,
             Skipped = skipped,
             Blocked = blocked,
             Failed = failed,
-            RetainedCategories =
-            [
-                "key_vault_soft_deleted",
-                "sharepoint_content_unchanged",
-                "local_evidence_retained"
-            ],
-            SkippedCategories = skipped > 0
-                ? ["resource_group_already_absent"]
-                : []
+            RetainedCategories = retainedCategories,
+            SkippedCategories = skippedCategories
         };
     }
 

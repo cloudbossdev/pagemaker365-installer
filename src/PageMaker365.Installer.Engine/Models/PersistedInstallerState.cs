@@ -93,6 +93,7 @@ public sealed class PersistedInstallerState
     public InstallStatus LastRemovalStatus { get; set; } = InstallStatus.NotStarted;
     public InstallStatus LastRemovalValidationStatus { get; set; } = InstallStatus.NotStarted;
     public bool RemovalResourceGroupAlreadyAbsent { get; set; }
+    public string RemovalKeyVaultDisposition { get; set; } = "NotChecked";
     public string AiTitle { get; set; } = "";
     public string AiSummary { get; set; } = "";
     public string SessionId { get; set; } = "";
