@@ -34,6 +34,7 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - The standard path asks the customer to choose one PageMaker365 setup file.
 - Package generation and download occur inside the Package step.
 - Both required sign-ins must complete before dependent checks can advance.
+- Canceling sign-in or allowing a Graph code to expire returns Sign In to a retryable state; expired device codes are removed and never unlock Preflight.
 - Long-running actions show an active progress state and cannot be started twice.
 - Blockers explain what failed, why progression stopped, and the next corrective action.
 - Restarting the app does not restore tokens, secrets, or destructive approval.

@@ -170,13 +170,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         IOnboardingApiClient? onboardingApiClient,
         InstallerStateStore? stateStore,
         string? workspaceRoot,
-        PackageTrustKeyResolver? packageTrustKeyResolver = null)
+        PackageTrustKeyResolver? packageTrustKeyResolver = null,
+        InstallerEngine? engine = null)
     {
         _workspaceRoot = string.IsNullOrWhiteSpace(workspaceRoot)
             ? ResolveWorkspaceRoot()
             : workspaceRoot;
         _stateStore = stateStore ?? new InstallerStateStore();
-        _engine = new InstallerEngine(new StructuredLogger(_redactionService));
+        _engine = engine ?? new InstallerEngine(new StructuredLogger(_redactionService));
         _supportBundleService = new SupportBundleService(_redactionService);
         _tenantDiscoveryService = new TenantDiscoveryService(_redactionService);
         _packageTrustKeyResolver = packageTrustKeyResolver ?? new PackageTrustKeyResolver();
@@ -2203,9 +2204,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var graphSignInSucceeded =
             actionStatus is InstallStatus.Passed or InstallStatus.Warning &&
             !string.IsNullOrWhiteSpace(_graphAccessToken);
+        var graphStatus = graphSignInSucceeded
+            ? "Signed in"
+            : actionResults.Any(result => result.Code == "GraphSignInCanceled")
+                ? "Canceled"
+                : actionResults.Any(result => result.Code == "GraphSignInExpired")
+                    ? "Expired"
+                    : "Failed";
         SetGraphSignInState(
             graphSignInSucceeded,
-            graphSignInSucceeded ? "Signed in" : "Failed",
+            graphStatus,
             graphSignInSucceeded ? "#42D8A0" : "#FF5C7A");
         if (graphSignInSucceeded)
         {
@@ -2217,6 +2225,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
         else
         {
+            GraphDeviceCode = "";
+            GraphDeviceCodeStatus = "";
             SetStepStatus(3, "Blocked", "#FF5C7A");
             SetCurrentStep(3);
             var failedResult = actionResults.LastOrDefault(result => result.Status == InstallStatus.Failed);
@@ -2675,7 +2685,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             Clipboard.SetText(value);
         }
-        catch (Exception exception) when (exception is ExternalException or InvalidOperationException)
+        catch (Exception exception) when (exception is ExternalException or InvalidOperationException or ThreadStateException)
         {
             // Clipboard access can fail if another process has it locked; the code remains visible in the UI.
         }
@@ -5624,9 +5634,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         AiTitle = payload.FailedStep;
         AiSummary = payload.ErrorCode switch
         {
-            "AzureSignInFailed" =>
+            "AzureSignInFailed" or "AzureSignInCanceled" =>
                 "Azure sign-in did not complete. Retry sign-in and make sure the account belongs to the customer tenant or has access to the target subscription.",
-            "GraphSignInFailed" =>
+            "GraphSignInFailed" or "GraphSignInCanceled" or "GraphSignInExpired" =>
                 "Microsoft Graph sign-in did not complete. Retry sign-in and approve the requested scopes for tenant, app consent, and SharePoint validation.",
             "AppServiceCapacityUnavailable" =>
                 "Azure App Service could not allocate the requested plan capacity. Run deployment preview again to review the async-allocation update, approve it, and retry install; existing resources will be reused.",

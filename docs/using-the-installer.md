@@ -67,6 +67,8 @@ The PageMaker365 setup file contains a short-lived authorization handoff, not an
 
 Azure and Microsoft Graph sign-in are not required to download a package that the portal has already generated. Read-only discovery is a recovery path used only when the portal explicitly reports missing onboarding values; its controls remain hidden during the normal ready-package path.
 
+If Azure or Graph sign-in is canceled, the Sign In step remains incomplete and the action becomes retryable. If a Graph device code expires, the installer clears it and requires a new code; stale codes and expired tokens never unlock Preflight.
+
 Portal mode is intentionally strict. The app does not silently accept incomplete portal responses, mismatched session IDs, unsupported package download content types, or generated packages that fail local validation. Failures stay visible in the workflow and are written to the portal sync receipt with the correlation ID when the API provides one.
 
 Important local outputs:

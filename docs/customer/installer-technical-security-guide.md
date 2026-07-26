@@ -47,6 +47,8 @@ The preflight uses `Get-AzRoleAssignment` with the target subscription and expan
 
 The installer uses OAuth 2.0 device authorization through MSAL. Microsoft describes the device-code protocol and tenant token endpoint in [OAuth 2.0 device authorization grant](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code).
 
+Canceled and expired device-code attempts are recorded as sanitized, retryable failures. The desktop clears the stale user code, retains no access token, keeps Preflight locked, and requires a new sign-in attempt. Azure browser cancellation follows the same retryable failure policy.
+
 The current installer requests only delegated read permissions:
 
 | Scope | Installer use | Consent |

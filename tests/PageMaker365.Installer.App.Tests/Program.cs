@@ -18,6 +18,7 @@ internal static class Program
             ("RelayCommand reports asynchronous operation state", RelayCommandReportsAsynchronousOperationState),
             ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
+            ("Canceled Graph sign-in clears stale code and remains retryable", CanceledGraphSignInClearsStaleCodeAndRemainsRetryable),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
@@ -117,6 +118,28 @@ internal static class Program
         AssertEx.False(viewModel.GoToStepCommand.CanExecute(4), "The Preflight step must remain inaccessible until both sign-ins complete.");
         AssertEx.False(viewModel.CanGoNext, "Next must remain disabled while either required sign-in is incomplete.");
         AssertEx.NotEqual("Not checked", viewModel.PackageTrustStatus);
+    }
+
+    private static async Task CanceledGraphSignInClearsStaleCodeAndRemainsRetryable()
+    {
+        using var scope = TestScope.Create();
+        var engine = new InstallerEngine(
+            new StructuredLogger(new RedactionService()),
+            new PromptThenCancelGraphAuthenticator());
+        var viewModel = scope.CreateViewModel(engine: engine);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        await viewModel.ConnectGraphCommand.ExecuteAsync();
+
+        AssertEx.Equal("Canceled", viewModel.GraphSignInStatus);
+        AssertEx.Equal("", viewModel.GraphDeviceCode);
+        AssertEx.Equal("", viewModel.GraphDeviceCodeStatus);
+        AssertEx.False(viewModel.HasGraphDeviceCode, "Canceled sign-in must not leave an expired device code visible.");
+        AssertEx.False(viewModel.IsOperationRunning, "Canceled sign-in must return the app to an idle state.");
+        AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "Canceled Graph sign-in must remain retryable.");
+        AssertEx.False(viewModel.RunPreflightCommand.CanExecute(null), "Canceled Graph sign-in must not unlock Preflight.");
+        AssertEx.StringContains(viewModel.FooterStatus, "canceled");
     }
 
     private static async Task LocalDownloadedPackagePathRemainsSupported()
@@ -928,6 +951,26 @@ internal static class Program
         }
     }
 
+    private sealed class PromptThenCancelGraphAuthenticator : IGraphDeviceCodeAuthenticator
+    {
+        public async Task<GraphSignInResult> SignInAsync(
+            string tenantId,
+            string clientId,
+            IProgress<GraphDeviceCodePrompt>? promptProgress = null,
+            CancellationToken cancellationToken = default)
+        {
+            promptProgress?.Report(new GraphDeviceCodePrompt
+            {
+                Message = "Enter the code TEST-CODE to sign in.",
+                UserCode = "TEST-CODE",
+                VerificationUrl = "https://microsoft.com/devicelogin",
+                ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(10)
+            });
+            await Task.Delay(50, cancellationToken);
+            throw new OperationCanceledException("Canceled by operator.");
+        }
+    }
+
     private sealed class TestScope : IDisposable
     {
         private TestScope(string rootDirectory)
@@ -944,10 +987,16 @@ internal static class Program
             return new TestScope(root);
         }
 
-        public InstallerWizardViewModel CreateViewModel(FakeOnboardingApiClient? client = null)
+        public InstallerWizardViewModel CreateViewModel(
+            FakeOnboardingApiClient? client = null,
+            InstallerEngine? engine = null)
         {
             var stateStore = new InstallerStateStore(Path.Combine(RootDirectory, "state"));
-            return new InstallerWizardViewModel(client ?? new FakeOnboardingApiClient(), stateStore, RootDirectory);
+            return new InstallerWizardViewModel(
+                client ?? new FakeOnboardingApiClient(),
+                stateStore,
+                RootDirectory,
+                engine: engine);
         }
 
         public PersistedInstallerState? LoadActiveState()

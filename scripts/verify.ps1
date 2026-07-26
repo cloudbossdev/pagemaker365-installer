@@ -143,6 +143,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Discovery command contract tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Testing authentication cancellation contracts...'
+& (Join-Path $repoRoot 'scripts\test-authentication-cancellation.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Authentication cancellation tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Testing what-if fallback contracts...'
 & (Join-Path $repoRoot 'scripts\test-whatif.ps1')
 if ($LASTEXITCODE -ne 0) {
