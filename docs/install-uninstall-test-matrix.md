@@ -33,7 +33,7 @@ Scenario status meanings:
 | --- | --- | --- | --- |
 | P01 | Valid setup file and ready package | Installer connects, downloads, verifies, loads, and advances to sign-in from one setup-file action. | Automated |
 | P02 | Portal reports package generation pending and later ready | Installer shows active progress, polls within policy, downloads once, and remains retryable after the wait limit. | Automated |
-| P03 | Setup code is expired, already used, or revoked | Package is not loaded; the operator is told to obtain a new setup file. | Planned |
+| P03 | Setup code is expired, already used, or revoked | Package is not loaded; the operator is told to obtain a new setup file. | Automated |
 | P04 | Setup file is malformed or missing required fields | App remains open on Package and reports a safe validation error. | Automated |
 | P05 | Portal response session differs from setup session | Response is rejected before customer state changes. | Automated |
 | P06 | Package tenant, discovery, onboarding, or deployment export provenance differs | Package is rejected before sign-in or deployment actions unlock. | Automated |
@@ -55,7 +55,7 @@ Scenario status meanings:
 | A04 | Azure account uses the wrong tenant or subscription | Preflight blocks before preview or deployment. | Partial |
 | A05 | Graph account uses the wrong tenant | Graph, Entra, and SharePoint checks block. | Partial |
 | A06 | Operator cancels device-code or Azure sign-in | Action returns to a retryable state without freezing or advancing. | Partial |
-| A07 | Device code or access token expires | Status becomes unauthenticated and a new sign-in is required. | Planned |
+| A07 | Device code or access token expires | Status becomes unauthenticated and a new sign-in is required. | Partial |
 | A08 | Graph scopes, Azure RBAC, or consent-capable admin role is missing | Exact missing access is reported without attempting to grant it automatically. | Partial |
 | A09 | Session is resumed after application restart | Tokens are absent and both required contexts are revalidated. | Partial |
 

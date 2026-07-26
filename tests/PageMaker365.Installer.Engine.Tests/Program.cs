@@ -36,7 +36,16 @@ internal static class Program
             ("DownloadPackageAsync sanitizes unsafe content disposition filename", DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename),
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
             ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
+            ("OnboardingSessionService rejects expired bootstrap", OnboardingSessionServiceRejectsExpiredBootstrap),
             ("OnboardingSessionService validates sample bootstrap contract", OnboardingSessionServiceValidatesSampleBootstrapContract),
+            ("AuthenticationContextValidator accepts matching Azure context", AuthenticationContextValidatorAcceptsMatchingAzureContext),
+            ("AuthenticationContextValidator rejects warning-only Azure sign-in", AuthenticationContextValidatorRejectsWarningOnlyAzureSignIn),
+            ("AuthenticationContextValidator rejects wrong Azure tenant", AuthenticationContextValidatorRejectsWrongAzureTenant),
+            ("AuthenticationContextValidator rejects wrong Azure subscription", AuthenticationContextValidatorRejectsWrongAzureSubscription),
+            ("AuthenticationContextValidator accepts valid Graph context", AuthenticationContextValidatorAcceptsValidGraphContext),
+            ("AuthenticationContextValidator rejects wrong Graph tenant", AuthenticationContextValidatorRejectsWrongGraphTenant),
+            ("AuthenticationContextValidator rejects expired Graph token", AuthenticationContextValidatorRejectsExpiredGraphToken),
+            ("AuthenticationContextValidator rejects missing Graph scope", AuthenticationContextValidatorRejectsMissingGraphScope),
             ("ConnectAsync rejects invalid portal response", ConnectAsyncRejectsInvalidPortalResponse),
             ("GetOnboardingStatusAsync rejects status missing readiness status", GetOnboardingStatusAsyncRejectsStatusMissingReadinessStatus),
             ("GetOnboardingStatusAsync rejects ready status without package URL", GetOnboardingStatusAsyncRejectsReadyStatusWithoutPackageUrl),
@@ -612,6 +621,134 @@ internal static class Program
         AssertEx.StringContains(errors, "One-time onboarding code is required");
         AssertEx.StringContains(errors, "Portal base URL must be an absolute URL");
         return Task.CompletedTask;
+    }
+
+    private static Task OnboardingSessionServiceRejectsExpiredBootstrap()
+    {
+        var session = CreateSession();
+        session.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+
+        var result = new OnboardingSessionService().Validate(session);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "onboarding bootstrap session is expired");
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorAcceptsMatchingAzureContext()
+    {
+        var result = AzureSignInResult("tenant-001", "sub-001");
+
+        var failure = AuthenticationContextValidator.ValidateAzureSignIn(CreateConfig(), [result]);
+
+        AssertEx.True(failure is null, failure?.Details);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorRejectsWarningOnlyAzureSignIn()
+    {
+        var warning = InstallerStepResult.Warning(
+            "Azure Sign In",
+            "AzureSignInWarning",
+            "Azure context could not be verified.");
+
+        var failure = AuthenticationContextValidator.ValidateAzureSignIn(CreateConfig(), [warning]);
+
+        AssertEx.Equal("AzureSignInContextMissing", failure?.Code);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorRejectsWrongAzureTenant()
+    {
+        var result = AzureSignInResult("tenant-other", "sub-001");
+
+        var failure = AuthenticationContextValidator.ValidateAzureSignIn(CreateConfig(), [result]);
+
+        AssertEx.Equal("AzureTenantMismatch", failure?.Code);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorRejectsWrongAzureSubscription()
+    {
+        var result = AzureSignInResult("tenant-001", "sub-other");
+
+        var failure = AuthenticationContextValidator.ValidateAzureSignIn(CreateConfig(), [result]);
+
+        AssertEx.Equal("AzureSubscriptionMismatch", failure?.Code);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorAcceptsValidGraphContext()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var result = GraphSignInResult("tenant-001", now.AddHours(1));
+
+        var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
+
+        AssertEx.True(failure is null, failure?.Details);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorRejectsWrongGraphTenant()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var result = GraphSignInResult("tenant-other", now.AddHours(1));
+
+        var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
+
+        AssertEx.Equal("GraphTenantMismatch", failure?.Code);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorRejectsExpiredGraphToken()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var result = GraphSignInResult("tenant-001", now.AddSeconds(-1));
+
+        var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
+
+        AssertEx.Equal("GraphAccessTokenExpired", failure?.Code);
+        return Task.CompletedTask;
+    }
+
+    private static Task AuthenticationContextValidatorRejectsMissingGraphScope()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var result = GraphSignInResult("tenant-001", now.AddHours(1));
+        result.Scopes.Remove("Sites.Read.All");
+
+        var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
+
+        AssertEx.Equal("GraphConsentScopesMissing", failure?.Code);
+        AssertEx.StringContains(failure?.Details ?? "", "Sites.Read.All");
+        return Task.CompletedTask;
+    }
+
+    private static InstallerStepResult AzureSignInResult(string tenantId, string subscriptionId)
+    {
+        var result = InstallerStepResult.Passed(
+            "Azure Sign In",
+            "AzureSignInCompleted",
+            "Azure sign-in completed.");
+        result.Data["tenantId"] = tenantId;
+        result.Data["subscriptionId"] = subscriptionId;
+        return result;
+    }
+
+    private static GraphSignInResult GraphSignInResult(string tenantId, DateTimeOffset expiresOn)
+    {
+        return new GraphSignInResult
+        {
+            StepResult = InstallerStepResult.Passed(
+                "Microsoft Graph Sign In",
+                "GraphSignInCompleted",
+                "Microsoft Graph sign-in completed."),
+            AccessToken = "test-access-token",
+            ExpiresOn = expiresOn,
+            TenantId = tenantId,
+            Account = "operator@example.test",
+            Scopes = GraphDeviceCodeAuthenticator.RequiredScopes.ToList()
+        };
     }
 
     private static async Task OnboardingSessionServiceValidatesSampleBootstrapContract()

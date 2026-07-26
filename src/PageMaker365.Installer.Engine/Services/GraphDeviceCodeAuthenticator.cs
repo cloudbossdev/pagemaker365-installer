@@ -50,7 +50,7 @@ public sealed class GraphDeviceCodeAuthenticator
             ExpiresOn = result.ExpiresOn,
             TenantId = result.TenantId,
             Account = result.Account?.Username ?? "",
-            Scopes = RequiredScopes.ToList()
+            Scopes = result.Scopes.ToList()
         };
     }
 
