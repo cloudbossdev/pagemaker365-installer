@@ -67,7 +67,7 @@ Scenario status meanings:
 | F02 | Required PowerShell module or Bicep is missing | Preflight blocks with the missing dependency and remediation. | Automated |
 | F03 | Azure RBAC is insufficient | Preflight blocks before mutation and identifies the required scope. | Automated |
 | F04 | Graph scope or admin consent is insufficient | Preflight blocks the dependent Entra/SharePoint action. | Partial |
-| F05 | SharePoint site or document library cannot be resolved | Preflight blocks or warns according to the final access contract. | Partial |
+| F05 | SharePoint site or required document library cannot be resolved or read | Preflight fails closed, distinguishes site resolution from library access, and does not export unrelated library names. | Automated |
 | F06 | Required deployment/package field is absent | Preflight blocks before What-If. | Automated |
 | F07 | Package contains raw secret containers | Package/preflight rejects it and evidence remains sanitized. | Automated |
 | F08 | Existing resource group is untagged or foreign-owned | Preview and install fail closed. | Automated |

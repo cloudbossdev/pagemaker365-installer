@@ -43,6 +43,8 @@ The signed-in Azure operator must have one of these role sets effective at the t
 
 The preflight uses `Get-AzRoleAssignment` with the target subscription and expands group membership when the installed Az.Resources version supports it. Microsoft defines `-Scope` as returning assignments effective at that scope or above. See [Get-AzRoleAssignment](https://learn.microsoft.com/en-us/powershell/module/az.resources/get-azroleassignment).
 
+Preflight fails closed when required Az/Bicep tooling is absent, Azure context or deployment RBAC cannot be verified, the configured Key Vault recovery state cannot be checked, a required delegated Graph scope is missing, or the package-configured SharePoint site or document library cannot be resolved. A failed check must pass on rerun before Preview unlocks. Warnings are reserved for advisory or nonauthoritative signals and remain in evidence; they do not silently represent a required boundary as ready.
+
 ### Microsoft Graph And SharePoint
 
 The installer uses OAuth 2.0 device authorization through MSAL. Microsoft describes the device-code protocol and tenant token endpoint in [OAuth 2.0 device authorization grant](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code).
@@ -57,6 +59,8 @@ The current installer requests only delegated read permissions:
 | `Sites.Read.All` | Resolves the configured SharePoint site and enumerates document libraries. | Delegated permission; tenant policy may still require admin approval. |
 
 The exact requests are four `GET` calls: `/domains`, `/me/memberOf/microsoft.graph.directoryRole`, `/sites/{hostname}:{path}`, and `/sites/{site-id}/drives`. No Graph write call is implemented, and the installer no longer requests `Application.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, or `Directory.Read.All`.
+
+SharePoint preflight reads site and drive metadata only. It does not read list items, files, or document content. A missing library response does not export the names of unrelated libraries into installer evidence.
 
 Microsoft identifies `Domain.Read.All` as least privileged for listing domains, `User.Read` as least privileged for the signed-in user's direct memberships, and `Sites.Read.All` as least privileged for resolving a site. Role-management permission supplies directory-role details that would otherwise be returned with limited properties. See [list domains](https://learn.microsoft.com/en-us/graph/api/domain-list?view=graph-rest-1.0), [list direct memberships](https://learn.microsoft.com/en-us/graph/api/user-list-memberof?view=graph-rest-1.0), [get a site](https://learn.microsoft.com/en-us/graph/api/site-get?view=graph-rest-1.0), and the [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference).
 

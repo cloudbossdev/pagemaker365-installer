@@ -167,6 +167,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Testing mandatory preflight blocker policy...'
+& (Join-Path $repoRoot 'scripts\test-preflight-blocker-policy.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Preflight blocker policy tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Running preflight...'
 Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
 

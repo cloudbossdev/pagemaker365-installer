@@ -5644,12 +5644,22 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "The Microsoft Graph sign-in is no longer valid. Start Graph sign-in again and complete the device-login flow before the code expires.",
             "GraphConsentScopesMissing" =>
                 "Microsoft Graph did not grant every required scope. Have an authorized tenant administrator approve the requested scopes, then retry Graph sign-in.",
+            "AzAccountsMissing" or "AzAccountsLoadFailed" or "AzResourcesMissing" or "AzResourcesLoadFailed" =>
+                "A required Azure PowerShell module is missing. Install the module named by the failed check, restart the installer, and rerun preflight.",
+            "BicepMissing" =>
+                "The Bicep CLI is required for deployment preview and install. Install Bicep, restart the installer, and rerun preflight.",
+            "GraphAuthenticationMissing" or "GraphAuthenticationLoadFailed" or "GraphSitesModuleMissing" or "GraphSitesModuleLoadFailed" =>
+                "A required Microsoft Graph PowerShell module is missing. Install the module named by the failed check, restart the installer, and retry Graph sign-in and preflight.",
             "GraphNotSignedIn" or "GraphNotSignedInForSharePoint" =>
                 "Microsoft Graph sign-in is required before the installer can validate Entra consent or SharePoint access. Sign in with the required Graph scopes, then rerun preflight.",
             "MissingApplicationAdministrator" or "EntraAdminRoleMissing" or "EntraAdminRoleCheckUnavailable" =>
                 "The installer may need an Entra administrator to approve app permissions. Ask a Global Administrator, Cloud Application Administrator, or Application Administrator to complete consent when the final app registration check is wired.",
             "SharePointSiteResolveFailed" =>
                 "The SharePoint site could not be resolved through Microsoft Graph. Confirm the site URL, Graph sign-in tenant, and Sites.Read.All consent, then rerun preflight.",
+            "SharePointLibraryNotConfigured" =>
+                "The signed customer package does not identify the required SharePoint document library. Request a corrected package from the PageMaker365 portal before continuing.",
+            "SharePointLibraryNotFound" or "SharePointLibraryAccessFailed" =>
+                "The configured SharePoint document library could not be verified. Confirm the library name, site access, and Sites.Read.All consent, then rerun preflight.",
             _ =>
                 "The installer is running module-based local, Azure, Entra, and SharePoint preflight checks. Review the failed check details, resolve the issue, then rerun preflight."
         };

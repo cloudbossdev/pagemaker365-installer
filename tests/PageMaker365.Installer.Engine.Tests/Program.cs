@@ -1688,6 +1688,13 @@ internal static class Program
         AssertEx.Equal("AzureSignInCompleted", results[0].Code);
         AssertEx.Equal("Azure Sign In", results[0].StepName);
         AssertEx.Equal("sub-001", results[0].Data["subscriptionId"]);
+
+        var nameMethod = typeof(InstallerEngine).GetMethod(
+            "NameFromCode",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        AssertEx.True(nameMethod is not null, "Result-name mapper should exist.");
+        AssertEx.Equal("Microsoft Graph Sites Module", (string)nameMethod!.Invoke(null, ["GraphSitesModuleMissing"])!);
+        AssertEx.Equal("SharePoint Library", (string)nameMethod.Invoke(null, ["SharePointLibraryAccessFailed"])!);
         return Task.CompletedTask;
     }
 

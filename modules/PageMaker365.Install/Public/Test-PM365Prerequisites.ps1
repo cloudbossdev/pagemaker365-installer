@@ -21,10 +21,11 @@ function Test-PM365Prerequisites {
             -Details 'Azure authentication commands can be loaded.'
     } else {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'AzAccountsMissing' `
             -Summary 'Az.Accounts is not installed.' `
-            -Details 'The real installer will require the Az PowerShell modules before deployment.'
+            -Details 'Install Az.Accounts before running Azure sign-in or preflight.' `
+            -RetrySafe $true
     }
 
     if ($bicepCommand) {
@@ -36,10 +37,11 @@ function Test-PM365Prerequisites {
             -Details "$bicepVersion ($bicepCommand)"
     } else {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'BicepMissing' `
             -Summary 'Bicep is not available on PATH.' `
-            -Details 'The desktop installer will surface this as a prerequisite warning until Bicep deployment is wired.'
+            -Details 'Install the Bicep CLI before running deployment preview or install.' `
+            -RetrySafe $true
     }
 
     $results

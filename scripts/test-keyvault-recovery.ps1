@@ -56,7 +56,7 @@ Assert-Equal 'KeyVaultNameReady' $available.code 'Available vault name returned 
 
 $script:restStatusCode = 500
 $unavailable = Test-PM365KeyVaultRecoveryState -ConfigPath 'test.json'
-Assert-Equal 'Warning' $unavailable.status 'REST failure should produce a warning.'
+Assert-Equal 'Failed' $unavailable.status 'Unavailable Key Vault recovery state should block preflight.'
 Assert-Equal 'KeyVaultRecoveryCheckUnavailable' $unavailable.code 'REST failure returned the wrong code.'
 
 Write-Host 'Key Vault recovery preflight tests passed.'
