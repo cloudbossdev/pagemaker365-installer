@@ -5636,6 +5636,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "The signed-in Azure tenant does not match the loaded customer package. Sign in with the correct customer tenant or load a package generated for the current tenant, then rerun preflight.",
             "AzureSubscriptionMismatch" =>
                 "The selected Azure subscription does not match the loaded customer package. Switch to the target subscription with Set-AzContext or load the correct package, then rerun preflight.",
+            "AzureResourceProvidersNotRegistered" =>
+                "One or more Azure resource providers required by PageMaker365 are not registered. Ask a subscription administrator to register the providers listed in the failed check, then rerun preflight.",
+            "AppServiceSkuUnavailable" =>
+                "App Service B1 is not available to this subscription in the package region. Resolve the subscription restriction or obtain a newly approved package for a supported region, then rerun preflight.",
+            "AppServiceQuotaExhausted" =>
+                "The subscription has no remaining App Service core quota in the package region. Request quota or obtain a newly approved package for another region, then rerun preflight.",
             "AzureSignInContextMissing" =>
                 "Azure sign-in did not return a verifiable tenant and subscription. Retry Azure sign-in and confirm the target subscription before continuing.",
             "GraphTenantMismatch" =>

@@ -1688,6 +1688,14 @@ internal static class Program
         AssertEx.Equal("AzureSignInCompleted", results[0].Code);
         AssertEx.Equal("Azure Sign In", results[0].StepName);
         AssertEx.Equal("sub-001", results[0].Data["subscriptionId"]);
+
+        var nameMethod = typeof(InstallerEngine).GetMethod(
+            "NameFromCode",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        AssertEx.True(nameMethod is not null, "Result-name mapper should exist.");
+        AssertEx.Equal("Azure Resource Providers", (string)nameMethod!.Invoke(null, ["AzureResourceProvidersNotRegistered"])!);
+        AssertEx.Equal("App Service SKU", (string)nameMethod.Invoke(null, ["AppServiceSkuUnavailable"])!);
+        AssertEx.Equal("App Service Quota", (string)nameMethod.Invoke(null, ["AppServiceQuotaExhausted"])!);
         return Task.CompletedTask;
     }
 
