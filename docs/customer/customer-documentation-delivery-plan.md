@@ -86,8 +86,8 @@ Unknown or incomplete behavior must be labeled as a release blocker in the contr
 | 5 | Define the supported upgrade contract | #6 accepted or explicitly excluded from v1 with approved customer wording |
 | 6 | Harden removal reporting | #9 accepted; removal callbacks and retry outbox are verified |
 | 7 | Run lifecycle acceptance | #10 accepted on a clean workstation, including repeated install/remove/reinstall |
-| 8 | Finalize customer documents | #11 and #12 pass operator, engineering, security, and operations review |
-| 9 | Sign and verify distribution | #13 accepted; guides reference the verified distribution and released version |
+| 8 | Sign and verify the release candidate | #13 accepted; the distribution is signed and passes release verification |
+| 9 | Finalize customer documents | #11 and #12 reference the signed release candidate and pass operator, engineering, security, and operations review |
 
 Work may be drafted in parallel, but publication approval follows this dependency order.
 
@@ -120,5 +120,5 @@ An individual may hold more than one role, but each decision must be recorded in
 1. Keep both guide files as controlled drafts while #4 through #10 and #13 remain open.
 2. Implement the next release dependency through issue #7 on its own branch; do not add actual secret values to packages, logs, evidence, or tests.
 3. Update this branch after each implementation merge, replacing blocker language only with traceable verified behavior.
-4. During #10, capture sanitized release-candidate screenshots and complete a clean-operator walkthrough using the user guide alone.
-5. Request the required reviews and record decisions in the final documentation pull request.
+4. During #10, complete a clean-operator walkthrough using the user guide alone and record the screenshot states needed for publication.
+5. After #13 produces the signed release candidate, capture sanitized final screenshots, request the required reviews, and record decisions in the documentation pull request.
