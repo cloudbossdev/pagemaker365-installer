@@ -24,7 +24,7 @@ public partial class MainWindow : Window
         {
             if (DataContext is InstallerWizardViewModel viewModel)
             {
-                viewModel.SaveCurrentState();
+                viewModel.PrepareForClose();
                 viewModel.ClearRuntimeSecretInputControlsRequested -= ClearRuntimeSecretInputControls;
             }
         };

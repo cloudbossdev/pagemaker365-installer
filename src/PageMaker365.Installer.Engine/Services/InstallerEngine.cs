@@ -528,6 +528,12 @@ public sealed class InstallerEngine
             {
                 throw new InvalidOperationException($"Runtime secret value for {definition.AppSettingName} is shorter than the package minimum.");
             }
+
+            if (material.Length > RuntimeSecretMaterial.MaximumLength)
+            {
+                throw new InvalidOperationException(
+                    $"Runtime secret value for {definition.AppSettingName} exceeds the supported maximum length.");
+            }
         }
 
         if (materialsBySetting.Count != config.Secrets.RuntimeSecrets.Count)

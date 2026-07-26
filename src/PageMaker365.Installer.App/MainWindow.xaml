@@ -1172,6 +1172,7 @@
                                                 <StackPanel Grid.Column="1">
                                                     <PasswordBox PasswordChanged="OnRuntimeSecretPasswordChanged"
                                                                  AutomationProperties.Name="{Binding Label}"
+                                                                 MaxLength="{Binding MaximumLength}"
                                                                  IsEnabled="{Binding DataContext.CanEditRuntimeSecretInputs, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                  Background="#0B1224"
                                                                  Foreground="{StaticResource PmText}"

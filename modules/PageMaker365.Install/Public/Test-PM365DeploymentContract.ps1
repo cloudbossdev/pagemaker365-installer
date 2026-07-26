@@ -50,7 +50,8 @@ function Test-PM365DeploymentContract {
                         [string]$_.owner -cne 'customer' -or
                         [string]$_.targetApp -cne 'api' -or
                         -not [bool]$_.required -or
-                        [int]$_.minimumLength -lt 1
+                        [int]$_.minimumLength -lt 1 -or
+                        [int]$_.minimumLength -gt 4096
                     }
             )
             $databaseDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'DATABASE_URL' })

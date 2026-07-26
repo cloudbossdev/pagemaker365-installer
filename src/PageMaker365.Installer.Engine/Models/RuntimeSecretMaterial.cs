@@ -6,6 +6,8 @@ namespace PageMaker365.Installer.Engine.Models;
 
 public sealed class RuntimeSecretMaterial : IDisposable
 {
+    public const int MaximumLength = 4096;
+
     private SecureString? _value;
 
     public RuntimeSecretMaterial(RuntimeSecretInfo definition, SecureString value)
@@ -22,6 +24,12 @@ public sealed class RuntimeSecretMaterial : IDisposable
     public static RuntimeSecretMaterial Generate(RuntimeSecretInfo definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.MinimumLength is < 1 or > MaximumLength)
+        {
+            throw new InvalidOperationException(
+                $"Runtime secret minimum length must be between 1 and {MaximumLength} characters.");
+        }
+
         var characterCount = Math.Max(64, definition.MinimumLength);
         var byteCount = (characterCount + 1) / 2;
         var randomBytes = RandomNumberGenerator.GetBytes(byteCount);
@@ -76,6 +84,11 @@ public sealed class RuntimeSecretMaterial : IDisposable
     {
         ObjectDisposedException.ThrowIf(_value is null, this);
         ArgumentNullException.ThrowIfNull(stream);
+        if (_value!.Length > MaximumLength)
+        {
+            throw new InvalidOperationException(
+                $"Runtime secret values cannot exceed {MaximumLength} characters.");
+        }
 
         var pointer = IntPtr.Zero;
         try

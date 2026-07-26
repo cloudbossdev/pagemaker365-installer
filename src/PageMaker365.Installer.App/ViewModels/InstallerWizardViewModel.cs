@@ -288,6 +288,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SaveWizardState();
     }
 
+    public void PrepareForClose()
+    {
+        ClearRuntimeSecretInputs();
+        SaveWizardState();
+    }
+
     public string PackagePath
     {
         get => _packagePath;

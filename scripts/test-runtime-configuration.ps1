@@ -60,5 +60,22 @@ Assert-True (-not ($statuses | Where-Object appSettingName -eq 'API_SESSION_SECR
 $runtimeCommand = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PageMaker365.Install\Public\Set-PM365RuntimeConfiguration.ps1') -Raw
 Assert-True ($runtimeCommand.Contains("status -eq 'Resolved'")) 'Runtime configuration must require every reference to report Resolved.'
 Assert-True (-not $runtimeCommand.Contains('resolveStatus')) 'Runtime configuration must use the current App Service properties.status contract.'
+Assert-True ($runtimeCommand.Contains('$declaredSecrets.Count -ne $expectedAppSettings.Count')) 'Runtime configuration must reject contracts with extra or missing secret definitions.'
+Assert-True ($runtimeCommand.Contains('$value.Length -gt 4096')) 'Runtime configuration must reject oversized standard-input values.'
+Assert-True ($runtimeCommand.Contains('rawValuesIncluded = $false')) 'Runtime evidence must explicitly exclude raw secret values.'
+Assert-True ($runtimeCommand.Contains("valueStorage = 'CustomerKeyVault'")) 'Runtime evidence must identify customer Key Vault as the persistence boundary.'
+Assert-True (-not $runtimeCommand.Contains('valuesPersisted')) 'Runtime evidence must not claim that persisted Key Vault values are non-persistent.'
+
+$firstInputRead = $runtimeCommand.IndexOf('[Console]::In.ReadLine()', [StringComparison]::Ordinal)
+foreach ($prerequisite in @(
+    'Test-Path -LiteralPath $TemplateFile',
+    "Import-Module Az.Accounts -ErrorAction Stop",
+    "Import-Module Az.Resources -ErrorAction Stop",
+    'Get-AzContext -ErrorAction Stop'
+)) {
+    $prerequisiteIndex = $runtimeCommand.IndexOf($prerequisite, [StringComparison]::Ordinal)
+    Assert-True ($prerequisiteIndex -ge 0) "Runtime configuration is missing prerequisite check: $prerequisite"
+    Assert-True ($prerequisiteIndex -lt $firstInputRead) "Runtime configuration must complete prerequisite check before reading protected input: $prerequisite"
+}
 
 Write-Host 'Runtime configuration reference contract tests passed.'

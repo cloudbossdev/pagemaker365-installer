@@ -21,7 +21,9 @@ internal static class Program
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Runtime secret contract exposes only operator inputs", RuntimeSecretContractExposesOnlyOperatorInputs),
             ("Runtime secret input rejects non-ASCII before install", RuntimeSecretInputRejectsNonAsciiBeforeInstall),
+            ("Runtime secret input rejects values over maximum", RuntimeSecretInputRejectsValuesOverMaximum),
             ("Runtime secret inputs never persist in session state", RuntimeSecretInputsNeverPersistInSessionState),
+            ("Closing the installer clears runtime secret inputs", ClosingInstallerClearsRuntimeSecretInputs),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
@@ -194,6 +196,43 @@ internal static class Program
         AssertEx.False(input.IsReady, "Non-ASCII protected input must fail before Azure mutation.");
         AssertEx.StringContains(input.ValidationMessage, "printable ASCII");
         return Task.CompletedTask;
+    }
+
+    private static Task RuntimeSecretInputRejectsValuesOverMaximum()
+    {
+        var definition = CreateRuntimeSecretContract()[0];
+        using var input = new RuntimeSecretEntryViewModel(definition);
+        using var value = ToSecureString(new string('x', RuntimeSecretMaterial.MaximumLength + 1));
+
+        input.SetValue(value);
+
+        AssertEx.False(input.IsReady, "Oversized protected input must fail before Azure mutation.");
+        AssertEx.StringContains(input.ValidationMessage, $"no more than {RuntimeSecretMaterial.MaximumLength}");
+        return Task.CompletedTask;
+    }
+
+    private static async Task ClosingInstallerClearsRuntimeSecretInputs()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        foreach (var input in viewModel.RuntimeSecretInputs)
+        {
+            using var value = ToSecureString(new string('x', input.MinimumLength));
+            input.SetValue(value);
+        }
+
+        AssertEx.True(
+            viewModel.RuntimeSecretInputs.All(input => input.IsReady),
+            "The test must begin with complete protected inputs.");
+
+        viewModel.PrepareForClose();
+
+        AssertEx.True(
+            viewModel.RuntimeSecretInputs.All(input => !input.IsReady),
+            "Closing the installer must clear all protected runtime input values.");
     }
 
     private static SecureString ToSecureString(string value)

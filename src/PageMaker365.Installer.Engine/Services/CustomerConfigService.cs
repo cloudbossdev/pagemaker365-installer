@@ -191,9 +191,10 @@ public sealed class CustomerConfigService
                 result.Errors.Add($"{path}.targetApp must be api for the v1 runtime contract.");
             }
 
-            if (!secret.Required || secret.MinimumLength < 1)
+            if (!secret.Required || secret.MinimumLength is < 1 or > RuntimeSecretMaterial.MaximumLength)
             {
-                result.Errors.Add($"{path} must be required and declare a positive minimumLength.");
+                result.Errors.Add(
+                    $"{path} must be required and declare minimumLength between 1 and {RuntimeSecretMaterial.MaximumLength} characters.");
             }
         }
 
@@ -204,6 +205,19 @@ public sealed class CustomerConfigService
         if (missingSettings.Length > 0)
         {
             result.Errors.Add("secrets.runtimeSecrets is missing required runtime settings: " + string.Join(", ", missingSettings) + ".");
+        }
+
+        var unexpectedSettings = declaredSettings.Where(item => !RequiredRuntimeAppSettings.Contains(item)).ToArray();
+        if (unexpectedSettings.Length > 0)
+        {
+            result.Errors.Add(
+                "secrets.runtimeSecrets contains unsupported runtime settings: " +
+                string.Join(", ", unexpectedSettings) + ".");
+        }
+
+        if (config.Secrets.RuntimeSecrets.Count != RequiredRuntimeAppSettings.Count)
+        {
+            result.Errors.Add("secrets.runtimeSecrets must contain exactly the three supported runtime settings.");
         }
 
         var database = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "DATABASE_URL");
