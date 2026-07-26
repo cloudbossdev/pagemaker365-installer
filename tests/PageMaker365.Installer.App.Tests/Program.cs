@@ -25,6 +25,7 @@ internal static class Program
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
             ("Loaded bootstrap expiry blocks portal acquisition", LoadedBootstrapExpiryBlocksPortalAcquisition),
             ("Resume session restores saved bootstrap without blocking", ResumeSessionRestoresSavedBootstrapWithoutBlocking),
+            ("Resume restores preview binding but clears deployment approval", ResumeRestoresPreviewBindingButClearsDeploymentApproval),
             ("Portal acquisition connects downloads and advances to sign-in", PortalAcquisitionConnectsDownloadsAndAdvancesToSignIn),
             ("Portal acquisition failure stays retryable on package step", PortalAcquisitionFailureStaysRetryableOnPackageStep),
             ("Portal authorization rejection requests a new setup file", PortalAuthorizationRejectionRequestsNewSetupFile),
@@ -391,6 +392,55 @@ internal static class Program
         AssertEx.False(resumedViewModel.HasRestorableSession, "The saved-session prompt should close after resume.");
         AssertEx.Equal(bootstrap.SessionId, resumedViewModel.OnboardingSessionId);
         AssertEx.True(resumedViewModel.AcquirePortalPackageCommand.CanExecute(null), "Portal package acquisition should be available after resume.");
+    }
+
+    private static async Task ResumeRestoresPreviewBindingButClearsDeploymentApproval()
+    {
+        using var scope = TestScope.Create();
+        var config = CreateConfig("Resume Boundary Customer");
+        var packagePath = scope.WritePackage(config);
+        scope.SaveState(new PersistedInstallerState
+        {
+            StateId = "pm365-session-resume-preview-binding",
+            WorkflowMode = "Setup",
+            WorkflowSelected = true,
+            CurrentStepNumber = 6,
+            MaxAccessibleStepNumber = 6,
+            PackagePath = packagePath,
+            Config = config,
+            CustomerName = config.Customer.TenantName,
+            PackageComputedHash = "sha256:validated-package",
+            LastPreviewStatus = InstallStatus.Passed,
+            PreviewStatus = "Passed",
+            PreviewOutputPath = Path.Combine(scope.RootDirectory, "preview-receipt.json"),
+            PreviewArtifactPath = Path.Combine(scope.RootDirectory, "what-if.json"),
+            PreviewPackageHash = "sha256:validated-package",
+            PreviewEvidenceHash = "sha256:preview-receipt",
+            PreviewArtifactHash = "sha256:what-if"
+        });
+
+        var viewModel = scope.CreateViewModel();
+        AssertEx.True(viewModel.HasRestorableSession, "The saved preview session should be offered for resume.");
+        viewModel.DeploymentApprovalConfirmed = true;
+        viewModel.DeploymentConfirmationText = config.Azure.ResourceGroupName;
+
+        await viewModel.ResumeSessionCommand.ExecuteAsync();
+
+        AssertEx.True(viewModel.IsSignInStep, "A resumed deployment session must return to Sign In before later steps are available.");
+        AssertEx.Equal("Passed", viewModel.PreviewStatus);
+        AssertEx.False(viewModel.DeploymentApprovalConfirmed, "Destructive approval must not survive application restart.");
+        AssertEx.Equal("", viewModel.DeploymentConfirmationText);
+
+        var type = typeof(InstallerWizardViewModel);
+        AssertEx.Equal(
+            "sha256:validated-package",
+            type.GetField("_previewPackageHash", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel) as string);
+        AssertEx.Equal(
+            "sha256:preview-receipt",
+            type.GetField("_previewEvidenceHash", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel) as string);
+        AssertEx.Equal(
+            "sha256:what-if",
+            type.GetField("_previewArtifactHash", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel) as string);
     }
 
     private static async Task PortalAcquisitionPollsPendingPackageUntilReady()
@@ -1038,6 +1088,11 @@ internal static class Program
         public PersistedInstallerState? LoadActiveState()
         {
             return new InstallerStateStore(Path.Combine(RootDirectory, "state")).LoadMostRecentActive();
+        }
+
+        public void SaveState(PersistedInstallerState state)
+        {
+            new InstallerStateStore(Path.Combine(RootDirectory, "state")).Save(state);
         }
 
         public string WriteBootstrap(OnboardingBootstrapSession session)

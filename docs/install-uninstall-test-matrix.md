@@ -83,7 +83,7 @@ Scenario status meanings:
 | D01 | Structured What-If returns expected creates or changes | Counts and redacted artifact agree and approval can proceed. | Automated |
 | D02 | Azure returns unstructured or incomplete What-If data | Preview is a warning and does not fabricate structured change data. | Automated |
 | D03 | Preview includes deletes, unknowns, or blocked changes | Risk is explicit and install progression follows the approved policy. | Partial |
-| D04 | Package or target changes after preview | Existing preview and approval are invalidated. | Planned |
+| D04 | Package, preview receipt, or What-If artifact changes after preview | Existing preview and approval are invalidated before deployment. | Automated |
 | D05 | Approval or typed resource-group confirmation is absent/incorrect | Deployment command does not run. | Partial |
 | D06 | Approved deployment is running | Visible activity persists, controls do not shift, and duplicate execution is disabled. | Partial |
 | D07 | Azure returns App Service capacity conflict | Failure is sanitized, retryable, and does not claim install success. | Partial |
