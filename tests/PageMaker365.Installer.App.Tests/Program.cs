@@ -1,5 +1,7 @@
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 using PageMaker365.Installer.App.ViewModels;
 using PageMaker365.Installer.Engine.Models;
@@ -18,9 +20,12 @@ internal static class Program
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
+            ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
+            ("Loaded bootstrap expiry blocks portal acquisition", LoadedBootstrapExpiryBlocksPortalAcquisition),
             ("Resume session restores saved bootstrap without blocking", ResumeSessionRestoresSavedBootstrapWithoutBlocking),
             ("Portal acquisition connects downloads and advances to sign-in", PortalAcquisitionConnectsDownloadsAndAdvancesToSignIn),
             ("Portal acquisition failure stays retryable on package step", PortalAcquisitionFailureStaysRetryableOnPackageStep),
+            ("Portal authorization rejection requests a new setup file", PortalAuthorizationRejectionRequestsNewSetupFile),
             ("Portal acquisition redownloads a previously downloaded package", PortalAcquisitionRedownloadsPreviouslyDownloadedPackage),
             ("Portal acquisition polls pending package until ready", PortalAcquisitionPollsPendingPackageUntilReady),
             ("Portal acquisition exposes missing fields without requesting sign-in", PortalAcquisitionExposesMissingFieldsWithoutRequestingSignIn),
@@ -146,6 +151,52 @@ internal static class Program
         AssertEx.StringContains(viewModel.FooterStatus, "Alternative installation options");
     }
 
+    private static async Task BootstrapLoaderRejectsExpiredSetupFile()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true);
+        bootstrap.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        var loaded = await viewModel.LoadBootstrapFileAsync(bootstrapPath);
+
+        AssertEx.False(loaded, "An expired PageMaker365 setup file must not become the active onboarding session.");
+        AssertEx.True(viewModel.IsPackageStep, "Rejected setup files must keep the operator on Package.");
+        AssertEx.StringContains(viewModel.FooterStatus, "expired");
+        AssertEx.False(viewModel.AcquirePortalPackageCommand.CanExecute(null), "Package acquisition must remain unavailable for an expired setup file.");
+        AssertEx.False(viewModel.CanGoNext, "An expired setup file must not unlock sign-in.");
+    }
+
+    private static async Task LoadedBootstrapExpiryBlocksPortalAcquisition()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient();
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load before the simulated expiry.");
+
+        var bootstrapField = typeof(InstallerWizardViewModel).GetField(
+            "_bootstrapSession",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var activeBootstrap = bootstrapField?.GetValue(viewModel) as OnboardingBootstrapSession;
+        AssertEx.True(activeBootstrap is not null, "The test must locate the active bootstrap session.");
+        activeBootstrap!.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+
+        await viewModel.AcquirePortalPackageAsync();
+
+        AssertEx.Equal(0, client.ConnectCalls);
+        AssertEx.True(viewModel.IsPackageStep, "An expired loaded setup file must remain on Package.");
+        AssertEx.StringContains(viewModel.FooterStatus, "expired");
+        AssertEx.StringContains(viewModel.FooterStatus, "new setup file");
+        AssertEx.False(viewModel.CanGoNext, "Expiry after load must not unlock sign-in.");
+    }
+
     private static async Task PortalAcquisitionConnectsDownloadsAndAdvancesToSignIn()
     {
         using var scope = TestScope.Create();
@@ -211,6 +262,35 @@ internal static class Program
         AssertEx.True(viewModel.IsSignInStep, "Retry should continue to sign-in after the package downloads and validates.");
         AssertEx.Equal("Recovered Portal Customer", viewModel.CustomerName);
         AssertEx.False(viewModel.IsOperationRunning, "A successful retry should return global activity to idle.");
+    }
+
+    private static async Task PortalAuthorizationRejectionRequestsNewSetupFile()
+    {
+        using var scope = TestScope.Create();
+        var bootstrapPath = scope.WriteBootstrap(CreateBootstrap(allowPortalSync: true));
+        var client = new FakeOnboardingApiClient
+        {
+            ConnectFailure = new OnboardingApiException(
+                "Expired onboarding code",
+                new Uri("https://api.example.test/api/onboarding/installer/connect"),
+                HttpStatusCode.Unauthorized,
+                "corr-expired-setup")
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.NextCommand.ExecuteAsync();
+        AssertEx.True(await viewModel.LoadBootstrapFileAsync(bootstrapPath), "Valid bootstrap should load before portal authorization is checked.");
+        await viewModel.AcquirePortalPackageCommand.ExecuteAsync();
+
+        AssertEx.Equal(1, client.ConnectCalls);
+        AssertEx.Equal(0, client.DownloadCalls);
+        AssertEx.True(viewModel.IsPackageStep, "Rejected setup authorization must keep the operator on Package.");
+        AssertEx.StringContains(viewModel.FooterStatus, "rejected or expired");
+        AssertEx.StringContains(viewModel.FooterStatus, "new PageMaker365 setup file");
+        AssertEx.StringContains(viewModel.FooterStatus, "corr-expired-setup");
+        AssertEx.False(viewModel.CanGoNext, "Rejected setup authorization must not unlock sign-in.");
+        AssertEx.False(viewModel.IsOperationRunning, "Rejected authorization must return the UI to an idle retryable state.");
     }
 
     private static async Task ResumeSessionRestoresSavedBootstrapWithoutBlocking()

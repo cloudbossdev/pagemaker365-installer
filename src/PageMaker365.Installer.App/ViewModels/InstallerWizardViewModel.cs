@@ -1662,6 +1662,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return false;
         }
 
+        if (_bootstrapSession.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            reason = "The PageMaker365 setup file has expired. Request a new setup file from the customer portal.";
+            return false;
+        }
+
         return true;
     }
 
@@ -1726,6 +1732,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private static string FormatPortalOperationFailure(string operation, Exception exception)
     {
+        if (exception is OnboardingApiException authorizationException &&
+            authorizationException.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+        {
+            var correlation = string.IsNullOrWhiteSpace(authorizationException.CorrelationId)
+                ? ""
+                : $" Correlation: {authorizationException.CorrelationId}";
+            return $"{operation} failed because the setup authorization was rejected or expired. Request a new PageMaker365 setup file from the customer portal.{correlation}";
+        }
+
         if (exception is OnboardingApiException apiException &&
             !string.IsNullOrWhiteSpace(apiException.CorrelationId))
         {
@@ -2145,9 +2160,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var promptProgress = new Progress<GraphDeviceCodePrompt>(HandleGraphDeviceCodePrompt);
         var actionResultStartIndex = _session.Results.Count;
 
+        GraphSignInResult? signInResult = null;
         try
         {
-            var signInResult = await _engine.RunGraphDeviceCodeSignInAsync(_session, progress, promptProgress);
+            signInResult = await _engine.RunGraphDeviceCodeSignInAsync(_session, progress, promptProgress);
             if (signInResult.HasAccessToken)
             {
                 _graphAccessToken = signInResult.AccessToken;
@@ -2167,6 +2183,17 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         finally
         {
             _isPowerShellActionRunning = false;
+        }
+
+        if (signInResult?.StepResult.Status == InstallStatus.Passed)
+        {
+            var authenticationFailure = AuthenticationContextValidator.ValidateGraphSignIn(_config, signInResult);
+            if (authenticationFailure is not null)
+            {
+                _graphAccessToken = "";
+                _session.Results.Add(authenticationFailure);
+                CheckResults.Add(new CheckResultViewModel(authenticationFailure));
+            }
         }
 
         var actionResults = _session.Results.Skip(actionResultStartIndex).ToArray();
@@ -2497,10 +2524,26 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         var actionResults = _session.Results.Skip(actionResultStartIndex).ToArray();
+        var azureContextValidated = false;
+        if (!actionResults.Any(result => result.Status == InstallStatus.Failed))
+        {
+            var authenticationFailure = AuthenticationContextValidator.ValidateAzureSignIn(_config, actionResults);
+            if (authenticationFailure is not null)
+            {
+                _session.Results.Add(authenticationFailure);
+                CheckResults.Add(new CheckResultViewModel(authenticationFailure));
+                actionResults = _session.Results.Skip(actionResultStartIndex).ToArray();
+            }
+            else
+            {
+                azureContextValidated = true;
+            }
+        }
+
         var actionStatus = ResolveResultStatus(actionResults);
         _session.Status = actionStatus;
         SessionStatus = actionStatus.ToString();
-        var azureSignInSucceeded = actionStatus is InstallStatus.Passed or InstallStatus.Warning;
+        var azureSignInSucceeded = azureContextValidated;
         SetAzureSignInState(
             azureSignInSucceeded,
             azureSignInSucceeded ? "Signed in" : "Failed",
@@ -5593,6 +5636,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "The signed-in Azure tenant does not match the loaded customer package. Sign in with the correct customer tenant or load a package generated for the current tenant, then rerun preflight.",
             "AzureSubscriptionMismatch" =>
                 "The selected Azure subscription does not match the loaded customer package. Switch to the target subscription with Set-AzContext or load the correct package, then rerun preflight.",
+            "AzureSignInContextMissing" =>
+                "Azure sign-in did not return a verifiable tenant and subscription. Retry Azure sign-in and confirm the target subscription before continuing.",
+            "GraphTenantMismatch" =>
+                "The signed-in Microsoft Graph tenant does not match the loaded customer package. Sign in with the correct customer tenant, then retry.",
+            "GraphAccessTokenExpired" or "GraphAccessTokenMissing" =>
+                "The Microsoft Graph sign-in is no longer valid. Start Graph sign-in again and complete the device-login flow before the code expires.",
+            "GraphConsentScopesMissing" =>
+                "Microsoft Graph did not grant every required scope. Have an authorized tenant administrator approve the requested scopes, then retry Graph sign-in.",
             "GraphNotSignedIn" or "GraphNotSignedInForSharePoint" =>
                 "Microsoft Graph sign-in is required before the installer can validate Entra consent or SharePoint access. Sign in with the required Graph scopes, then rerun preflight.",
             "MissingApplicationAdministrator" or "EntraAdminRoleMissing" or "EntraAdminRoleCheckUnavailable" =>
