@@ -34,6 +34,8 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - The standard path asks the customer to choose one PageMaker365 setup file.
 - Package generation and download occur inside the Package step.
 - Both required sign-ins must complete before dependent checks can advance.
+- Preflight blocks on unregistered Azure providers, an unavailable App Service B1 SKU, or exhausted regional App Service core quota.
+- A passing quota check is a readiness signal, not a capacity reservation; Azure can still return a retryable regional allocation failure during install.
 - Long-running actions show an active progress state and cannot be started twice.
 - Blockers explain what failed, why progression stopped, and the next corrective action.
 - Restarting the app does not restore tokens, secrets, or destructive approval.
