@@ -19,7 +19,7 @@ The working model is:
 
 The installer is a functional alpha desktop application. It has a WPF shell, setup/removal entry point, step workflow, package intake, portal bootstrap handling, read-only discovery contracts, package trust validation, assistant workspace scaffold, persistence, support/evidence artifacts, packaging scaffold, CI verification, and tests.
 
-The installer is not yet a production deployment tool. The remaining work is mainly hardening contracts, proving deployment in a sandbox tenant, replacing mock/scaffolded steps with real Azure/Microsoft 365 operations, adding secure secret handling, completing the uninstaller path, and producing a signed customer distribution.
+The installer is not yet a production deployment tool. The remaining work is mainly deploying the PageMaker365 application code into the provisioned runtime, implementing the deployment-bound health identity contract, proving repeated install/remove/reinstall scenarios, completing production secret handling, and producing a signed customer distribution.
 
 ## Confirmed Done
 
@@ -41,7 +41,7 @@ The installer is not yet a production deployment tool. The remaining work is mai
 - Raw secret container blocking in customer package validation.
 - Deployment approval manifest and final evidence scaffolding.
 - Bicep root template for App Service based runtime resources.
-- PowerShell module scaffolding for preflight, what-if, deployment, smoke tests, and reports.
+- PowerShell modules for preflight, what-if, deployment, deployment-bound smoke tests, reports, and guarded Azure-only removal.
 - Assistant workspace with mock/portal client scaffolding, attachments, transcripts, support ticket draft flow, and approved local actions.
 - Package script that publishes the app and copies modules, infra, rules, AI, samples, schemas, and docs.
 - CI workflow that verifies and uploads a package artifact.
@@ -49,18 +49,18 @@ The installer is not yet a production deployment tool. The remaining work is mai
 
 ## Main Production Gaps
 
-- Portal backend implementation is outside this repo and still needs final response schemas, package generation, signing, and evidence ingest.
+- Portal backend implementation remains outside this repo; staging package generation, signing, download, and installer evidence ingest contracts have been exercised.
 - Customer install package schema still tolerates alpha compatibility.
 - Portal error response schemas are not fully pinned.
-- Cryptographic signature verification is not implemented.
+- Production signing-key rotation and customer distribution policy are not finalized.
 - Bicep is monolithic and the resource group creation contract is unclear.
 - Real sandbox what-if/deploy has not been proven.
-- Smoke tests do not yet consume deployment outputs or validate all runtime endpoints.
+- Smoke tests consume deployment outputs and fail closed on mismatched runtime identity, but the API and portal application code still need to implement the required deployed health/content contract.
 - Entra app registration, admin consent, and `Sites.Selected` setup are not implemented end to end.
 - Secure secret input, Key Vault writes, and Key Vault reference app settings are not implemented.
 - Assistant API lacks contract and safety tests.
 - Recommended assistant actions should be hardened against unsafe server-provided action definitions.
-- Removal/uninstaller flow is mostly a UX and policy placeholder.
+- Azure-only removal is wired for dedicated PageMaker365 resource groups; Entra, Graph, shared-resource, and commercial offboarding remain outside the v1 removal scope.
 - Distribution format, signing scope, release manifest, and clean-machine validation are undecided.
 
 ## Workstream Rules
@@ -206,7 +206,7 @@ Needs customer: none for this slice. The v1 decision is now recorded.
 
 Status: completed in code and documentation.
 
-Decision: v1 deployments require a pre-existing customer resource group. The installer keeps a `resourceGroup` scoped Bicep entry point and does not attempt subscription-scope resource group creation in this slice.
+Decision: v1 deployments use a subscription-scoped wrapper that previews and creates the dedicated PageMaker365 resource group, then deploys the existing resource-group-scoped runtime template into it. Existing resource groups are reused only when they carry the required PageMaker365 ownership tags.
 
 Scope:
 
@@ -217,6 +217,7 @@ Scope:
 
 Likely files:
 
+- `infra/subscription.bicep`
 - `infra/main.bicep`
 - `infra/modules/*.bicep`
 - `modules/PageMaker365.Install/Private/New-PM365TemplateParameterObject.ps1`

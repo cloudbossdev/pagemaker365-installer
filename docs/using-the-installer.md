@@ -7,7 +7,7 @@ The installer has two intended purposes:
 - Deploy or update PageMaker365 for a customer tenant.
 - Guide a controlled removal workflow when a customer needs to uninstall PageMaker365.
 
-The setup workflow is the primary implemented path in this build. The removal workflow is visible in the app so the experience can be designed early, but removal execution should remain disabled until read-only inventory, removal preview, approval, and cleanup validation are fully implemented.
+The setup workflow is the primary deployment path. The app also provides an Azure-only v1 removal workflow for dedicated PageMaker365 resource groups. Removal inventories ownership and deployment activity, requires preview and exact confirmation, retains Key Vault through soft delete, and does not change SharePoint or Microsoft 365 content.
 
 ## Before You Start
 
@@ -26,12 +26,12 @@ The installer should not require the customer to run raw PowerShell commands dur
 | Step | What The User Does | Result |
 | --- | --- | --- |
 | 1. Welcome | Choose the setup workflow and review the high-level process. | The session is prepared for an install or update. |
-| 2. Package | Load the customer install package from the PageMaker365 control plane. | Tenant, subscription, SharePoint, and deployment settings are available to the app. |
+| 2. Package | Choose the PageMaker365 setup file supplied by the customer portal. | The installer connects, downloads, validates, and loads the approved package before advancing. |
 | 3. Sign In | Sign in to Azure and Microsoft Graph. | The installer can validate permissions and run tenant readiness checks. |
 | 4. Preflight | Run local, Azure, Entra, Graph, SharePoint, and package checks. | Blockers and warnings are identified before deployment preview. |
-| 5. Preview | Run Azure What-If and review planned changes. | Preview evidence is written to `support-bundle\preview\deployment-preview.json`. |
-| 6. Install | Review the approval gate, type the target resource group, and run deployment. | Install evidence is written to `support-bundle\install\deployment-install.json`. |
-| 7. Validate | Run smoke tests after deployment. | Validation evidence is written to `support-bundle\validate\deployment-validation.json`. |
+| 5. Preview | Run subscription-scope Azure What-If and review the dedicated resource group and planned resource changes. | Preview evidence is written to `support-bundle\preview\deployment-preview.json`. |
+| 6. Install | Review the approval gate, type the target resource group, and run deployment. | The dedicated resource group is created when absent, runtime resources are deployed into it, and install evidence is written to `support-bundle\install\deployment-install.json`. |
+| 7. Validate | Run deployment-bound runtime, portal, and SharePoint smoke tests. | Validation evidence is written to `support-bundle\validate\deployment-validation.json`. |
 | 8. Finish | Generate the final install evidence package. | A final report, manifest, and zip package are written under `support-bundle\final\`. |
 
 ## Read-Only Tenant Discovery
@@ -51,7 +51,7 @@ Discovery writes an `InstallReadinessOnly` payload. It should not collect docume
 
 ## Package Trust
 
-The Package step shows the customer package export ID, declared hash, computed hash, and trust status. This helps confirm the package came from a PageMaker365 control-plane export and was not edited after export.
+The Package step keeps the normal customer path focused on one setup-file action. Export IDs, hashes, paths, and trust status remain available under **Technical details** for operators and support staff.
 
 Trust statuses:
 
@@ -59,11 +59,13 @@ Trust statuses:
 - `Legacy package`: export trust metadata is missing; allowed for alpha compatibility but not ideal for production.
 - `Hash mismatch`: package contents do not match the declared hash and preflight is blocked.
 - `Missing signature`: `controlPlane.trustMode` is `SignedRequired`, but required signing metadata is absent.
-- `Verified`: hash matches and signature metadata is present. Full cryptographic signature verification is still a later signing slice.
+- `Verified`: the hash matches and the Ed25519 signature validates against the trusted PageMaker365 signing key.
 
 ## Portal Sync And Package Download
 
-When portal sync is enabled, the installer connects to a short-lived onboarding session, sends read-only discovery data, checks package readiness, and downloads the generated customer install package after the portal says it is ready.
+The PageMaker365 setup file contains a short-lived authorization handoff, not an additional installer workflow. In the standard portal path, the user chooses the setup file once. The installer then connects to the onboarding session, checks package readiness, waits briefly when generation is still running, downloads the approved package, validates it, and advances to the normal Azure and Microsoft Graph sign-in step.
+
+Azure and Microsoft Graph sign-in are not required to download a package that the portal has already generated. Read-only discovery is a recovery path used only when the portal explicitly reports missing onboarding values; its controls remain hidden during the normal ready-package path.
 
 Portal mode is intentionally strict. The app does not silently accept incomplete portal responses, mismatched session IDs, unsupported package download content types, or generated packages that fail local validation. Failures stay visible in the workflow and are written to the portal sync receipt with the correlation ID when the API provides one.
 
@@ -116,7 +118,17 @@ Important output locations:
 - `support-bundle\validate\deployment-validation.json` contains smoke-test evidence.
 - `support-bundle\final\` contains the final report, manifest, and evidence zip.
 
-The final evidence zip should be attached to the customer record in the PageMaker365 control plane after a successful deployment.
+When portal sync is authorized, the installer reports sanitized lifecycle evidence to `POST /api/onboarding/installer/evidence`. Each callback uses a stable event ID, install-attempt ID, monotonic sequence, and idempotency key. Package validation, install start, Azure deployment, runtime configuration, smoke tests, final completion, and terminal failures are reported without uploading raw logs, files, tokens, secrets, or document content. `runtime_configured` is emitted only after the deployed API identity and portal content pass validation; a successful Azure resource deployment alone is not sufficient.
+
+If the portal or network is unavailable, the exact callback payload remains in the persisted installer outbox and is retried without changing its identity. Portal sync failure does not turn a successful Azure installation into an install failure. The Current Session panel shows the sync state and provides a **Retry Portal Sync** action; a session with pending final evidence remains resumable until the outbox is empty.
+
+The final evidence zip remains available for customer records and approved support handoff, but it is not uploaded through the lifecycle callback endpoint.
+
+## Runtime Identity Validation
+
+Validation reads the API and portal URLs from `support-bundle\install\azure-deployment.json`; it does not trust an existing custom domain as proof of the new deployment. The deployment artifact resource group must match the signed customer package. The API `/health` response must return `ok: true`, `product: PageMaker365`, and the package deployment export ID, and the portal must return PageMaker365 content rather than the Azure default App Service page.
+
+The current alpha provisions the Azure runtime resources but does not yet deploy the PageMaker365 API and portal application code. Validation is expected to remain blocked until those applications implement this identity contract. This prevents an existing customer site or unrelated application from being mistaken for the newly installed runtime.
 
 ## Handling Blockers
 
@@ -131,15 +143,38 @@ Common blocker categories include:
 - Customer install package missing required launch fields.
 - Unsafe package fields, such as raw secret containers.
 
-## Removal Workflow Note
+## Azure-Only Removal Workflow
 
-The uninstall experience should eventually follow the same standard:
+The v1 uninstall experience removes only a dedicated PageMaker365 Azure resource group:
 
-- Discover owned resources.
-- Inventory Azure, Entra, Graph, SharePoint, and portal records.
-- Preview exactly what will be removed.
-- Require explicit approval for destructive actions.
-- Validate cleanup.
+- Load the original customer package and sign in to its Azure tenant and subscription.
+- Inventory the resource group, ownership tags, contained resources, and active deployments.
+- Preview exactly what will be removed and retained.
+- Require explicit approval and exact resource-group confirmation.
+- Re-run ownership checks immediately before deletion.
+- Validate that the resource group is absent.
 - Generate final removal evidence.
 
-Until those capabilities are implemented and tested, the removal workflow should be treated as a design placeholder, not a production uninstall path.
+SharePoint and Microsoft 365 cleanup are intentionally out of scope. The installer never purges Key Vault. A later reinstall requires a new control-plane package with a new disposable Key Vault name.
+
+### Partial Sandbox Install Cleanup
+
+The removal workflow uses a narrow cleanup command for dedicated PageMaker365 resource groups, including groups left by a failed installation. It is not a broad tenant uninstaller. Cleanup fails closed unless the tenant and subscription match the package, the resource group has PageMaker365 ownership tags, every contained resource matches the package app tag, no deployment is active, and the operator types the exact resource group name.
+
+Preview cleanup without deleting anything:
+
+```powershell
+pwsh .\scripts\cleanup-partial-install.ps1 -Config .\.tmp\customer.install.json
+```
+
+After reviewing the generated inventory, approve cleanup by typing the exact resource group name:
+
+```powershell
+pwsh .\scripts\cleanup-partial-install.ps1 `
+  -Config .\.tmp\customer.install.json `
+  -ConfirmationText 'rg-pagemaker365-customer-sandbox'
+```
+
+The command deletes the dedicated resource group but never purges Key Vault. The vault remains recoverable through Azure soft delete, and its globally unique name cannot be reused until the vault is recovered, purged through a separate approved process, or its retention period expires.
+
+Preflight checks the package Key Vault name against Azure's soft-deleted vault inventory. A retained name blocks deployment until the vault is recovered into the new target resource group or the control plane generates a newly signed package with a different vault name.

@@ -23,8 +23,8 @@ Goal: make the customer install package deterministic enough for the installer a
 - [ ] Align control-plane deployment export with `schemas/customer-install.schema.json`.
 - [x] Add installer-side package hash validation.
 - [x] Add signed export metadata fields and immutable export ID to the installer contract.
-- [ ] Add package hash generation in the control plane export.
-- [ ] Add cryptographic signature verification.
+- [x] Add package hash generation in the control plane export.
+- [x] Add Ed25519 package signature verification against trusted JWKS keys.
 - [x] Enforce bootstrap operation policy in installer commands.
 - [x] Add runtime schema validation for bootstrap, readiness/status, and generated packages.
 - [x] Bind generated package provenance to onboarding session, discovery, tenant, and export metadata.
@@ -46,8 +46,8 @@ Goal: replace the placeholder Bicep entry point with deployable customer runtime
 - [x] Add tags from the customer package.
 - [x] Add deployment outputs consumed by smoke tests.
 - [x] Decide whether installer creates the resource group or requires a pre-existing resource group.
-- [ ] Run `Invoke-PM365WhatIf` against a real sandbox subscription.
-  - Blocked until a real CloudBoss `customer-install` package is downloaded from the portal `install-package` endpoint.
+- [x] Run `Invoke-PM365WhatIf` against a real sandbox subscription.
+  - The 2026-07-25 CloudBoss clean-install preview passed with 10 creates, including the dedicated resource group, and no modifies, deletes, unknowns, or blocked changes.
 
 Acceptance criteria:
 

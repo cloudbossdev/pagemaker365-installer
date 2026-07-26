@@ -108,7 +108,7 @@ The first production Bicep template should support these resources in the custom
 
 | Resource | Purpose |
 | --- | --- |
-| Resource group | Customer-owned, pre-existing deployment boundary. |
+| Resource group | Dedicated PageMaker365 deployment boundary created by the approved subscription-scope deployment. |
 | Log Analytics workspace | Central runtime logs and metrics. |
 | Application Insights | API/runtime telemetry. |
 | Key Vault | Runtime secrets and generated keys. |
@@ -118,7 +118,7 @@ The first production Bicep template should support these resources in the custom
 | Frontend App Service | v1 runtime frontend if deployed separately. |
 | Managed identity | Runtime access to Key Vault and Azure resources. |
 
-For v1, the installer deploys into a pre-existing customer resource group. The Bicep entry point remains `resourceGroup` scoped. Azure discovery and preflight report a missing target resource group before deployment instead of attempting subscription-scope creation.
+For v1, `infra/subscription.bicep` previews and creates the dedicated resource group and invokes the resource-group-scoped `infra/main.bicep` runtime template. If the named resource group already exists, preview and deployment fail closed unless it has `product=PageMaker365` and `managedBy=PageMaker365` ownership tags.
 
 The Bicep output must include:
 
@@ -219,8 +219,10 @@ No raw secrets or auth tokens should be included.
 
 Minimum post-deployment smoke tests:
 
-- runtime API health endpoint returns healthy
-- runtime frontend loads
+- deployment artifact resource group matches the signed customer package
+- runtime API URL and portal URL are read from the Azure deployment outputs
+- runtime API `/health` returns `ok: true`, `product: PageMaker365`, and the package `deploymentExportId`
+- runtime portal returns PageMaker365 content and is not the Azure default App Service page
 - configured SharePoint site resolves through Graph
 - configured document library resolves through Graph
 - runtime can read required Key Vault references through managed identity
