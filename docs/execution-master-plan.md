@@ -57,7 +57,7 @@ The installer is not yet a production deployment tool. The remaining work is mai
 - Real sandbox what-if/deploy has not been proven.
 - Smoke tests consume deployment outputs and fail closed on mismatched runtime identity, but the API and portal application code still need to implement the required deployed health/content contract.
 - Entra app registration, admin consent, and `Sites.Selected` setup are not implemented end to end.
-- Secure secret input, Key Vault writes, and Key Vault reference app settings are not implemented.
+- Protected runtime secret input, ARM-based Key Vault writes, and managed-identity App Service references are implemented locally on issue #7; fresh portal package generation and live sandbox validation remain.
 - Assistant API lacks contract and safety tests.
 - Recommended assistant actions should be hardened against unsafe server-provided action definitions.
 - Azure-only removal is wired for dedicated PageMaker365 resource groups; Entra, Graph, shared-resource, and commercial offboarding remain outside the v1 removal scope.
@@ -312,6 +312,8 @@ Owner pattern: one UI/view-model worker, one PowerShell/engine worker, coordinat
 
 #### Slice 4.1 - Secret Prompt Model And UI
 
+Status: implemented locally; live package and operator acceptance pending.
+
 Scope:
 
 - Define required/generated/supplied secret prompts from package.
@@ -327,6 +329,8 @@ Acceptance criteria:
 Needs customer: final required secret list from runtime app.
 
 #### Slice 4.2 - Key Vault Secret Write And App Settings
+
+Status: implemented locally; live Azure RBAC, Key Vault reference, and runtime startup validation pending.
 
 Scope:
 

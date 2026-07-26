@@ -16,6 +16,7 @@ Export-ModuleMember -Function @(
     'Invoke-PM365WhatIf',
     'New-PM365InstallReport',
     'Remove-PM365PartialInstall',
+    'Set-PM365RuntimeConfiguration',
     'Start-PM365MockInstall',
     'Start-PM365Preflight',
     'Test-PM365SmokeTests',

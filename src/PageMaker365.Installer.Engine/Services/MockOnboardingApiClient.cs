@@ -109,7 +109,7 @@ public sealed class MockOnboardingApiClient : IOnboardingApiClient
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(new InstallerEvidenceReceipt
         {
-            ContractVersion = "0.2",
+            ContractVersion = "0.3",
             Status = "AcceptedMock",
             SessionId = session.SessionId,
             EventId = evidence.EventId,

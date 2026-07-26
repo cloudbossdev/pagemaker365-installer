@@ -14,7 +14,8 @@ public sealed class PowerShellProcessRunner
         CancellationToken cancellationToken = default,
         TimeSpan? timeout = null,
         IProgress<string>? outputProgress = null,
-        IReadOnlyDictionary<string, string>? environmentVariables = null)
+        IReadOnlyDictionary<string, string>? environmentVariables = null,
+        Func<Stream, CancellationToken, Task>? standardInputWriter = null)
     {
         var effectiveTimeout = timeout ?? DefaultTimeout;
         if (effectiveTimeout <= TimeSpan.Zero && effectiveTimeout != Timeout.InfiniteTimeSpan)
@@ -40,9 +41,14 @@ public sealed class PowerShellProcessRunner
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = standardInputWriter is not null,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        if (standardInputWriter is not null)
+        {
+            startInfo.StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        }
         AddEnvironmentVariables(startInfo, environmentVariables);
 
         using var process = new Process { StartInfo = startInfo };
@@ -60,6 +66,18 @@ public sealed class PowerShellProcessRunner
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
+        if (standardInputWriter is not null)
+        {
+            try
+            {
+                await standardInputWriter(process.StandardInput.BaseStream, cancellationToken);
+                await process.StandardInput.BaseStream.FlushAsync(cancellationToken);
+            }
+            finally
+            {
+                process.StandardInput.Close();
+            }
+        }
 
         using var timeoutCancellation = CreateTimeoutCancellationTokenSource(effectiveTimeout);
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(

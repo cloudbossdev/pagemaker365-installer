@@ -10,7 +10,7 @@ Contract source: `config/installer-security-profile.json`
 
 This guide describes the security-relevant behavior implemented by the PageMaker365 Installer. It is intended for customer architecture, identity, security, networking, and operations reviewers.
 
-The current alpha provisions the Azure foundation but does not yet deploy production API or portal application content, provision runtime secrets, implement a supported upgrade contract, or ship a production-signed installer. Those gaps remain release blockers and are not represented here as completed capabilities.
+The current alpha provisions the Azure foundation and implements protected runtime secret provisioning locally, but it does not yet deploy verified production API or portal application content, implement a supported upgrade contract, or ship a production-signed installer. Runtime secret provisioning still requires live sandbox acceptance before customer publication.
 
 ## Trust Boundaries And Data Flow
 
@@ -79,7 +79,7 @@ The package supplies names, region, environment, and target subscription. The in
 | Portal Linux App Service | HTTPS only, minimum TLS 1.2, FTPS disabled, managed identity attached. |
 | Key Vault role assignment | Grants `Key Vault Secrets User` to the managed identity at the vault scope. |
 
-The current App Services are infrastructure shells. Production application artifact delivery is tracked by #5, and protected secret provisioning is tracked by #7.
+The current App Services are infrastructure shells until production application artifact delivery in #5 is complete. Protected secret provisioning is implemented locally under #7 and awaits a fresh signed staging package plus live runtime verification.
 
 ## Network Requirements
 
@@ -116,7 +116,10 @@ Production code signing for the installer executable and distribution wrapper is
 - Azure authentication is managed by Az.Accounts. The installer records tenant, subscription, and sanitized result metadata, not Azure tokens.
 - The one-time onboarding code is sent only to the active trusted onboarding API in request data and headers. Persisted session state retains the setup-file path and session metadata, not the code value.
 - Structured logs, support bundles, discovery output, and assistant transcripts pass through redaction. Evidence callbacks accept only lifecycle metadata and sanitized errors.
-- Runtime customer secrets are not yet provisioned. No document may claim the runtime is customer-ready until #7 implements Key Vault input, write, managed-identity access, and redaction tests.
+- Package contract `0.3` declares `DATABASE_URL` and `API_ENTRA_CLIENT_SECRET` as operator-provided values and `API_SESSION_SECRET` as installer-generated. The installer holds operator values in protected process memory for one attempt, passes values to PowerShell through redirected standard input, and submits them to ARM through a secure Bicep parameter.
+- ARM writes the values directly to the customer Key Vault. The API App Service stores only Key Vault references and resolves them through its user-assigned managed identity and `Key Vault Secrets User` role.
+- Resumable state, command arguments, environment variables, callbacks, reports, and support bundles contain no runtime values. Sanitized evidence contains names and resolution status only.
+- Live staging proof and a full generated-artifact scan remain required before this behavior is approved for customer publication.
 
 ## Local Storage And Retention
 
@@ -153,7 +156,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 | --- | --- | --- |
 | API and portal application delivery | Not implemented | #5 |
 | Supported upgrade/version policy | Not defined | #6 |
-| Runtime secret inventory and protected provisioning | Not implemented | #7 |
+| Runtime secret inventory and protected provisioning | Implemented locally; live staging proof pending | #7 |
 | Removal lifecycle callbacks | Not implemented | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
@@ -161,6 +164,6 @@ Application Insights is deployed for the customer runtime. The installer itself 
 
 ## Verification And Review
 
-`scripts/test-security-contract.ps1` verifies the approved read-only Graph scope set, accepted Azure role combinations, required network destinations, implementation references, and the Bicep role-assignment dependency. `scripts/verify.ps1` runs that contract with the repository build and test suite.
+`scripts/test-security-contract.ps1` verifies the approved read-only Graph scope set, accepted Azure role combinations, required network destinations, protected runtime provisioning path, managed-identity Key Vault references, and the Bicep role-assignment dependency. `scripts/verify.ps1` runs that contract with the repository build and test suite.
 
 Before customer publication this guide still requires engineering review against a released commit, identity/security review, operations review, clean-workstation acceptance, repeated install/remove/reinstall evidence, and production distribution verification.

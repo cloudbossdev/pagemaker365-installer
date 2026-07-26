@@ -7,6 +7,7 @@ function Test-PM365DeploymentContract {
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
     $results = @()
+    $hasBlockingContractFailure = $false
     $results += New-PM365Result `
         -Status 'Passed' `
         -Code 'DeploymentContractReadable' `
@@ -22,31 +23,82 @@ function Test-PM365DeploymentContract {
         )
 
         if ($presentBlockedProperties.Count -gt 0) {
+            $hasBlockingContractFailure = $true
             $results += New-PM365Result `
                 -Status 'Failed' `
                 -Code 'DeploymentPackageContainsRawSecrets' `
                 -Summary 'Customer install package appears to contain raw secret values.' `
                 -Details ("Remove these properties from the package: " + ($presentBlockedProperties -join ', ')) `
                 -RetrySafe $false
+        } elseif (-not $secrets.runtimeSecrets -or @($secrets.runtimeSecrets).Count -eq 0) {
+            $hasBlockingContractFailure = $true
+            $results += New-PM365Result `
+                -Status 'Failed' `
+                -Code 'DeploymentSecretsContractMissing' `
+                -Summary 'The signed runtime secret metadata contract is missing.' `
+                -Details 'Generate a new package that declares secrets.runtimeSecrets with source, ownership, target app, and app-setting metadata.' `
+                -RetrySafe $false
         } else {
+            $runtimeSecrets = @($secrets.runtimeSecrets)
+            $requiredSettings = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_SESSION_SECRET')
+            $declaredSettings = @($runtimeSecrets | ForEach-Object { [string]$_.appSettingName })
+            $invalidRuntimeDefinitions = @(
+                $runtimeSecrets |
+                    Where-Object {
+                        [string]::IsNullOrWhiteSpace([string]$_.keyVaultSecretName) -or
+                        [string]::IsNullOrWhiteSpace([string]$_.appSettingName) -or
+                        [string]$_.owner -cne 'customer' -or
+                        [string]$_.targetApp -cne 'api' -or
+                        -not [bool]$_.required -or
+                        [int]$_.minimumLength -lt 1
+                    }
+            )
+            $databaseDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'DATABASE_URL' })
+            $entraDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'API_ENTRA_CLIENT_SECRET' })
+            $sessionDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'API_SESSION_SECRET' })
+            $contractMatches = `
+                $runtimeSecrets.Count -eq 3 -and `
+                @($requiredSettings | Where-Object { $declaredSettings -notcontains $_ }).Count -eq 0 -and `
+                $invalidRuntimeDefinitions.Count -eq 0 -and `
+                $databaseDefinition.Count -eq 1 -and [string]$databaseDefinition[0].source -ceq 'operator' -and [int]$databaseDefinition[0].minimumLength -ge 12 -and `
+                $entraDefinition.Count -eq 1 -and [string]$entraDefinition[0].source -ceq 'operator' -and [int]$entraDefinition[0].minimumLength -ge 16 -and `
+                $sessionDefinition.Count -eq 1 -and [string]$sessionDefinition[0].source -ceq 'installerGenerated' -and [int]$sessionDefinition[0].minimumLength -ge 32
+
+            if (-not $contractMatches) {
+                $hasBlockingContractFailure = $true
+                $results += New-PM365Result `
+                    -Status 'Failed' `
+                    -Code 'DeploymentSecretsContractInvalid' `
+                    -Summary 'The signed runtime secret metadata contract is invalid.' `
+                    -Details 'Generate a contractVersion 0.3 package containing only the required DATABASE_URL, API_ENTRA_CLIENT_SECRET, and API_SESSION_SECRET definitions.' `
+                    -RetrySafe $false
+            } else {
             $results += New-PM365Result `
                 -Status 'Passed' `
                 -Code 'DeploymentPackageSecretSafe' `
                 -Summary 'No blocked raw secret containers were found in the customer package.' `
-                -Details 'The package may list secret names and prompts, but should not contain secret values.'
+                -Details 'The package declares secret metadata only and does not contain secret values.'
+            }
         }
     } else {
+        $hasBlockingContractFailure = $true
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'DeploymentSecretsContractMissing' `
             -Summary 'Secret handling contract is missing from the customer package.' `
-            -Details 'Add secrets.requiredSecretNames and prompt metadata before production deployment.' `
-            -RetrySafe $true
+            -Details 'Generate a new package with the complete secrets.runtimeSecrets metadata contract before deployment.' `
+            -RetrySafe $false
     }
 
     $warnings = @()
-    if ([string]::IsNullOrWhiteSpace([string]$config.contractVersion)) {
-        $warnings += 'contractVersion'
+    if ([string]$config.contractVersion -cne '0.3') {
+        $hasBlockingContractFailure = $true
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'DeploymentContractVersionUnsupported' `
+            -Summary 'Customer install package contract version is unsupported.' `
+            -Details 'Generate a new package using contractVersion 0.3.' `
+            -RetrySafe $false
     }
 
     if ([string]::IsNullOrWhiteSpace([string]$config.customer.customerId)) {
@@ -61,7 +113,6 @@ function Test-PM365DeploymentContract {
         $warnings += 'azure.resourceNames'
     }
 
-    $hasBlockingContractFailure = $false
     $parameterValidationIssues = @(Get-PM365TemplateParameterValidationIssue -Config $config)
     if ($parameterValidationIssues.Count -gt 0) {
         $hasBlockingContractFailure = $true

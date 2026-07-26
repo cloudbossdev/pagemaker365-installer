@@ -65,6 +65,7 @@ public sealed class PersistedInstallerState
     public string DeploymentSummary { get; set; } = "";
     public string DeploymentOutputPath { get; set; } = "";
     public string DeploymentArtifactPath { get; set; } = "";
+    public string RuntimeConfigurationArtifactPath { get; set; } = "";
     public string DeploymentApprovalManifestId { get; set; } = "";
     public string DeploymentApprovalManifestPath { get; set; } = "";
     public string DeploymentApprovalSummary { get; set; } = "";

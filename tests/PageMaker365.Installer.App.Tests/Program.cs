@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Security;
 using System.Text.Json;
 using PageMaker365.Installer.App.ViewModels;
 using PageMaker365.Installer.Engine.Models;
@@ -18,6 +19,9 @@ internal static class Program
             ("RelayCommand reports asynchronous operation state", RelayCommandReportsAsynchronousOperationState),
             ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
+            ("Runtime secret contract exposes only operator inputs", RuntimeSecretContractExposesOnlyOperatorInputs),
+            ("Runtime secret input rejects non-ASCII before install", RuntimeSecretInputRejectsNonAsciiBeforeInstall),
+            ("Runtime secret inputs never persist in session state", RuntimeSecretInputsNeverPersistInSessionState),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
@@ -134,6 +138,74 @@ internal static class Program
         AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "A validated local package should enable Azure sign-in.");
         AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "A validated local package should enable Graph sign-in.");
         AssertEx.False(viewModel.IsOperationRunning, "Local package validation should return the activity indicator to idle.");
+    }
+
+    private static async Task RuntimeSecretContractExposesOnlyOperatorInputs()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+
+        AssertEx.True(viewModel.HasRuntimeSecretContract, "A valid package should expose its signed runtime secret contract.");
+        AssertEx.Equal(2, viewModel.RuntimeSecretInputs.Count);
+        AssertEx.Equal(1, viewModel.GeneratedRuntimeSecretCount);
+        AssertEx.True(viewModel.RuntimeSecretInputs.All(input =>
+            input.Definition.Source == RuntimeSecretSource.Operator),
+            "Only operator-provided protected values should render as inputs.");
+        AssertEx.False(viewModel.RuntimeSecretInputs.Any(input =>
+            input.AppSettingName == "API_SESSION_SECRET"),
+            "Installer-generated values must not render as operator inputs.");
+    }
+
+    private static async Task RuntimeSecretInputsNeverPersistInSessionState()
+    {
+        const string marker = "PM365-DO-NOT-PERSIST-9ef46f2a";
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        foreach (var input in viewModel.RuntimeSecretInputs)
+        {
+            using var value = ToSecureString(marker + input.AppSettingName);
+            input.SetValue(value);
+        }
+
+        viewModel.SaveCurrentState();
+        var stateFiles = Directory.GetFiles(Path.Combine(scope.RootDirectory, "state"), "session-state.json", SearchOption.AllDirectories);
+        AssertEx.True(stateFiles.Length > 0, "The test should create resumable session state.");
+        foreach (var stateFile in stateFiles)
+        {
+            var json = await File.ReadAllTextAsync(stateFile);
+            AssertEx.False(json.Contains(marker, StringComparison.Ordinal), "Protected values must never be serialized into session state.");
+        }
+    }
+
+    private static Task RuntimeSecretInputRejectsNonAsciiBeforeInstall()
+    {
+        var definition = CreateRuntimeSecretContract()[0];
+        using var input = new RuntimeSecretEntryViewModel(definition);
+        using var value = ToSecureString("postgres://valid-but-unicode-\u00e9");
+
+        input.SetValue(value);
+
+        AssertEx.False(input.IsReady, "Non-ASCII protected input must fail before Azure mutation.");
+        AssertEx.StringContains(input.ValidationMessage, "printable ASCII");
+        return Task.CompletedTask;
+    }
+
+    private static SecureString ToSecureString(string value)
+    {
+        var secure = new SecureString();
+        foreach (var character in value)
+        {
+            secure.AppendChar(character);
+        }
+
+        secure.MakeReadOnly();
+        return secure;
     }
 
     private static async Task BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession()
@@ -685,7 +757,7 @@ internal static class Program
     {
         return new CustomerInstallConfig
         {
-            ContractVersion = "0.2",
+            ContractVersion = "0.3",
             Customer =
             {
                 CustomerId = "cust-download",
@@ -755,17 +827,32 @@ internal static class Program
             Secrets =
             {
                 KeyVaultName = "kv-pm365-download",
-                RequiredSecretNames = ["runtime-session-secret"],
+                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-SESSION-SECRET"],
                 PromptForSecrets =
                 [
                     new SecretPromptInfo
                     {
-                        Name = "runtime-session-secret",
-                        Label = "Runtime session secret",
+                        Name = "DATABASE-URL",
+                        Label = "Runtime database connection string",
+                        Required = true,
+                        GeneratedByInstaller = false
+                    },
+                    new SecretPromptInfo
+                    {
+                        Name = "API-ENTRA-CLIENT-SECRET",
+                        Label = "Runtime Entra application client secret",
+                        Required = true,
+                        GeneratedByInstaller = false
+                    },
+                    new SecretPromptInfo
+                    {
+                        Name = "API-SESSION-SECRET",
+                        Label = "Runtime session signing secret",
                         Required = true,
                         GeneratedByInstaller = true
                     }
-                ]
+                ],
+                RuntimeSecrets = CreateRuntimeSecretContract()
             },
             Features =
             {
@@ -782,6 +869,49 @@ internal static class Program
                 EntitlementSyncPath = "/api/runtime/entitlements/sync"
             }
         };
+    }
+
+    private static List<RuntimeSecretInfo> CreateRuntimeSecretContract()
+    {
+        return
+        [
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "DATABASE-URL",
+                AppSettingName = "DATABASE_URL",
+                Label = "Runtime database connection string",
+                Purpose = "Connects the runtime API to PostgreSQL.",
+                Source = RuntimeSecretSource.Operator,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 12
+            },
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "API-ENTRA-CLIENT-SECRET",
+                AppSettingName = "API_ENTRA_CLIENT_SECRET",
+                Label = "Runtime Entra application client secret",
+                Purpose = "Authenticates the customer runtime API application.",
+                Source = RuntimeSecretSource.Operator,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 16
+            },
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "API-SESSION-SECRET",
+                AppSettingName = "API_SESSION_SECRET",
+                Label = "Runtime session signing secret",
+                Purpose = "Signs customer runtime session state.",
+                Source = RuntimeSecretSource.InstallerGenerated,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 64
+            }
+        ];
     }
 
     private sealed class FakeOnboardingApiClient : IOnboardingApiClient

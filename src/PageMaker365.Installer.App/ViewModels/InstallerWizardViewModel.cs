@@ -104,6 +104,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _deploymentSummary = "Complete deployment preview before running install.";
     private string _deploymentOutputPath = "Not saved";
     private string _deploymentArtifactPath = "Not created";
+    private string _runtimeConfigurationArtifactPath = "Not created";
     private string _deploymentApprovalManifestId = "";
     private string _deploymentApprovalManifestPath = "Not created";
     private string _deploymentApprovalSummary = "No deployment approval manifest created.";
@@ -234,6 +235,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public ObservableCollection<PreviewResultViewModel> PreviewResults { get; } = [];
     public ObservableCollection<DeploymentResultViewModel> DeploymentResults { get; } = [];
     public ObservableCollection<ValidationResultViewModel> ValidationResults { get; } = [];
+    public ObservableCollection<RuntimeSecretEntryViewModel> RuntimeSecretInputs { get; } = [];
     public ObservableCollection<DiscoveryReadinessCardViewModel> DiscoveryReadinessCards { get; } = [];
     public ObservableCollection<DiscoveryValueViewModel> DiscoveryValues { get; } = [];
     public ObservableCollection<DiscoveryFindingViewModel> DiscoveryFindings { get; } = [];
@@ -278,6 +280,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public RelayCommand ResumeSessionCommand { get; }
     public RelayCommand StartNewSessionCommand { get; }
     public RelayCommand ForgetResumeSessionCommand { get; }
+
+    public event Action? ClearRuntimeSecretInputControlsRequested;
 
     public void SaveCurrentState()
     {
@@ -578,8 +582,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     public bool IsDeploymentRunning
     {
         get => _isDeploymentRunning;
-        private set => SetProperty(ref _isDeploymentRunning, value);
+        private set
+        {
+            if (SetProperty(ref _isDeploymentRunning, value))
+            {
+                OnPropertyChanged(nameof(CanEditRuntimeSecretInputs));
+            }
+        }
     }
+
+    public bool CanEditRuntimeSecretInputs => !IsDeploymentRunning;
 
     public string DeploymentSummary
     {
@@ -598,6 +610,27 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         get => _deploymentArtifactPath;
         set => SetProperty(ref _deploymentArtifactPath, string.IsNullOrWhiteSpace(value) ? "Not created" : value);
     }
+
+    public string RuntimeConfigurationArtifactPath
+    {
+        get => _runtimeConfigurationArtifactPath;
+        set => SetProperty(ref _runtimeConfigurationArtifactPath, string.IsNullOrWhiteSpace(value) ? "Not created" : value);
+    }
+
+    public bool HasRuntimeSecretContract => _config?.Secrets.RuntimeSecrets.Count > 0;
+
+    public bool HasRuntimeSecretInputs => RuntimeSecretInputs.Count > 0;
+
+    public int GeneratedRuntimeSecretCount => _config?.Secrets.RuntimeSecrets.Count(secret =>
+        secret.Source.Equals(RuntimeSecretSource.InstallerGenerated, StringComparison.Ordinal)) ?? 0;
+
+    public string RuntimeSecretTargetSummary => _config is null
+        ? "No runtime secret contract loaded."
+        : $"Protected values are written directly to {_config.Secrets.KeyVaultName}.";
+
+    public string GeneratedRuntimeSecretSummary => GeneratedRuntimeSecretCount == 1
+        ? "One required session secret will be generated during install."
+        : $"{GeneratedRuntimeSecretCount} required secrets will be generated during install.";
 
     public string DeploymentApprovalManifestId
     {
@@ -1169,6 +1202,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         _config = null;
         _session = null;
+        ConfigureRuntimeSecretInputs(null);
         _bootstrapSourcePath = "";
         PackagePath = "No customer package loaded.";
         AzureSubscription = "Not loaded";
@@ -2024,6 +2058,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private void LoadConfig(CustomerInstallConfig config, string path, ConfigValidationResult? validation = null)
     {
         _config = config;
+        ConfigureRuntimeSecretInputs(config);
         OnPropertyChanged(nameof(DeployedSiteUrl));
         OnPropertyChanged(nameof(HasDeployedSiteUrl));
         OpenDeployedSiteCommand.RaiseCanExecuteChanged();
@@ -2075,6 +2110,83 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         RunValidationCommand.RaiseCanExecuteChanged();
         CreateFinalEvidenceCommand.RaiseCanExecuteChanged();
         DownloadGeneratedPackageCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ConfigureRuntimeSecretInputs(CustomerInstallConfig? config)
+    {
+        foreach (var input in RuntimeSecretInputs)
+        {
+            input.ValueChanged -= OnRuntimeSecretValueChanged;
+            input.Dispose();
+        }
+
+        RuntimeSecretInputs.Clear();
+        foreach (var definition in config?.Secrets.RuntimeSecrets.Where(secret =>
+                     secret.Source.Equals(RuntimeSecretSource.Operator, StringComparison.Ordinal)) ?? [])
+        {
+            var input = new RuntimeSecretEntryViewModel(definition);
+            input.ValueChanged += OnRuntimeSecretValueChanged;
+            RuntimeSecretInputs.Add(input);
+        }
+
+        OnPropertyChanged(nameof(HasRuntimeSecretContract));
+        OnPropertyChanged(nameof(HasRuntimeSecretInputs));
+        OnPropertyChanged(nameof(GeneratedRuntimeSecretCount));
+        OnPropertyChanged(nameof(RuntimeSecretTargetSummary));
+        OnPropertyChanged(nameof(GeneratedRuntimeSecretSummary));
+        RunInstallCommand?.RaiseCanExecuteChanged();
+    }
+
+    private void OnRuntimeSecretValueChanged(object? sender, EventArgs eventArgs)
+    {
+        RunInstallCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ClearRuntimeSecretInputs()
+    {
+        foreach (var input in RuntimeSecretInputs)
+        {
+            input.Clear();
+        }
+
+        ClearRuntimeSecretInputControlsRequested?.Invoke();
+    }
+
+    private List<RuntimeSecretMaterial> CreateRuntimeSecretMaterials()
+    {
+        if (_config is null)
+        {
+            throw new InvalidOperationException("A customer package must be loaded before preparing runtime configuration.");
+        }
+
+        var inputsBySetting = RuntimeSecretInputs.ToDictionary(
+            input => input.AppSettingName,
+            StringComparer.Ordinal);
+        var materials = new List<RuntimeSecretMaterial>();
+        try
+        {
+            foreach (var definition in _config.Secrets.RuntimeSecrets)
+            {
+                materials.Add(definition.Source switch
+                {
+                    RuntimeSecretSource.Operator when inputsBySetting.TryGetValue(definition.AppSettingName, out var input) =>
+                        input.CreateMaterial(),
+                    RuntimeSecretSource.InstallerGenerated => RuntimeSecretMaterial.Generate(definition),
+                    _ => throw new InvalidOperationException($"Unsupported protected value source for {definition.AppSettingName}.")
+                });
+            }
+
+            return materials;
+        }
+        catch
+        {
+            foreach (var material in materials)
+            {
+                material.Dispose();
+            }
+
+            throw;
+        }
     }
 
     private void ApplyPackageTrustReview(ConfigValidationResult validation)
@@ -2985,6 +3097,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private void ResetSessionData()
     {
         _config = null;
+        ConfigureRuntimeSecretInputs(null);
         NotifyPackageAcquisitionStateChanged();
         OnPropertyChanged(nameof(DeployedSiteUrl));
         OnPropertyChanged(nameof(HasDeployedSiteUrl));
@@ -3154,6 +3267,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _workflowSelected = state.WorkflowSelected || state.CurrentStepNumber > 1 || state.Config is not null || state.InstallerSession is not null || state.TenantDiscovery is not null;
         _bootstrapSourcePath = state.BootstrapSourcePath;
         _config = state.Config ?? await TryLoadConfigAsync(state.PackagePath);
+        ConfigureRuntimeSecretInputs(_config);
         OnPropertyChanged(nameof(DeployedSiteUrl));
         OnPropertyChanged(nameof(HasDeployedSiteUrl));
         OpenDeployedSiteCommand.RaiseCanExecuteChanged();
@@ -3220,6 +3334,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentSummary = SavedOrDefault(state.DeploymentSummary, DeploymentSummary);
         DeploymentOutputPath = SavedOrDefault(state.DeploymentOutputPath, DeploymentOutputPath);
         DeploymentArtifactPath = SavedOrDefault(state.DeploymentArtifactPath, DeploymentArtifactPath);
+        RuntimeConfigurationArtifactPath = SavedOrDefault(state.RuntimeConfigurationArtifactPath, RuntimeConfigurationArtifactPath);
         DeploymentApprovalManifestId = SavedOrDefault(state.DeploymentApprovalManifestId, DeploymentApprovalManifestId);
         DeploymentApprovalManifestPath = SavedOrDefault(state.DeploymentApprovalManifestPath, DeploymentApprovalManifestPath);
         DeploymentApprovalSummary = SavedOrDefault(state.DeploymentApprovalSummary, DeploymentApprovalSummary);
@@ -3396,6 +3511,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             DeploymentSummary = DeploymentSummary,
             DeploymentOutputPath = DeploymentOutputPath,
             DeploymentArtifactPath = DeploymentArtifactPath,
+            RuntimeConfigurationArtifactPath = RuntimeConfigurationArtifactPath,
             DeploymentApprovalManifestId = DeploymentApprovalManifestId,
             DeploymentApprovalManifestPath = DeploymentApprovalManifestPath,
             DeploymentApprovalSummary = DeploymentApprovalSummary,
@@ -4206,6 +4322,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             File.Exists(PackagePath) &&
             _currentStepNumber >= 6 &&
             _lastPreviewStatus is InstallStatus.Passed or InstallStatus.Warning &&
+            HasRuntimeSecretContract &&
+            RuntimeSecretInputs.All(input => input.IsReady) &&
             DeploymentApprovalConfirmed &&
             IsDeploymentConfirmationValid();
     }
@@ -4454,7 +4572,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         if (!CanRunInstall())
         {
-            FooterStatus = "Review the preview, approve the install, and type the target resource group before running install.";
+            FooterStatus = RuntimeSecretInputs.Any(input => !input.IsReady)
+                ? "Complete every protected runtime value before running install. Values remain in memory only for this attempt."
+                : "Review the preview, approve the install, and type the target resource group before running install.";
             return;
         }
 
@@ -4462,11 +4582,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ClearValidationReview();
         DeploymentStatus = "Running";
         DeploymentStatusBrush = "#19D8E9";
-        DeploymentSummary = "Running approved Azure deployment.";
+        DeploymentSummary = "Provisioning approved Azure resources and protected runtime configuration.";
         IsDeploymentRunning = true;
         DeploymentOutputPath = "Not saved";
         var deploymentArtifactOutputPath = PrepareArtifactOutputPath("install", "azure-deployment.json");
+        var runtimeConfigurationOutputPath = PrepareArtifactOutputPath("install", "runtime-configuration.json");
         DeploymentArtifactPath = deploymentArtifactOutputPath;
+        RuntimeConfigurationArtifactPath = "Not created";
         FooterStatus = "Running approved PageMaker365 deployment.";
         _session = _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
@@ -4475,6 +4597,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SetStepStatus(6, "Running", "#19D8E9");
 
         var deploymentResults = new List<InstallerStepResult>();
+        var runtimeConfigurationResults = new List<InstallerStepResult>();
+        var runtimeMaterials = new List<RuntimeSecretMaterial>();
+        var azureDeploymentStatus = InstallStatus.NotStarted;
+        var runtimeConfigurationStatus = InstallStatus.NotStarted;
         var progress = new Progress<InstallerStepResult>(result =>
         {
             deploymentResults.Add(result);
@@ -4492,6 +4618,47 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "passed",
                 "Installer started provisioning the approved customer environment.");
             await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, deploymentArtifactOutputPath, progress);
+            azureDeploymentStatus = GetDeploymentStatus(deploymentResults);
+            if (azureDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
+            {
+                await QueueInstallerEvidenceAsync(
+                    InstallerEvidenceEventType.AzureDeploymentCompleted,
+                    "provisioning",
+                    azureDeploymentStatus == InstallStatus.Warning ? "warning" : "passed",
+                    azureDeploymentStatus == InstallStatus.Warning
+                        ? "Azure deployment completed with warnings that require review."
+                        : "Azure deployment completed successfully.",
+                    azureDeploymentStatus == InstallStatus.Warning
+                        ? CreateMilestoneError("azure", deploymentResults, warning: true)
+                        : null);
+
+                runtimeMaterials = CreateRuntimeSecretMaterials();
+                var runtimeProgress = new Progress<InstallerStepResult>(result =>
+                {
+                    runtimeConfigurationResults.Add(result);
+                    deploymentResults.Add(result);
+                    DeploymentResults.Add(new DeploymentResultViewModel(result));
+                });
+                await _engine.RunRuntimeConfigurationAsync(
+                    _session,
+                    GetWorkspaceRoot(),
+                    PackagePath,
+                    runtimeMaterials,
+                    runtimeConfigurationOutputPath,
+                    runtimeProgress);
+                runtimeConfigurationStatus = GetPhaseStatus(runtimeConfigurationResults);
+                RuntimeConfigurationArtifactPath = GetArtifactPathFromResults(
+                    runtimeConfigurationResults,
+                    runtimeConfigurationOutputPath);
+                if (runtimeConfigurationStatus is InstallStatus.Passed or InstallStatus.Warning)
+                {
+                    await QueueInstallerEvidenceAsync(
+                        InstallerEvidenceEventType.RuntimeConfigured,
+                        "provisioning",
+                        runtimeConfigurationStatus == InstallStatus.Warning ? "warning" : "passed",
+                        "Customer-owned runtime secrets were provisioned and App Service Key Vault references resolved.");
+                }
+            }
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or HttpRequestException or JsonException)
         {
@@ -4507,6 +4674,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
         finally
         {
+            foreach (var material in runtimeMaterials)
+            {
+                material.Dispose();
+            }
+
+            ClearRuntimeSecretInputs();
             IsDeploymentRunning = false;
         }
         DeploymentArtifactPath = GetArtifactPathFromResults(deploymentResults, deploymentArtifactOutputPath);
@@ -4517,8 +4690,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentStatusBrush = BrushForStatus(deploymentStatus);
         DeploymentSummary = deploymentStatus switch
         {
-            InstallStatus.Passed => "Install completed. Continue to validation and smoke tests.",
-            InstallStatus.Warning => "Install completed with warnings. Review details before validation.",
+            InstallStatus.Passed => "Azure deployment and protected runtime configuration completed. Continue to validation.",
+            InstallStatus.Warning => "Install completed with warnings. Review deployment and runtime configuration details before validation.",
             InstallStatus.Skipped => "Install was skipped. Review approval and rerun when ready.",
             InstallStatus.Failed => "Install failed. Resolve the blocker before continuing.",
             _ => "Install did not return a final status."
@@ -4532,34 +4705,31 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _ => deploymentStatus.ToString()
         };
         SetStepStatus(6, deploymentStepStatus, DeploymentStatusBrush);
-        if (deploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
+        if (deploymentStatus is InstallStatus.Passed or InstallStatus.Warning &&
+            runtimeConfigurationStatus is InstallStatus.Passed or InstallStatus.Warning)
         {
             UnlockThroughStep(7);
         }
         RefreshValidationReadiness();
 
         DeploymentOutputPath = await SaveDeploymentEvidenceAsync(deploymentResults, deploymentStatus, DeploymentArtifactPath);
-        if (deploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
+        if (deploymentStatus is not (InstallStatus.Passed or InstallStatus.Warning))
         {
-            await QueueInstallerEvidenceAsync(
-                InstallerEvidenceEventType.AzureDeploymentCompleted,
-                "provisioning",
-                deploymentStatus == InstallStatus.Warning ? "warning" : "passed",
-                deploymentStatus == InstallStatus.Warning
-                    ? "Azure deployment completed with warnings that require review."
-                    : "Azure deployment completed successfully.",
-                deploymentStatus == InstallStatus.Warning
-                    ? CreateMilestoneError("azure", deploymentResults, warning: true)
-                    : null);
-        }
-        else
-        {
+            var runtimeConfigurationFailed = azureDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning;
             await QueueInstallerEvidenceAsync(
                 InstallerEvidenceEventType.InstallFailed,
                 "failed",
                 "failed",
-                "Installer stopped because Azure deployment did not complete.",
-                CreateMilestoneError("azure", deploymentResults));
+                runtimeConfigurationFailed
+                    ? "Installer stopped because protected runtime configuration did not complete."
+                    : "Installer stopped because Azure deployment did not complete.",
+                runtimeConfigurationFailed
+                    ? EvidenceError(
+                        "RUNTIME_CONFIGURATION_FAILED",
+                        "Protected runtime configuration or App Service Key Vault reference resolution did not complete.",
+                        "runtime_configuration",
+                        true)
+                    : CreateMilestoneError("azure", deploymentResults));
         }
         OnPropertyChanged(nameof(ValidationTargetDetails));
         FooterStatus = deploymentStatus switch
@@ -4751,6 +4921,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastDeploymentStatus = InstallStatus.NotStarted;
         DeploymentResults.Clear();
         DeploymentArtifactPath = "Not created";
+        RuntimeConfigurationArtifactPath = "Not created";
         DeploymentApprovalConfirmed = false;
         DeploymentConfirmationText = "";
         ClearDeploymentApprovalManifestState();
@@ -4903,19 +5074,6 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         ValidationOutputPath = await SaveValidationEvidenceAsync(validationResults, validationStatus);
         var smokeTests = CreateSmokeTestSummary(validationResults);
-        var runtimeIdentityVerified = validationResults.Any(result =>
-            result.Code == "AppHealthReady" && result.Status == InstallStatus.Passed) &&
-            validationResults.Any(result =>
-                result.Code == "PortalAppReady" && result.Status == InstallStatus.Passed);
-        if (runtimeIdentityVerified)
-        {
-            await QueueInstallerEvidenceAsync(
-                InstallerEvidenceEventType.RuntimeConfigured,
-                "provisioning",
-                "passed",
-                "Deployed PageMaker365 runtime identity and configuration were verified.");
-        }
-
         if (validationStatus is InstallStatus.Passed or InstallStatus.Warning)
         {
             await QueueInstallerEvidenceAsync(
@@ -5121,6 +5279,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 DeploymentStatus = _lastDeploymentStatus.ToString(),
                 DeploymentEvidencePath = DeploymentOutputPath,
                 DeploymentArtifactPath = DeploymentArtifactPath,
+                RuntimeConfigurationArtifactPath = RuntimeConfigurationArtifactPath,
                 ValidationStatus = _lastValidationStatus.ToString(),
                 ValidationEvidencePath = ValidationOutputPath,
                 FinalStatus = GetFinalStatusLabel()

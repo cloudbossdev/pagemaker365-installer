@@ -59,8 +59,51 @@ foreach ($requiredHost in @('login.microsoftonline.com', 'microsoft.com', 'graph
 $bicep = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\main.bicep') -Raw
 Assert-True ($bicep.Contains("modules/key-vault-role-assignment.bicep")) 'The Azure role contract must account for the Key Vault role assignment deployed by Bicep.'
 
+$runtimeTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\runtime-configuration.bicep') -Raw
+$apiTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\api-app-service.bicep') -Raw
+$installerEngine = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Services\InstallerEngine.cs') -Raw
+$runtimeCommand = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PageMaker365.Install\Public\Set-PM365RuntimeConfiguration.ps1') -Raw
+$stateModel = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Models\PersistedInstallerState.cs') -Raw
+
+Assert-True ($runtimeTemplate.Contains('@secure()')) 'Runtime secret values must enter ARM through a secure Bicep parameter.'
+Assert-True ($runtimeTemplate.Contains('Microsoft.KeyVault/vaults/secrets')) 'Runtime secrets must be provisioned directly as customer Key Vault resources.'
+Assert-True ($apiTemplate.Contains('keyVaultReferenceIdentity')) 'The API App Service must explicitly use the customer managed identity for Key Vault references.'
+Assert-True ($apiTemplate.Contains('@Microsoft.KeyVault(VaultName=')) 'Runtime App Service settings must use Key Vault references instead of raw values.'
+Assert-True ($installerEngine.Contains('standardInputWriter:')) 'Protected values must be passed to the child process through redirected standard input.'
+Assert-True ($runtimeCommand.Contains('[Console]::In.ReadLine()')) 'The runtime configuration command must read protected input from standard input.'
+Assert-True ($runtimeCommand.Contains('valuesPersisted = $false')) 'Runtime configuration evidence must explicitly record that values were not persisted.'
+Assert-True (-not $stateModel.Contains('RuntimeSecretMaterial')) 'Resumable installer state must not contain protected runtime material.'
+
+$samplePackage = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
+$runtimeSecretNames = @($samplePackage.secrets.runtimeSecrets | ForEach-Object { [string]$_.appSettingName })
+foreach ($requiredSetting in @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_SESSION_SECRET')) {
+    Assert-True ($runtimeSecretNames -contains $requiredSetting) "The sample signed runtime contract is missing $requiredSetting."
+}
+foreach ($secretDefinition in @($samplePackage.secrets.runtimeSecrets)) {
+    Assert-True ($null -eq $secretDefinition.PSObject.Properties['value']) "Runtime secret metadata must not contain a raw value for $($secretDefinition.appSettingName)."
+}
+
+$modulePath = Join-Path $repoRoot 'modules\PageMaker365.Install\PageMaker365.Install.psd1'
+Import-Module $modulePath -Force
+$invalidPackagePath = Join-Path ([IO.Path]::GetTempPath()) ("pm365-runtime-contract-{0}.json" -f [guid]::NewGuid())
+try {
+    $invalidPackage = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
+    $invalidPackage.contractVersion = '0.2'
+    $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
+    $invalidVersionResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)
+    Assert-True ($invalidVersionResults.code -contains 'DeploymentContractVersionUnsupported') 'Direct PowerShell deployment must reject pre-0.3 packages.'
+
+    $invalidPackage.contractVersion = '0.3'
+    $invalidPackage.secrets.runtimeSecrets = @($invalidPackage.secrets.runtimeSecrets | Select-Object -First 2)
+    $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
+    $invalidSecretResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)
+    Assert-True ($invalidSecretResults.code -contains 'DeploymentSecretsContractInvalid') 'Direct PowerShell deployment must reject incomplete runtime secret metadata.'
+} finally {
+    Remove-Item -LiteralPath $invalidPackagePath -Force -ErrorAction SilentlyContinue
+}
+
 foreach ($reference in $profile.implementationReferences) {
     Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot ([string]$reference))) "Security profile implementation reference does not exist: $reference"
 }
 
-Write-Host "Security contract verified: $($expectedScopes.Count) read-only Graph scopes, $($roleSets.Count) Azure role sets, $(@($profile.network.destinations).Count) network destinations."
+Write-Host "Security contract verified: $($expectedScopes.Count) read-only Graph scopes, $($roleSets.Count) Azure role sets, $(@($profile.network.destinations).Count) network destinations, and protected runtime provisioning."

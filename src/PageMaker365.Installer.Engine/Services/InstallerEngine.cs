@@ -1,4 +1,6 @@
 using Microsoft.Identity.Client;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using PageMaker365.Installer.Engine.Models;
 using PageMaker365.Installer.Engine.PowerShell;
@@ -213,6 +215,52 @@ public sealed class InstallerEngine
             commandArguments);
     }
 
+    public async Task<IReadOnlyList<InstallerStepResult>> RunRuntimeConfigurationAsync(
+        InstallerSession session,
+        string workspaceRoot,
+        string configPath,
+        IReadOnlyCollection<RuntimeSecretMaterial> secretMaterials,
+        string outputPath = "",
+        IProgress<InstallerStepResult>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRuntimeSecretMaterials(session.Config, secretMaterials);
+        var commandArguments = string.IsNullOrWhiteSpace(outputPath)
+            ? ""
+            : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        var metadata = JsonSerializer.Serialize(new
+        {
+            contractVersion = "0.1",
+            secrets = secretMaterials.Select(material => new
+            {
+                material.Definition.KeyVaultSecretName,
+                material.Definition.AppSettingName,
+                material.Definition.MinimumLength
+            })
+        });
+
+        return await RunPowerShellModuleCommandAsync(
+            session,
+            workspaceRoot,
+            configPath,
+            "Runtime Configuration",
+            "Set-PM365RuntimeConfiguration",
+            progress,
+            cancellationToken,
+            commandArguments,
+            standardInputWriter: (stream, _) =>
+            {
+                WriteUtf8Line(stream, metadata);
+                foreach (var material in secretMaterials)
+                {
+                    material.WriteUtf8Value(stream);
+                    stream.WriteByte((byte)'\n');
+                }
+
+                return Task.CompletedTask;
+            });
+    }
+
     public async Task<IReadOnlyList<InstallerStepResult>> RunValidationAsync(
         InstallerSession session,
         string workspaceRoot,
@@ -316,7 +364,8 @@ public sealed class InstallerEngine
         string commandArguments = "",
         IProgress<string>? outputProgress = null,
         bool useInteractiveWindow = false,
-        IReadOnlyDictionary<string, string>? environmentVariables = null)
+        IReadOnlyDictionary<string, string>? environmentVariables = null,
+        Func<Stream, CancellationToken, Task>? standardInputWriter = null)
     {
         session.CurrentPhase = phase;
         session.Status = InstallStatus.Running;
@@ -353,7 +402,8 @@ public sealed class InstallerEngine
                     workspaceRoot,
                     cancellationToken,
                     outputProgress: outputProgress,
-                    environmentVariables: environmentVariables);
+                    environmentVariables: environmentVariables,
+                    standardInputWriter: standardInputWriter);
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -452,6 +502,52 @@ public sealed class InstallerEngine
     private static string BuildPreflightCommand(string modulePath, string configPath)
     {
         return BuildModuleCommand(modulePath, "Start-PM365Preflight", configPath);
+    }
+
+    private static void ValidateRuntimeSecretMaterials(
+        CustomerInstallConfig config,
+        IReadOnlyCollection<RuntimeSecretMaterial> secretMaterials)
+    {
+        ArgumentNullException.ThrowIfNull(secretMaterials);
+        var materialsBySetting = secretMaterials.ToDictionary(
+            material => material.Definition.AppSettingName,
+            StringComparer.Ordinal);
+        foreach (var definition in config.Secrets.RuntimeSecrets)
+        {
+            if (!materialsBySetting.TryGetValue(definition.AppSettingName, out var material))
+            {
+                throw new InvalidOperationException($"Runtime secret value is missing for {definition.AppSettingName}.");
+            }
+
+            if (!material.Definition.KeyVaultSecretName.Equals(definition.KeyVaultSecretName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Runtime secret metadata does not match the package for {definition.AppSettingName}.");
+            }
+
+            if (material.Length < definition.MinimumLength)
+            {
+                throw new InvalidOperationException($"Runtime secret value for {definition.AppSettingName} is shorter than the package minimum.");
+            }
+        }
+
+        if (materialsBySetting.Count != config.Secrets.RuntimeSecrets.Count)
+        {
+            throw new InvalidOperationException("Runtime secret values contain entries that are not declared by the signed customer package.");
+        }
+    }
+
+    private static void WriteUtf8Line(Stream stream, string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        try
+        {
+            stream.Write(bytes);
+            stream.WriteByte((byte)'\n');
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(bytes);
+        }
     }
 
     private static string ResolveTenantId(CustomerInstallConfig config)
@@ -707,6 +803,7 @@ public sealed class InstallerEngine
             "SharePointLibraryReady" or "SharePointLibraryNotFound" or "SharePointLibraryNotConfigured" => "SharePoint Library",
             "AzureWhatIfReady" or "AzureWhatIfFailed" => "Azure What-If",
             "AzureDeploymentReady" or "AzureDeploymentFailed" or "AppServiceCapacityUnavailable" => "Azure Deployment",
+            "RuntimeConfigurationReady" or "RuntimeConfigurationFailed" or "RuntimeConfigurationInputInvalid" or "RuntimeKeyVaultReferenceFailed" => "Runtime Configuration",
             "DeploymentSkipped" => "Deployment Approval",
             "AppUrlMissing" => "Application URL",
             "AppHealthReady" or "AppHealthFailed" => "Application Health",

@@ -18,6 +18,20 @@ function New-PM365TemplateParameterObject {
         }
     }
 
+    $runtimeSecretReferences = @()
+    if ($Config.secrets.runtimeSecrets) {
+        $runtimeSecretReferences = @(
+            $Config.secrets.runtimeSecrets |
+                Where-Object { [string]$_.targetApp -eq 'api' } |
+                ForEach-Object {
+                    @{
+                        appSettingName = [string]$_.appSettingName
+                        keyVaultSecretName = [string]$_.keyVaultSecretName
+                    }
+                }
+        )
+    }
+
     @{
         resourceGroupName = [string]$Config.azure.resourceGroupName
         appName = [string]$Config.app.appName
@@ -25,6 +39,7 @@ function New-PM365TemplateParameterObject {
         location = [string]$Config.azure.location
         customerTenantId = [string]$Config.customer.tenantId
         resourceNames = $resourceNames
+        runtimeSecretReferences = $runtimeSecretReferences
         tags = @{
             product = 'PageMaker365'
             customer = [string]$Config.customer.tenantName

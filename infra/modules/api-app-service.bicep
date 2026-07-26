@@ -25,6 +25,23 @@ param applicationInsightsConnectionString string
 @minLength(1)
 param keyVaultUri string
 
+@description('Key Vault name used to construct App Service Key Vault references.')
+@minLength(1)
+param keyVaultName string
+
+type RuntimeSecretReference = {
+  appSettingName: string
+  keyVaultSecretName: string
+}
+
+@description('Secret-name-only runtime App Service references.')
+param runtimeSecretReferences RuntimeSecretReference[]
+
+var runtimeSecretAppSettings = [for secret in runtimeSecretReferences: {
+  name: secret.appSettingName
+  value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=${secret.keyVaultSecretName})'
+}]
+
 resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
@@ -39,12 +56,13 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
   properties: {
     serverFarmId: appServicePlanId
     httpsOnly: true
+    keyVaultReferenceIdentity: managedIdentityResourceId
     siteConfig: {
       alwaysOn: true
       linuxFxVersion: 'NODE|22-lts'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
-      appSettings: [
+      appSettings: concat([
         {
           name: 'NODE_ENV'
           value: 'production'
@@ -61,7 +79,7 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'PM365_KEY_VAULT_URI'
           value: keyVaultUri
         }
-      ]
+      ], runtimeSecretAppSettings)
     }
   }
 }
