@@ -22,6 +22,7 @@ The program produces two customer deliverables:
 - `docs/installer-requirements-traceability.md` maps stories and scenarios to implementation, tests, evidence, documentation, and GitHub work.
 - `docs/customer/installer-user-guide.md` is the controlled customer user-guide draft.
 - `docs/customer/installer-technical-security-guide.md` is the controlled customer technical/security-guide draft.
+- `config/installer-security-profile.json` is the machine-readable implemented security baseline enforced by CI.
 
 Product behavior, customer documentation, and technical claims must not be treated as complete when the traceability record shows missing or indirect evidence.
 

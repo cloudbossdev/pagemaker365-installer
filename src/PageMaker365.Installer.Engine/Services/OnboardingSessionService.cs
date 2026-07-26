@@ -36,15 +36,15 @@ public sealed class OnboardingSessionService
         Require(session.OneTimeCode, "One-time onboarding code is required.", result);
 
         if (!string.IsNullOrWhiteSpace(session.PortalBaseUrl) &&
-            !Uri.TryCreate(session.PortalBaseUrl, UriKind.Absolute, out _))
+            !TrustedPageMaker365EndpointPolicy.TryValidateBaseUrl(session.PortalBaseUrl, out _, out var portalError))
         {
-            result.Errors.Add("Portal base URL must be an absolute URL.");
+            result.Errors.Add($"Portal base URL {portalError}");
         }
 
         if (!string.IsNullOrWhiteSpace(session.ApiBaseUrl) &&
-            !Uri.TryCreate(session.ApiBaseUrl, UriKind.Absolute, out _))
+            !TrustedPageMaker365EndpointPolicy.TryValidateBaseUrl(session.ApiBaseUrl, out _, out var apiError))
         {
-            result.Errors.Add("API base URL must be an absolute URL.");
+            result.Errors.Add($"API base URL {apiError}");
         }
 
         if (session.ExpiresAt <= DateTimeOffset.UtcNow)

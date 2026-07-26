@@ -65,7 +65,7 @@ Scenario status meanings:
 | --- | --- | --- | --- |
 | F01 | Package, workstation, Azure, Graph, SharePoint, and recovery state are ready | Preflight passes and Preview unlocks. | Partial |
 | F02 | Required PowerShell module or Bicep is missing | Preflight blocks with the missing dependency and remediation. | Automated |
-| F03 | Azure RBAC is insufficient | Preflight blocks before mutation and identifies the required scope. | Planned |
+| F03 | Azure RBAC is insufficient | Preflight blocks before mutation and identifies the required scope. | Automated |
 | F04 | Graph scope or admin consent is insufficient | Preflight blocks the dependent Entra/SharePoint action. | Partial |
 | F05 | SharePoint site or document library cannot be resolved | Preflight blocks or warns according to the final access contract. | Partial |
 | F06 | Required deployment/package field is absent | Preflight blocks before What-If. | Automated |

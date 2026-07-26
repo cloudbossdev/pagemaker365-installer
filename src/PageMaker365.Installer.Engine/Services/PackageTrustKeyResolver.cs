@@ -10,17 +10,6 @@ public sealed class PackageTrustKeyResolver
 {
     private const string LicenseJwksPath = "/.well-known/pagemaker365-license-jwks.json";
 
-    private static readonly HashSet<string> AllowedJwksHosts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "pagemaker365.com",
-        "api.pagemaker365.com",
-        "staging.pagemaker365.com",
-        "api-staging.pagemaker365.com",
-        "localhost",
-        "127.0.0.1",
-        "::1"
-    };
-
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -82,16 +71,7 @@ public sealed class PackageTrustKeyResolver
 
     private static Uri ValidateTrustedJwksUrl(string value)
     {
-        if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) ||
-            uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && IsLocalHost(uri.Host)))
-        {
-            throw new InvalidDataException("Package signing JWKS URL must be an absolute HTTPS PageMaker365 URL.");
-        }
-
-        if (!AllowedJwksHosts.Contains(uri.Host))
-        {
-            throw new InvalidDataException($"Package signing JWKS host '{uri.Host}' is not trusted.");
-        }
+        var uri = TrustedPageMaker365EndpointPolicy.ValidateBaseUrl(value, "Package signing JWKS URL");
 
         if (!uri.AbsolutePath.Equals(LicenseJwksPath, StringComparison.OrdinalIgnoreCase))
         {
@@ -99,13 +79,6 @@ public sealed class PackageTrustKeyResolver
         }
 
         return uri;
-    }
-
-    private static bool IsLocalHost(string host)
-    {
-        return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-            host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-            host.Equals("::1", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ConvertEd25519JwkToPem(JsonWebKey key)

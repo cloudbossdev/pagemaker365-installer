@@ -42,7 +42,10 @@ public sealed class OnboardingApiOptions
         var baseUrl = string.IsNullOrWhiteSpace(session.ApiBaseUrl)
             ? ApiBaseUrl
             : session.ApiBaseUrl;
-        var baseUri = new Uri(baseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        var validatedBaseUri = PageMaker365.Installer.Engine.Services.TrustedPageMaker365EndpointPolicy.ValidateBaseUrl(
+            baseUrl,
+            "Portal onboarding API base URL");
+        var baseUri = new Uri(validatedBaseUri.AbsoluteUri.TrimEnd('/') + "/", UriKind.Absolute);
         return new Uri(baseUri, path.TrimStart('/'));
     }
 

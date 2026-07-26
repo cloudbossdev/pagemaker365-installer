@@ -73,7 +73,7 @@ function Test-PM365EntraPermissions {
             -Details $currentTenantId
     }
 
-    $requiredScopes = @('Application.ReadWrite.All', 'AppRoleAssignment.ReadWrite.All', 'Directory.Read.All', 'Sites.Read.All')
+    $requiredScopes = @(Get-PM365RequiredGraphScopes)
     $missingScopes = $requiredScopes | Where-Object { $_ -notin $currentScopes }
     if ($missingScopes.Count -gt 0) {
         $results += New-PM365Result `
