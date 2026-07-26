@@ -19,6 +19,7 @@ internal static class Program
             ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
+            ("Upgrade package displays source and target versions", UpgradePackageDisplaysSourceAndTargetVersions),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
             ("Loaded bootstrap expiry blocks portal acquisition", LoadedBootstrapExpiryBlocksPortalAcquisition),
@@ -134,6 +135,48 @@ internal static class Program
         AssertEx.True(viewModel.ConnectAzureCommand.CanExecute(null), "A validated local package should enable Azure sign-in.");
         AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "A validated local package should enable Graph sign-in.");
         AssertEx.False(viewModel.IsOperationRunning, "Local package validation should return the activity indicator to idle.");
+    }
+
+    private static async Task UpgradePackageDisplaysSourceAndTargetVersions()
+    {
+        using var scope = TestScope.Create();
+        var config = CreateConfig("Upgrade Package Customer");
+        config.Deployment.Operation = UpgradeContractService.UpgradeOperation;
+        config.Deployment.SourceRuntimeVersion = "0.1.0";
+        config.Deployment.TargetRuntimeVersion = "0.2.0";
+        config.Deployment.SourceDeploymentExportId = "export-source-upgrade-001";
+        scope.WritePackage(config);
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+
+        AssertEx.Equal("Upgrade package", viewModel.PackageOperationLabel);
+        AssertEx.StringContains(viewModel.PackageVersionSummary, "0.1.0 to 0.2.0");
+        AssertEx.Equal("Upgrade", viewModel.DeploymentActionTitle);
+        AssertEx.Equal("Run Upgrade", viewModel.RunDeploymentButtonLabel);
+        AssertEx.Equal("Upgrade Status", viewModel.DeploymentStatusLabel);
+        AssertEx.Equal("Upgrade", viewModel.Steps[5].Name);
+        AssertEx.StringContains(viewModel.FinalEvidenceDescription, "upgrade report");
+        var mapper = typeof(InstallerWizardViewModel).GetMethod(
+            "MapDeploymentEvidenceEventType",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var mappedFailure = mapper?.Invoke(
+            viewModel,
+            [InstallerEvidenceEventType.PackageValidationFailed, config]) as string;
+        AssertEx.Equal(InstallerEvidenceEventType.UpgradePackageValidationFailed, mappedFailure);
+        var attemptStarter = typeof(InstallerWizardViewModel).GetMethod(
+            "StartNewInstallerEvidenceAttempt",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var preValidationViewModel = scope.CreateViewModel();
+        attemptStarter?.Invoke(preValidationViewModel, [config]);
+        var outboxField = typeof(InstallerWizardViewModel).GetField(
+            "_installerEvidenceOutbox",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var outbox = outboxField?.GetValue(preValidationViewModel) as InstallerEvidenceOutboxState;
+        AssertEx.True(outbox?.InstallAttemptId.StartsWith("ua_", StringComparison.Ordinal) == true,
+            "Upgrade evidence must use a distinct ua_ attempt identity even before the package becomes active state.");
+        AssertEx.True(viewModel.IsSignInStep, "A valid upgrade package should advance to the standard dual sign-in gate.");
     }
 
     private static async Task BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession()
@@ -733,6 +776,15 @@ internal static class Program
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
+            },
+            Deployment =
+            {
+                Operation = UpgradeContractService.InstallOperation,
+                TargetRuntimeVersion = "0.1.0",
+                MinimumInstallerVersion = UpgradeContractService.CurrentInstallerVersion,
+                FailureRecovery = UpgradeContractService.ForwardFixRecovery,
+                ResourceNamePolicy = UpgradeContractService.ImmutableResourceNames,
+                SharePointDataPolicy = UpgradeContractService.PreserveSharePointData
             },
             ControlPlane =
             {

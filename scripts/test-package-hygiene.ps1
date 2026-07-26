@@ -29,6 +29,7 @@ $unexpectedDocs = @(
             'onboarding-discovery-contract.md',
             'portal-install-package-handoff.md',
             'removal-policy.md',
+            'upgrade-contract.md',
             'using-the-installer.md'
         )
 )

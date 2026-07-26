@@ -54,12 +54,19 @@ The response must include these top-level sections:
 - `sharePoint`
 - `app`
 - `entra`
+- `deployment`
 - `controlPlane`
 - `secrets`
 - `features`
 - `smokeTests`
 
-The schema currently requires `customer`, `azure`, `sharePoint`, `app`, and `features`, but the portal should include all sections above for launch readiness.
+The schema retains legacy-package compatibility, but the portal must include all sections above. Signed packages without explicit deployment intent are rejected.
+
+For a clean install, `deployment.operation` is `install`, source fields are omitted,
+and target/minimum versions plus `ForwardFix`, `Immutable`, and `Preserve` policies
+are required. For an upgrade, the portal must set `operation=upgrade` and bind the
+package to the exact source runtime version and source deployment export recorded
+for the installation. See `upgrade-contract.md`.
 
 ## CloudBoss Sandbox Values
 

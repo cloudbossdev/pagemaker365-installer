@@ -126,7 +126,8 @@ Write-Host 'Checking exported commands...'
     'Invoke-PM365WhatIf',
     'Invoke-PM365Deployment',
     'Remove-PM365PartialInstall',
-    'Test-PM365SmokeTests'
+    'Test-PM365SmokeTests',
+    'Test-PM365UpgradeContract'
 ) | ForEach-Object {
     Get-Command $_ -Module PageMaker365.Install -ErrorAction Stop | Out-Null
 }
@@ -165,6 +166,12 @@ Write-Host 'Testing Key Vault recovery preflight contracts...'
 & (Join-Path $repoRoot 'scripts\test-keyvault-recovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing install and upgrade compatibility contracts...'
+& (Join-Path $repoRoot 'scripts\test-upgrade-contract.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Upgrade contract tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Running preflight...'

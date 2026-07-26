@@ -197,6 +197,11 @@ function Invoke-PM365Deployment {
         return
     }
 
+    $upgradeContract = Test-PM365UpgradeContract -ConfigPath $ConfigPath
+    if ($upgradeContract.status -eq 'Failed') {
+        return $upgradeContract
+    }
+
     $resourceGroupName = [string]$config.azure.resourceGroupName
     $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
     if ($resourceGroup) {

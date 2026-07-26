@@ -29,6 +29,12 @@ function New-PM365TemplateParameterObject {
             product = 'PageMaker365'
             customer = [string]$Config.customer.tenantName
             environment = [string]$Config.azure.environment
+            appName = [string]$Config.app.appName
+            installationId = [string]$Config.customer.installationId
+            runtimeVersion = [string]$Config.deployment.targetRuntimeVersion
+            deploymentExportId = [string]$Config.controlPlane.deploymentExportId
+            packageContractVersion = [string]$Config.contractVersion
+            resourceNamesHash = Get-PM365ResourceNamesHash -ResourceNames $Config.azure.resourceNames
         }
     }
 }

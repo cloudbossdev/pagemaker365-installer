@@ -44,6 +44,10 @@ public sealed class DeploymentApprovalManifestService
             },
             PackageSummary = new DeploymentApprovalPackageSummary
             {
+                Operation = config.Deployment.Operation,
+                SourceRuntimeVersion = config.Deployment.SourceRuntimeVersion,
+                TargetRuntimeVersion = config.Deployment.TargetRuntimeVersion,
+                SourceDeploymentExportId = config.Deployment.SourceDeploymentExportId,
                 PackagePath = request.PackagePath,
                 DeploymentExportId = request.PackageExportId,
                 PackageTrustStatus = request.PackageTrustStatus,

@@ -60,6 +60,16 @@ public sealed class FinalEvidenceService
                 config.App.CustomDomain,
                 config.App.SupportEmail
             },
+            deployment = new
+            {
+                operation = config.Deployment.Operation,
+                sourceRuntimeVersion = config.Deployment.SourceRuntimeVersion,
+                targetRuntimeVersion = config.Deployment.TargetRuntimeVersion,
+                sourceDeploymentExportId = config.Deployment.SourceDeploymentExportId,
+                failureRecovery = config.Deployment.FailureRecovery,
+                resourceNamePolicy = config.Deployment.ResourceNamePolicy,
+                sharePointDataPolicy = config.Deployment.SharePointDataPolicy
+            },
             controlPlane = new
             {
                 config.ControlPlane.DeploymentExportId,
@@ -219,6 +229,16 @@ public sealed class FinalEvidenceService
         report.AppendLine($"- App name: {config.App.AppName}");
         report.AppendLine($"- Custom domain: {config.App.CustomDomain}");
         report.AppendLine($"- Support email: {config.App.SupportEmail}");
+        report.AppendLine();
+        report.AppendLine("## Deployment Intent");
+        report.AppendLine();
+        report.AppendLine($"- Operation: {config.Deployment.Operation}");
+        report.AppendLine($"- Source runtime version: {config.Deployment.SourceRuntimeVersion}");
+        report.AppendLine($"- Target runtime version: {config.Deployment.TargetRuntimeVersion}");
+        report.AppendLine($"- Source deployment export ID: {config.Deployment.SourceDeploymentExportId}");
+        report.AppendLine($"- Failure recovery: {config.Deployment.FailureRecovery}");
+        report.AppendLine($"- Resource name policy: {config.Deployment.ResourceNamePolicy}");
+        report.AppendLine($"- SharePoint data policy: {config.Deployment.SharePointDataPolicy}");
         report.AppendLine();
         report.AppendLine("## Package Export");
         report.AppendLine();

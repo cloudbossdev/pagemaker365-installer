@@ -2,6 +2,7 @@ namespace PageMaker365.Installer.App.ViewModels;
 
 public sealed class StepViewModel : ViewModelBase
 {
+    private string _name;
     private string _statusLabel = "Pending";
     private string _statusBrush = "#2A355E";
     private bool _isAccessible;
@@ -12,11 +13,15 @@ public sealed class StepViewModel : ViewModelBase
     public StepViewModel(int number, string name)
     {
         Number = number;
-        Name = name;
+        _name = name;
     }
 
     public int Number { get; }
-    public string Name { get; }
+    public string Name
+    {
+        get => _name;
+        set => SetProperty(ref _name, value);
+    }
 
     public string StatusLabel
     {

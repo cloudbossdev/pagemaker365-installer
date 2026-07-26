@@ -10,7 +10,7 @@ Contract source: `config/installer-security-profile.json`
 
 This guide describes the security-relevant behavior implemented by the PageMaker365 Installer. It is intended for customer architecture, identity, security, networking, and operations reviewers.
 
-The current alpha provisions the Azure foundation but does not yet deploy production API or portal application content, provision runtime secrets, implement a supported upgrade contract, or ship a production-signed installer. Those gaps remain release blockers and are not represented here as completed capabilities.
+The current alpha provisions the Azure foundation but does not yet deploy production API or portal application content, provision runtime secrets, complete portal/staging upgrade integration, or ship a production-signed installer. Those gaps remain release blockers and are not represented here as completed capabilities.
 
 ## Trust Boundaries And Data Flow
 
@@ -136,6 +136,19 @@ The installer does not send secrets, tokens, one-time codes, raw files, document
 
 Application Insights is deployed for the customer runtime. The installer itself does not currently send a separate application-telemetry stream to Application Insights.
 
+## Upgrade Boundaries
+
+- Signed packages declare `install` or `upgrade`, target runtime version, minimum installer version, and fixed preservation policies.
+- Upgrade packages additionally declare the exact source runtime version and source deployment export.
+- Patch and immediately adjacent minor transitions within one major version are supported; downgrade, skipped-minor, major, and malformed transitions fail before mutation.
+- Preflight and the mutation boundary compare package identity with Azure `appName`, `installationId`, `runtimeVersion`, and `deploymentExportId` tags.
+- Azure What-If and explicit approval remain mandatory for upgrades.
+- Resource names are immutable, SharePoint customer content is preserved, and secret values remain in customer Key Vault.
+- Recovery is forward-fix only. The installer does not automatically downgrade or treat an older package as rollback authorization.
+- A clean-install package may reconcile an existing group only when all package ownership, installation, target version/export, and resource-name identity tags match exactly; otherwise it fails closed.
+
+Implementation: `UpgradeContractService`, `Test-PM365UpgradeContract`, package schema deployment intent, and versioned Azure tags. Portal generation/callback integration and live staging evidence remain open under #6.
+
 ## Removal And Recovery Boundaries
 
 - Removal uses the original package tenant, subscription, resource group, application name, deployment export, and ownership tags.
@@ -152,7 +165,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 | Capability | Current state | Issue |
 | --- | --- | --- |
 | API and portal application delivery | Not implemented | #5 |
-| Supported upgrade/version policy | Not defined | #6 |
+| Supported upgrade/version policy | Installer contract implemented; portal generation/callbacks and staging proof pending | #6 |
 | Runtime secret inventory and protected provisioning | Not implemented | #7 |
 | Removal lifecycle callbacks | Not implemented | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |

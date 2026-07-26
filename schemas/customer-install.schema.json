@@ -93,6 +93,64 @@
         }
       }
     },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "targetRuntimeVersion",
+        "minimumInstallerVersion",
+        "failureRecovery",
+        "resourceNamePolicy",
+        "sharePointDataPolicy"
+      ],
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": ["install", "upgrade"]
+        },
+        "sourceRuntimeVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "targetRuntimeVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "sourceDeploymentExportId": { "type": "string" },
+        "minimumInstallerVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "failureRecovery": {
+          "type": "string",
+          "const": "ForwardFix"
+        },
+        "resourceNamePolicy": {
+          "type": "string",
+          "const": "Immutable"
+        },
+        "sharePointDataPolicy": {
+          "type": "string",
+          "const": "Preserve"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "operation": { "const": "upgrade" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "required": ["sourceRuntimeVersion", "sourceDeploymentExportId"],
+            "properties": {
+              "sourceRuntimeVersion": { "minLength": 5 },
+              "sourceDeploymentExportId": { "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
     "controlPlane": {
       "type": "object",
       "properties": {

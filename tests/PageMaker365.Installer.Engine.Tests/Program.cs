@@ -29,6 +29,7 @@ internal static class Program
             ("SubmitEvidenceAsync sends hardened callback contract", SubmitEvidenceAsyncSendsHardenedCallbackContract),
             ("SubmitEvidenceAsync retries transient failure with stable identity", SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity),
             ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
+            ("SubmitEvidenceAsync sends upgrade lifecycle identity", SubmitEvidenceAsyncSendsUpgradeLifecycleIdentity),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
             ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
@@ -75,6 +76,10 @@ internal static class Program
             ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
             ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
+            ("UpgradeContractService accepts patch and adjacent minor upgrades", UpgradeContractServiceAcceptsSupportedTransitions),
+            ("UpgradeContractService rejects unsafe version transitions", UpgradeContractServiceRejectsUnsafeTransitions),
+            ("UpgradeContractService version matches PowerShell module", UpgradeContractServiceVersionMatchesPowerShellModule),
+            ("CustomerConfigService requires deployment intent for signed packages", CustomerConfigServiceRequiresDeploymentIntentForSignedPackages),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
@@ -229,6 +234,46 @@ internal static class Program
         AssertEx.Equal(1, handler.Requests.Count);
     }
 
+    private static async Task SubmitEvidenceAsyncSendsUpgradeLifecycleIdentity()
+    {
+        var evidence = CreateInstallerEvidence();
+        evidence.Lifecycle = "upgrade";
+        evidence.AttemptId = "ua_upgrade_001";
+        evidence.InstallAttemptId = evidence.AttemptId;
+        evidence.UpgradeAttemptId = evidence.AttemptId;
+        evidence.EventType = InstallerEvidenceEventType.UpgradeStarted;
+        evidence.Operation = UpgradeContractService.UpgradeOperation;
+        evidence.SourceRuntimeVersion = "1.4.2";
+        evidence.TargetRuntimeVersion = "1.5.0";
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "sequence": 1,
+              "lifecycleStatus": "provisioning",
+              "outcome": "started",
+              "correlationId": "corr-upgrade-evidence-001"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+        var idempotencyKey = $"{evidence.AttemptId}:1:{evidence.EventId}";
+
+        await client.SubmitEvidenceAsync(CreateSession(), evidence, idempotencyKey);
+
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertJsonString(body, "lifecycle", "upgrade");
+        AssertJsonString(body, "attemptId", evidence.AttemptId);
+        AssertJsonString(body, "upgradeAttemptId", evidence.UpgradeAttemptId);
+        AssertJsonString(body, "operation", UpgradeContractService.UpgradeOperation);
+        AssertJsonString(body, "sourceRuntimeVersion", "1.4.2");
+        AssertJsonString(body, "targetRuntimeVersion", "1.5.0");
+        AssertEx.Contains(handler.HeaderValues("Idempotency-Key"), idempotencyKey);
+    }
+
     private static async Task SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload()
     {
         var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
@@ -294,6 +339,8 @@ internal static class Program
         AssertJsonString(loadedPackage, "sharePointSiteUrl", "https://example.sharepoint.com/sites/intranet");
         AssertJsonString(loadedPackage, "sharePointTenantHostname", "example.sharepoint.com");
         AssertJsonString(loadedPackage, "deploymentExportId", "export-001");
+        AssertJsonString(loadedPackage, "operation", UpgradeContractService.InstallOperation);
+        AssertJsonString(loadedPackage, "targetRuntimeVersion", "0.1.0");
         AssertJsonString(loadedPackage, "packageHash", "");
 
         var requestJson = handler.RequestBodies[0];
@@ -1406,6 +1453,85 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static Task UpgradeContractServiceAcceptsSupportedTransitions()
+    {
+        var service = new UpgradeContractService();
+        var config = CreateConfig();
+        config.Deployment.Operation = UpgradeContractService.UpgradeOperation;
+        config.Deployment.SourceRuntimeVersion = "1.4.2";
+        config.Deployment.TargetRuntimeVersion = "1.4.3";
+        config.Deployment.SourceDeploymentExportId = "export-source-001";
+
+        var patch = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.True(patch.IsValid, string.Join(" ", patch.Errors));
+        AssertEx.True(patch.IsUpgrade);
+
+        config.Deployment.TargetRuntimeVersion = "1.5.0";
+        var adjacentMinor = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.True(adjacentMinor.IsValid, string.Join(" ", adjacentMinor.Errors));
+        return Task.CompletedTask;
+    }
+
+    private static Task UpgradeContractServiceRejectsUnsafeTransitions()
+    {
+        var service = new UpgradeContractService();
+        var config = CreateConfig();
+        config.Deployment.Operation = UpgradeContractService.UpgradeOperation;
+        config.Deployment.SourceRuntimeVersion = "1.4.2";
+        config.Deployment.SourceDeploymentExportId = "export-source-001";
+
+        config.Deployment.TargetRuntimeVersion = "1.4.1";
+        var downgrade = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(downgrade.IsValid);
+        AssertEx.StringContains(string.Join(" ", downgrade.Errors), "greater than");
+
+        config.Deployment.TargetRuntimeVersion = "1.6.0";
+        var skippedMinor = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(skippedMinor.IsValid);
+        AssertEx.StringContains(string.Join(" ", skippedMinor.Errors), "skip a minor");
+
+        config.Deployment.TargetRuntimeVersion = "2.0.0";
+        var major = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(major.IsValid);
+        AssertEx.StringContains(string.Join(" ", major.Errors), "Major-version");
+
+        config.Deployment.TargetRuntimeVersion = "1.5.0";
+        config.Deployment.MinimumInstallerVersion = "9.0.0";
+        var installerTooOld = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(installerTooOld.IsValid);
+        AssertEx.StringContains(string.Join(" ", installerTooOld.Errors), "requires installer");
+        return Task.CompletedTask;
+    }
+
+    private static Task UpgradeContractServiceVersionMatchesPowerShellModule()
+    {
+        var manifestPath = Path.Combine(
+            FindRepositoryRoot(),
+            "modules",
+            "PageMaker365.Install",
+            "PageMaker365.Install.psd1");
+        var manifest = File.ReadAllText(manifestPath);
+
+        AssertEx.StringContains(
+            manifest,
+            $"ModuleVersion = '{UpgradeContractService.CurrentInstallerVersion}'");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRequiresDeploymentIntentForSignedPackages()
+    {
+        var config = CreateConfig();
+        config.Deployment = new DeploymentIntentInfo();
+        config.ControlPlane.TrustMode = "SignedRequired";
+        var json = CustomerConfigService.ToJson(config);
+
+        var result = new CustomerConfigService().Validate(config, json);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "deployment.operation is required");
+        return Task.CompletedTask;
+    }
+
     private static Task OptionsServiceLoadsFileAndEnvironmentOverrides()
     {
         var workspaceRoot = CreateTempDirectory();
@@ -1587,6 +1713,8 @@ internal static class Program
             AssertEx.Equal("PageMaker365.DeploymentApproval", result.Manifest.ManifestType);
             AssertEx.Equal(previewPath, result.Manifest.PreviewEvidence.Path);
             AssertEx.Equal(previewHash, result.Manifest.PreviewEvidence.Hash);
+            AssertEx.Equal(UpgradeContractService.InstallOperation, result.Manifest.PackageSummary.Operation);
+            AssertEx.Equal("0.1.0", result.Manifest.PackageSummary.TargetRuntimeVersion);
             AssertEx.True(result.Manifest.PreviewEvidence.EvidenceFileFound);
             AssertEx.True(result.Manifest.ConfirmationSummary.Approved);
             AssertEx.False(result.Manifest.ConfirmationSummary.RawConfirmationTextPersisted);
@@ -1648,6 +1776,11 @@ internal static class Program
             AssertEx.StringContains(finalManifest, "artifactCopiedPath");
             AssertEx.StringContains(finalManifest, "azure-whatif.json");
             AssertEx.StringContains(finalManifest, "azure-deployment.json");
+            AssertEx.StringContains(finalManifest, "targetRuntimeVersion");
+            AssertEx.StringContains(finalManifest, "0.1.0");
+            var finalReport = await File.ReadAllTextAsync(result.ReportPath);
+            AssertEx.StringContains(finalReport, "## Deployment Intent");
+            AssertEx.StringContains(finalReport, "Target runtime version: 0.1.0");
         }
         finally
         {
@@ -2173,8 +2306,10 @@ internal static class Program
     {
         return new CustomerInstallConfig
         {
+            ContractVersion = "0.2",
             Customer =
             {
+                InstallationId = "inst-example-001",
                 TenantName = "Example Customer",
                 TenantId = "tenant-001",
                 PrimaryContact = "owner@example.test"
@@ -2204,6 +2339,15 @@ internal static class Program
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
+            },
+            Deployment =
+            {
+                Operation = UpgradeContractService.InstallOperation,
+                TargetRuntimeVersion = "0.1.0",
+                MinimumInstallerVersion = UpgradeContractService.CurrentInstallerVersion,
+                FailureRecovery = UpgradeContractService.ForwardFixRecovery,
+                ResourceNamePolicy = UpgradeContractService.ImmutableResourceNames,
+                SharePointDataPolicy = UpgradeContractService.PreserveSharePointData
             },
             ControlPlane =
             {

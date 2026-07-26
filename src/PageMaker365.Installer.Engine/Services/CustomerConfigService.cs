@@ -10,6 +10,7 @@ namespace PageMaker365.Installer.Engine.Services;
 
 public sealed class CustomerConfigService
 {
+    private static readonly UpgradeContractService UpgradeContractService = new();
     private static readonly HashSet<string> BlockedSecretProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "values",
@@ -90,6 +91,7 @@ public sealed class CustomerConfigService
         }
 
         ValidateRequiredPackageProperties(packageJson, result);
+        ValidateDeploymentIntent(config, packageJson, result);
         ValidatePackageTrust(config, packageJson, result, trustOptions ?? PackageTrustOptions.FromEnvironment());
 
         if (provenanceContext is not null)
@@ -166,6 +168,30 @@ public sealed class CustomerConfigService
         RequireJsonPath(root, "features.knowledgeBase", result);
         RequireJsonPath(root, "features.customerPortal", result);
         RequireJsonPath(root, "features.billingIntegration", result);
+    }
+
+    private static void ValidateDeploymentIntent(
+        CustomerInstallConfig config,
+        string packageJson,
+        ConfigValidationResult result)
+    {
+        var deploymentSectionPresent = !string.IsNullOrWhiteSpace(config.Deployment.Operation);
+        if (!string.IsNullOrWhiteSpace(packageJson))
+        {
+            using var document = JsonDocument.Parse(packageJson);
+            deploymentSectionPresent = TryGetProperty(document.RootElement, "deployment", out var deployment) &&
+                deployment.ValueKind == JsonValueKind.Object;
+        }
+
+        var requireDeploymentIntent = config.ControlPlane.TrustMode.Equals(
+            "SignedRequired",
+            StringComparison.OrdinalIgnoreCase);
+        var upgradeValidation = UpgradeContractService.ValidatePackageIntent(
+            config,
+            deploymentSectionPresent,
+            requireDeploymentIntent);
+        result.Errors.AddRange(upgradeValidation.Errors);
+        result.Warnings.AddRange(upgradeValidation.Warnings);
     }
 
     private static void RequireJsonPath(JsonElement root, string path, ConfigValidationResult result)

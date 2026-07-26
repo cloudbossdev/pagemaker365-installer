@@ -6,14 +6,34 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $storyPath = Join-Path $repoRoot 'docs/install-uninstall-user-stories.md'
 $scenarioPath = Join-Path $repoRoot 'docs/install-uninstall-test-matrix.md'
 $traceabilityPath = Join-Path $repoRoot 'docs/installer-requirements-traceability.md'
+$upgradeContractPath = Join-Path $repoRoot 'docs/upgrade-contract.md'
 $customerDraftPaths = @(
     (Join-Path $repoRoot 'docs/customer/installer-user-guide.md'),
     (Join-Path $repoRoot 'docs/customer/installer-technical-security-guide.md')
 )
 
-foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath) + $customerDraftPaths) {
+foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath, $upgradeContractPath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
+    }
+}
+
+$upgradeContractText = Get-Content -LiteralPath $upgradeContractPath -Raw
+@(
+    'sourceRuntimeVersion',
+    'targetRuntimeVersion',
+    'sourceDeploymentExportId',
+    'minimumInstallerVersion',
+    'ForwardFix',
+    'Immutable',
+    'Preserve',
+    'upgrade_started',
+    'upgrade_package_validation_failed',
+    'upgrade_completed',
+    'upgrade_failed'
+) | ForEach-Object {
+    if ($upgradeContractText -notmatch [regex]::Escape($_)) {
+        throw "Upgrade contract is missing required term: $_"
     }
 }
 

@@ -494,6 +494,10 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             PrimaryContact = config.Customer.PrimaryContact,
             EnvironmentId = config.ControlPlane.EnvironmentId,
             DeploymentExportId = config.ControlPlane.DeploymentExportId,
+            Operation = config.Deployment.Operation,
+            SourceRuntimeVersion = config.Deployment.SourceRuntimeVersion,
+            TargetRuntimeVersion = config.Deployment.TargetRuntimeVersion,
+            SourceDeploymentExportId = config.Deployment.SourceDeploymentExportId,
             PackageHashAlgorithm = config.ControlPlane.PackageHashAlgorithm,
             PackageHash = config.ControlPlane.PackageHash,
             TrustMode = config.ControlPlane.TrustMode

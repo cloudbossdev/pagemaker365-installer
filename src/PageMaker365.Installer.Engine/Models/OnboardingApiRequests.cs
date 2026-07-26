@@ -38,6 +38,10 @@ public sealed class OnboardingPackageContext
     public string PrimaryContact { get; set; } = "";
     public string EnvironmentId { get; set; } = "";
     public string DeploymentExportId { get; set; } = "";
+    public string Operation { get; set; } = "";
+    public string SourceRuntimeVersion { get; set; } = "";
+    public string TargetRuntimeVersion { get; set; } = "";
+    public string SourceDeploymentExportId { get; set; } = "";
     public string PackageHashAlgorithm { get; set; } = "";
     public string PackageHash { get; set; } = "";
     public string TrustMode { get; set; } = "";

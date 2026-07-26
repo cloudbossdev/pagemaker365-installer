@@ -52,6 +52,14 @@
       "email"
     ]
   },
+  "deployment": {
+    "operation": "install",
+    "targetRuntimeVersion": "0.1.0",
+    "minimumInstallerVersion": "0.1.0",
+    "failureRecovery": "ForwardFix",
+    "resourceNamePolicy": "Immutable",
+    "sharePointDataPolicy": "Preserve"
+  },
   "controlPlane": {
     "baseUrl": "https://pagemaker365.com",
     "deploymentExportId": "export_contoso_sandbox_001",
@@ -66,7 +74,7 @@
     "licenseActivationId": "lic_contoso_sandbox_001",
     "entitlementSyncUrl": "https://api.pagemaker365.com/api/runtime/entitlements/sync",
     "publicKeyId": "pm365-runtime-signing-key-001",
-    "packageHash": "sha256:61acb9f605ff44ef7b0cbadb559f61696edf47f8b70b61bf0c6e5f00c9446f12",
+    "packageHash": "sha256:1d814671eb32673753134750ce8c4c4f66b5972a6be52c36a8513b912c173a07",
     "packageHashAlgorithm": "SHA-256",
     "canonicalization": "json-c14n-v1",
     "signature": "",

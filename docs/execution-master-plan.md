@@ -396,6 +396,27 @@ Acceptance criteria:
 
 Needs customer: portal endpoint from portal agent.
 
+#### Slice 5.4 - Supported Upgrade Contract
+
+Scope:
+
+- [x] Add explicit clean-install/upgrade intent and semantic runtime versions to the package.
+- [x] Enforce patch and adjacent-minor compatibility before mutation.
+- [x] Reconcile source runtime/export/installation identity against Azure tags.
+- [x] Preserve immutable resource names, SharePoint data, and Key Vault secret boundaries.
+- [x] Define forward-fix recovery and upgrade-only lifecycle evidence.
+- [ ] Generate signed upgrade packages and accept upgrade callbacks in the portal.
+- [ ] Prove patch, minor, failure recovery, and preservation behavior in staging.
+
+Acceptance criteria:
+
+- A clean-install package cannot adopt a different existing PageMaker365 environment;
+  only exact same-package reconciliation is allowed.
+- Unsupported or mismatched upgrades fail before What-If and deployment.
+- Upgrade evidence identifies source, target, attempt, order, and outcome.
+
+Needs customer: two staged runtime versions and portal support for upgrade package/evidence contracts.
+
 ### Phase 6 - AI Deployment Assistant
 
 Goal: make assistant helpful while keeping it advisory and non-destructive.

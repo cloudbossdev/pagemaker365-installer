@@ -2,9 +2,12 @@ namespace PageMaker365.Installer.Engine.Models;
 
 public sealed class InstallerEvidenceEvent
 {
+    public string Lifecycle { get; set; } = "install";
+    public string AttemptId { get; set; } = "";
     public string EventId { get; set; } = "";
     public string EventType { get; set; } = "";
     public string InstallAttemptId { get; set; } = "";
+    public string UpgradeAttemptId { get; set; } = "";
     public int Sequence { get; set; }
     public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
     public string OnboardingSessionId { get; set; } = "";
@@ -17,6 +20,9 @@ public sealed class InstallerEvidenceEvent
     public string RuntimeUrl { get; set; } = "";
     public string ApiUrl { get; set; } = "";
     public string AzureResourceGroup { get; set; } = "";
+    public string Operation { get; set; } = "";
+    public string SourceRuntimeVersion { get; set; } = "";
+    public string TargetRuntimeVersion { get; set; } = "";
     public List<InstallerEvidenceSmokeTest> SmokeTests { get; set; } = [];
     public string Message { get; set; } = "";
 }
@@ -82,4 +88,12 @@ public static class InstallerEvidenceEventType
     public const string SmokeTestsCompleted = "smoke_tests_completed";
     public const string InstallCompleted = "install_completed";
     public const string InstallFailed = "install_failed";
+    public const string UpgradePackageValidated = "upgrade_package_validated";
+    public const string UpgradePackageValidationFailed = "upgrade_package_validation_failed";
+    public const string UpgradeStarted = "upgrade_started";
+    public const string UpgradeDeploymentCompleted = "upgrade_deployment_completed";
+    public const string UpgradeRuntimeConfigured = "upgrade_runtime_configured";
+    public const string UpgradeValidationCompleted = "upgrade_validation_completed";
+    public const string UpgradeCompleted = "upgrade_completed";
+    public const string UpgradeFailed = "upgrade_failed";
 }

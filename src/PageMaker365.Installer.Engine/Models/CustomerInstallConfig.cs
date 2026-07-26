@@ -11,6 +11,7 @@ public sealed class CustomerInstallConfig
     public SharePointInfo SharePoint { get; set; } = new();
     public AppInfo App { get; set; } = new();
     public EntraInfo Entra { get; set; } = new();
+    public DeploymentIntentInfo Deployment { get; set; } = new();
     public ControlPlaneInfo ControlPlane { get; set; } = new();
     public SecretContractInfo Secrets { get; set; } = new();
     public FeatureFlags Features { get; set; } = new();
@@ -20,6 +21,18 @@ public sealed class CustomerInstallConfig
     public string DisplayName => string.IsNullOrWhiteSpace(Customer.TenantName)
         ? App.AppName
         : Customer.TenantName;
+}
+
+public sealed class DeploymentIntentInfo
+{
+    public string Operation { get; set; } = "";
+    public string SourceRuntimeVersion { get; set; } = "";
+    public string TargetRuntimeVersion { get; set; } = "";
+    public string SourceDeploymentExportId { get; set; } = "";
+    public string MinimumInstallerVersion { get; set; } = "";
+    public string FailureRecovery { get; set; } = "";
+    public string ResourceNamePolicy { get; set; } = "";
+    public string SharePointDataPolicy { get; set; } = "";
 }
 
 public sealed class CustomerInfo

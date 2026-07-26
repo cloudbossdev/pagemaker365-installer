@@ -70,6 +70,18 @@ public sealed class DeploymentApprovalTargetSummary
 
 public sealed class DeploymentApprovalPackageSummary
 {
+    [JsonPropertyName("operation")]
+    public string Operation { get; set; } = "";
+
+    [JsonPropertyName("sourceRuntimeVersion")]
+    public string SourceRuntimeVersion { get; set; } = "";
+
+    [JsonPropertyName("targetRuntimeVersion")]
+    public string TargetRuntimeVersion { get; set; } = "";
+
+    [JsonPropertyName("sourceDeploymentExportId")]
+    public string SourceDeploymentExportId { get; set; } = "";
+
     [JsonPropertyName("packagePath")]
     public string PackagePath { get; set; } = "";
 

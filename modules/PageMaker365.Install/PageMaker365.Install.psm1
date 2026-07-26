@@ -24,5 +24,6 @@ Export-ModuleMember -Function @(
     'Test-PM365EntraPermissions',
     'Test-PM365KeyVaultRecoveryState',
     'Test-PM365Prerequisites',
-    'Test-PM365SharePointAccess'
+    'Test-PM365SharePointAccess',
+    'Test-PM365UpgradeContract'
 )

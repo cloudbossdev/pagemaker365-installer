@@ -25,9 +25,10 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 11. Open the verified customer URL and finish
 12. Retry portal synchronization
 13. Diagnose warnings and create a support bundle
-14. Remove PageMaker365 Azure resources
-15. Reinstall with a new package and Key Vault name
-16. Frequently asked questions
+14. Upgrade PageMaker365 with an approved upgrade package
+15. Remove PageMaker365 Azure resources
+16. Reinstall with a new package and Key Vault name
+17. Frequently asked questions
 
 ## Customer Experience Requirements
 
@@ -38,6 +39,10 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - Blockers explain what failed, why progression stopped, and the next corrective action.
 - Restarting the app does not restore tokens, secrets, or destructive approval.
 - Successful validation displays the verified PageMaker365 customer URL.
+- An upgrade package clearly displays its source and target runtime versions before sign-in.
+- Clean-install packages cannot adopt a different existing PageMaker365 environment;
+  the exact same immutable package can reconcile only its own matching deployment.
+- Unsupported, stale, or mismatched upgrades stop before Azure mutation and request a new package.
 - Removal never deletes SharePoint content or purges Key Vault.
 
 ## Content Still Required Before Publication
@@ -45,7 +50,9 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - Released installer screenshots with synthetic data.
 - Final customer roles and permission prerequisites from issue #8.
 - Verified runtime completion and customer URL behavior from issue #5.
-- Supported upgrade instructions from issue #6.
+- Supported upgrade screenshots and staging evidence from issue #6. The installer
+  already labels an upgrade package with its source and target runtime versions and
+  blocks unsupported or mismatched transitions before Azure mutation.
 - Signed distribution and verification instructions from issue #13.
 - Clean-operator walkthrough results from issue #10.
 

@@ -88,21 +88,21 @@ Scenario status meanings:
 | D06 | Approved deployment is running | Visible activity persists, controls do not shift, and duplicate execution is disabled. | Partial |
 | D07 | Azure returns App Service capacity conflict | Failure is sanitized, retryable, and does not claim install success. | Partial |
 | D08 | Deployment creates some resources and then fails | Artifact identifies the attempt/correlation and enables ownership-proven cleanup. | Partial |
-| D09 | Retry follows a transient partial deployment | Existing owned resources are reused or reconciled without duplication. | Planned |
+| D09 | Retry follows a transient partial deployment | Existing owned resources are reused or reconciled without duplication. | Automated contract; live pending |
 | D10 | Deployment is cancelled, times out, or the app closes | Resume reconciles live Azure state before any retry. | Partial |
 
 ## Upgrade Scenarios
 
 | ID | Scenario | Expected result | Status |
 | --- | --- | --- | --- |
-| U01 | Supported patch upgrade | Preview, migration, deployment, validation, and evidence complete without data loss. | Planned |
-| U02 | Supported minor-version upgrade | Documented compatibility and migration path succeeds. | Planned |
-| U03 | Unsupported source/target version transition | Upgrade blocks before mutation with a supported path. | Planned |
-| U04 | Upgrade requires configuration migration | Sensitive values remain in Key Vault and migration is auditable. | Planned |
-| U05 | Upgrade fails after partial mutation | Recovery or rollback boundary is explicit and live state is reconciled. | Planned |
-| U06 | SharePoint/customer data exists during upgrade | Customer-owned content remains unchanged. | Planned |
-| U07 | Installer, package, and runtime versions are incompatible | Compatibility validation blocks before preview or deployment. | Planned |
-| U08 | Upgrade completes | Evidence and portal state identify source version, target version, and outcome. | Planned |
+| U01 | Supported patch upgrade | Preview, migration, deployment, validation, and evidence complete without data loss. | Automated contract; live pending |
+| U02 | Supported minor-version upgrade | Documented compatibility and migration path succeeds. | Automated contract; live pending |
+| U03 | Unsupported source/target version transition | Upgrade blocks before mutation with a supported path. | Automated |
+| U04 | Upgrade requires configuration migration | Sensitive values remain in Key Vault and migration is auditable. | Contract defined; live pending |
+| U05 | Upgrade fails after partial mutation | Recovery or rollback boundary is explicit and live state is reconciled. | Contract defined; live pending |
+| U06 | SharePoint/customer data exists during upgrade | Customer-owned content remains unchanged. | Contract defined; live pending |
+| U07 | Installer, package, and runtime versions are incompatible | Compatibility validation blocks before preview or deployment. | Automated |
+| U08 | Upgrade completes | Evidence and portal state identify source version, target version, and outcome. | Automated installer contract; portal pending |
 
 ## Runtime Validation Scenarios
 
