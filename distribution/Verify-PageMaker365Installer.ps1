@@ -2,6 +2,10 @@
 param(
     [string] $PackagePath = $PSScriptRoot,
 
+    [string] $ExpectedPublisher = '',
+
+    [string] $ExpectedCertificateThumbprint = '',
+
     [switch] $AllowUnsignedDevelopment
 )
 
@@ -23,6 +27,29 @@ if ($manifest.schemaVersion -ne '1.0' -or $manifest.product -ne 'PageMaker365 In
 
 if ($manifest.signing.status -ne 'Signed' -and -not $AllowUnsignedDevelopment) {
     throw 'This package is not signed for customer release. Obtain a signed PageMaker365 distribution.'
+}
+
+$normalizedExpectedThumbprint = ([string]$ExpectedCertificateThumbprint).Replace(' ', '').ToUpperInvariant()
+if ($manifest.signing.status -eq 'Signed') {
+    if ([string]::IsNullOrWhiteSpace($ExpectedPublisher) -or
+        [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint)) {
+        throw 'Signed-package verification requires the expected publisher and certificate thumbprint from the official PageMaker365 release record.'
+    }
+    if ($normalizedExpectedThumbprint -notmatch '^[0-9A-F]{40}$') {
+        throw 'ExpectedCertificateThumbprint must contain exactly 40 hexadecimal characters.'
+    }
+    if ($manifest.signing.publisher -ne $ExpectedPublisher -or
+        ([string]$manifest.signing.certificateThumbprint).ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
+        throw 'The release manifest signer does not match the official PageMaker365 release identity.'
+    }
+
+    $verifierSignature = Get-AuthenticodeSignature -LiteralPath $PSCommandPath
+    if ($verifierSignature.Status -ne 'Valid' -or
+        $null -eq $verifierSignature.SignerCertificate -or
+        $verifierSignature.SignerCertificate.Subject -ne $ExpectedPublisher -or
+        $verifierSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
+        throw 'The verification script is not signed by the official PageMaker365 release identity.'
+    }
 }
 
 $expectedPaths = @($manifest.files | ForEach-Object { [string]$_.path })
@@ -64,6 +91,11 @@ foreach ($file in $manifest.files) {
         if ($signature.SignerCertificate.Thumbprint -ne $manifest.signing.certificateThumbprint -or
             $signature.SignerCertificate.Subject -ne $manifest.signing.publisher) {
             throw "The signer does not match the release manifest for $relativePath."
+        }
+
+        if ($signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $normalizedExpectedThumbprint -or
+            $signature.SignerCertificate.Subject -ne $ExpectedPublisher) {
+            throw "The signer does not match the official PageMaker365 release identity for $relativePath."
         }
     }
 }

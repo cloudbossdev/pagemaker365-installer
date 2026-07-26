@@ -16,24 +16,32 @@ customer-specific setup, export, status, or handoff artifacts are prohibited.
 
 ## Trust Model
 
-The distribution has two independent controls:
+The distribution has three independent controls:
 
 1. Authenticode signs `PageMaker365.Installer.exe`, PageMaker365 first-party
    libraries, and every shipped `.ps1`, `.psm1`, and `.psd1` file.
 2. `release-manifest.json`, `SHA256SUMS.txt`, and the sibling `.zip.sha256`
    record the exact payload and archive integrity.
+3. The official release record supplies the expected publisher and certificate
+   thumbprint independently of the ZIP. The verifier requires those external
+   values, checks its own Authenticode identity, and rejects a package whose
+   self-declared or actual signer differs. Customer instructions independently
+   check the verifier's signature before executing code from the ZIP.
 
 The ZIP file itself is not described as Authenticode-signed. A customer release
 is valid only when the manifest reports `Signed`, every required signature is
-valid and matches the manifest publisher/thumbprint, and the archive and file
-hashes pass. `UnsignedDevelopment` is permitted only in engineering CI and must
-be rejected by the customer verifier's default mode.
+valid and matches both the manifest and the official publisher/thumbprint, and
+the archive and file hashes pass. Values read only from inside the ZIP are not
+an authenticity trust anchor. `UnsignedDevelopment` is permitted only in
+engineering CI and must be rejected by the customer verifier's default mode.
 
 Private keys and PFX passwords must not be passed on the command line, written
 to the package, or stored in logs. The package script accepts an installed
 certificate thumbprint or imports a PFX whose password is read from a named
 environment variable. The imported certificate is removed from the current
-user store when packaging finishes.
+user store when packaging finishes. Production CI completes repository
+verification before exposing the PFX/password to a step or materializing the
+temporary certificate file.
 
 ## Version And Source Identity
 
@@ -62,14 +70,17 @@ does not promise that independently timestamped signatures are byte-identical.
 
 ## Required Release Procedure
 
-1. Start from a clean, reviewed commit on the approved release branch or tag.
+1. Start from a clean, reviewed commit on `main`. The production signing
+   workflow rejects any other selected ref.
 2. Run `scripts/verify.ps1`.
-3. Package with an approved version, certificate, expected publisher, and
-   `-RequireCleanSource`.
+3. Package with an approved version, certificate, expected publisher, expected
+   certificate thumbprint, and `-RequireCleanSource`.
 4. Run `scripts/test-package-hygiene.ps1` against the extracted directory.
 5. Run `scripts/test-release-package.ps1 -RequireSignature`.
 6. Publish the ZIP, sibling checksum, version, publisher, certificate
    thumbprint, source commit, and release notes in one GitHub release record.
+   Customers must obtain the expected publisher and thumbprint from this
+   record, not from files inside the ZIP.
 7. Launch and execute the acceptance matrix on a clean supported Windows 11
    workstation.
 8. Retain the exact package, CI run, acceptance evidence, and previous approved

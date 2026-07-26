@@ -39,22 +39,42 @@ either file is absent or the values differ.
 ## Verify The Extracted Package
 
 1. Extract the ZIP to a new local folder.
-2. Open PowerShell in that folder.
-3. Run:
+2. Obtain the expected publisher and certificate thumbprint from the official
+   PageMaker365 release record, not from the ZIP or extracted manifest.
+3. Open PowerShell in that folder and verify the verifier script itself before
+   executing it:
+
+```powershell
+$expectedPublisher = '<publisher-from-official-release-record>'
+$expectedThumbprint = '<thumbprint-from-official-release-record>'
+$verifierSignature = Get-AuthenticodeSignature `
+  -LiteralPath .\Verify-PageMaker365Installer.ps1
+
+if ($verifierSignature.Status -ne 'Valid' -or
+    $verifierSignature.SignerCertificate.Subject -ne $expectedPublisher -or
+    $verifierSignature.SignerCertificate.Thumbprint -ne $expectedThumbprint) {
+  throw 'The verifier is not signed by the official PageMaker365 release identity.'
+}
+```
+
+4. Run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy AllSigned `
-  -File .\Verify-PageMaker365Installer.ps1
+  -File .\Verify-PageMaker365Installer.ps1 `
+  -ExpectedPublisher $expectedPublisher `
+  -ExpectedCertificateThumbprint $expectedThumbprint
 ```
 
 The result must report `Verified` and `Signed`. The publisher and certificate
-thumbprint must match the values published in the PageMaker365 release record.
-Do not use `-AllowUnsignedDevelopment` for a customer installation; that switch
-exists only for engineering CI validation.
+thumbprint must match the supplied official values. Do not use
+`-AllowUnsignedDevelopment` for a customer installation; that switch exists
+only for engineering CI validation.
 
 The verification script checks every manifest path, file length, SHA-256 hash,
-required Authenticode signature, publisher, certificate thumbprint, and the
-complete extracted-file inventory. Extra, missing, or modified files fail the
+required Authenticode signature (including its own), externally supplied
+publisher and certificate thumbprint, and the complete extracted-file
+inventory. Extra, missing, modified, or self-declared signer values fail the
 check.
 
 ## Launch And Local Rollback

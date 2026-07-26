@@ -20,6 +20,8 @@ param(
 
     [string] $ExpectedPublisher = '',
 
+    [string] $ExpectedCertificateThumbprint = '',
+
     [string] $TimestampServer = 'http://timestamp.digicert.com',
 
     [switch] $RequireCleanSource
@@ -159,6 +161,18 @@ if (-not [string]::IsNullOrWhiteSpace($CodeSigningCertificatePath) -and
     throw 'Specify either CodeSigningCertificatePath or CodeSigningCertificateThumbprint, not both.'
 }
 
+$normalizedExpectedThumbprint = ([string]$ExpectedCertificateThumbprint).Replace(' ', '').ToUpperInvariant()
+if (-not [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint) -and
+    $normalizedExpectedThumbprint -notmatch '^[0-9A-F]{40}$') {
+    throw 'ExpectedCertificateThumbprint must contain exactly 40 hexadecimal characters.'
+}
+
+if ($RequireCleanSource -and $signingRequested -and
+    ([string]::IsNullOrWhiteSpace($ExpectedPublisher) -or
+        [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint))) {
+    throw 'A signed customer release requires ExpectedPublisher and ExpectedCertificateThumbprint.'
+}
+
 $certificate = $null
 $importedCertificateThumbprints = @()
 try {
@@ -222,6 +236,10 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($ExpectedPublisher) -and
             $certificate.Subject -ne $ExpectedPublisher) {
             throw "Certificate publisher '$($certificate.Subject)' does not match '$ExpectedPublisher'."
+        }
+        if (-not [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint) -and
+            $certificate.Thumbprint.ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
+            throw "Certificate thumbprint '$($certificate.Thumbprint)' does not match the approved signing certificate."
         }
 
         $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue

@@ -180,12 +180,15 @@ pwsh .\scripts\package.ps1 `
   -OutputPath .\artifacts\pagemaker365-installer-0.1.0 `
   -CodeSigningCertificateThumbprint '<certificate-thumbprint>' `
   -ExpectedPublisher '<approved-certificate-subject>' `
+  -ExpectedCertificateThumbprint '<certificate-thumbprint>' `
   -RequireCleanSource
 
 pwsh .\scripts\test-release-package.ps1 `
   -PackagePath .\artifacts\pagemaker365-installer-0.1.0 `
   -ArchivePath .\artifacts\pagemaker365-installer-0.1.0.zip `
   -ExpectedVersion 0.1.0 `
+  -ExpectedPublisher '<approved-certificate-subject>' `
+  -ExpectedCertificateThumbprint '<certificate-thumbprint>' `
   -RequireSignature
 ```
 

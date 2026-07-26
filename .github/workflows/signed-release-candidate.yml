@@ -26,12 +26,31 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Validate signing configuration
+      - name: Validate release source and signing identity
+        shell: pwsh
+        env:
+          PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
+          PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw "Signed release candidates must be built from main. Selected ref: $env:GITHUB_REF"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PUBLISHER)) {
+            throw 'The production-signing environment is missing PM365_CODESIGN_PUBLISHER.'
+          }
+          if ($env:PM365_CODESIGN_THUMBPRINT -notmatch '^[0-9A-Fa-f]{40}$') {
+            throw 'The production-signing environment must define PM365_CODESIGN_THUMBPRINT as exactly 40 hexadecimal characters.'
+          }
+
+      - name: Verify repository
+        shell: pwsh
+        run: .\scripts\verify.ps1
+
+      - name: Materialize signing certificate
         shell: pwsh
         env:
           PM365_CODESIGN_PFX_BASE64: ${{ secrets.PM365_CODESIGN_PFX_BASE64 }}
           PM365_CODESIGN_PFX_PASSWORD: ${{ secrets.PM365_CODESIGN_PFX_PASSWORD }}
-          PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PFX_BASE64)) {
             throw 'The production-signing environment is missing PM365_CODESIGN_PFX_BASE64.'
@@ -39,29 +58,17 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PFX_PASSWORD)) {
             throw 'The production-signing environment is missing PM365_CODESIGN_PFX_PASSWORD.'
           }
-          if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PUBLISHER)) {
-            throw 'The production-signing environment is missing PM365_CODESIGN_PUBLISHER.'
-          }
-
-      - name: Materialize signing certificate
-        shell: pwsh
-        env:
-          PM365_CODESIGN_PFX_BASE64: ${{ secrets.PM365_CODESIGN_PFX_BASE64 }}
-        run: |
           $certificatePath = Join-Path $env:RUNNER_TEMP 'pagemaker365-codesign.pfx'
           [System.IO.File]::WriteAllBytes(
             $certificatePath,
             [Convert]::FromBase64String($env:PM365_CODESIGN_PFX_BASE64))
-
-      - name: Verify repository
-        shell: pwsh
-        run: .\scripts\verify.ps1
 
       - name: Build and sign release candidate
         shell: pwsh
         env:
           PM365_CODESIGN_PFX_PASSWORD: ${{ secrets.PM365_CODESIGN_PFX_PASSWORD }}
           PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
+          PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}
           PM365_RELEASE_VERSION: ${{ inputs.version }}
         run: |
           .\scripts\package.ps1 `
@@ -70,12 +77,15 @@ jobs:
             -OutputPath .\artifacts\signed-release-candidate `
             -CodeSigningCertificatePath (Join-Path $env:RUNNER_TEMP 'pagemaker365-codesign.pfx') `
             -ExpectedPublisher $env:PM365_CODESIGN_PUBLISHER `
+            -ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT `
             -RequireCleanSource
 
       - name: Verify signed release evidence
         shell: pwsh
         env:
           PM365_RELEASE_VERSION: ${{ inputs.version }}
+          PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
+          PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}
         run: |
           .\scripts\test-package-hygiene.ps1 `
             -PackagePath .\artifacts\signed-release-candidate
@@ -83,6 +93,8 @@ jobs:
             -PackagePath .\artifacts\signed-release-candidate `
             -ArchivePath .\artifacts\signed-release-candidate.zip `
             -ExpectedVersion $env:PM365_RELEASE_VERSION `
+            -ExpectedPublisher $env:PM365_CODESIGN_PUBLISHER `
+            -ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT `
             -RequireSignature
 
       - name: Remove temporary certificate file

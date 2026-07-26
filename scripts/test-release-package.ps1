@@ -9,10 +9,15 @@ param(
     [Parameter(Mandatory)]
     [string] $ExpectedVersion,
 
+    [string] $ExpectedPublisher = '',
+
+    [string] $ExpectedCertificateThumbprint = '',
+
     [switch] $RequireSignature
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
 $PackagePath = (Resolve-Path -LiteralPath $PackagePath).Path
 $ArchivePath = (Resolve-Path -LiteralPath $ArchivePath).Path
 $archiveChecksumPath = "$ArchivePath.sha256"
@@ -23,7 +28,15 @@ if (-not (Test-Path -LiteralPath $archiveChecksumPath -PathType Leaf)) {
 
 $verifierPath = Join-Path $PackagePath 'Verify-PageMaker365Installer.ps1'
 $verifyArguments = @{ PackagePath = $PackagePath }
-if (-not $RequireSignature) {
+if ($RequireSignature) {
+    if ([string]::IsNullOrWhiteSpace($ExpectedPublisher) -or
+        [string]::IsNullOrWhiteSpace($ExpectedCertificateThumbprint)) {
+        throw 'Signed release tests require ExpectedPublisher and ExpectedCertificateThumbprint.'
+    }
+    $verifyArguments.ExpectedPublisher = $ExpectedPublisher
+    $verifyArguments.ExpectedCertificateThumbprint = $ExpectedCertificateThumbprint
+}
+else {
     $verifyArguments.AllowUnsignedDevelopment = $true
 }
 $verification = & $verifierPath @verifyArguments
@@ -37,7 +50,9 @@ function Assert-VerificationFails {
         [scriptblock] $Action,
 
         [Parameter(Mandatory)]
-        [string] $Scenario
+        [string] $Scenario,
+
+        [string] $ExpectedMessagePattern = ''
     )
 
     $failed = $false
@@ -46,6 +61,10 @@ function Assert-VerificationFails {
     }
     catch {
         $failed = $true
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedMessagePattern) -and
+            $_.Exception.Message -notmatch $ExpectedMessagePattern) {
+            throw "Release verification failed for '$Scenario', but not for the expected reason. $($_.Exception.Message)"
+        }
     }
 
     if (-not $failed) {
@@ -68,6 +87,21 @@ if ($manifest.signing.status -eq 'UnsignedDevelopment') {
     Assert-VerificationFails `
         -Scenario 'unsigned development package in customer mode' `
         -Action { & $verifierPath -PackagePath $PackagePath }
+
+    $manifestPath = Join-Path $PackagePath 'release-manifest.json'
+    $originalManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+    try {
+        $manifest.signing.status = 'Signed'
+        $manifest | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+        Assert-VerificationFails `
+            -Scenario 'self-declared signed package without an external signer identity' `
+            -ExpectedMessagePattern 'expected publisher and certificate thumbprint' `
+            -Action { & $verifierPath -PackagePath $PackagePath -AllowUnsignedDevelopment }
+    }
+    finally {
+        [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
+    }
 }
 
 $tamperPath = Join-Path $PackagePath 'RELEASE-NOTES.md'
@@ -76,7 +110,7 @@ try {
     Add-Content -LiteralPath $tamperPath -Value 'tampered'
     Assert-VerificationFails `
         -Scenario 'modified manifest-listed file' `
-        -Action { & $verifierPath -PackagePath $PackagePath -AllowUnsignedDevelopment }
+        -Action { & $verifierPath @verifyArguments }
 }
 finally {
     [System.IO.File]::WriteAllBytes($tamperPath, $originalTamperBytes)
@@ -87,7 +121,7 @@ try {
     Set-Content -LiteralPath $unexpectedPath -Value 'unexpected' -Encoding ascii
     Assert-VerificationFails `
         -Scenario 'unexpected extracted file' `
-        -Action { & $verifierPath -PackagePath $PackagePath -AllowUnsignedDevelopment }
+        -Action { & $verifierPath @verifyArguments }
 }
 finally {
     Remove-Item -LiteralPath $unexpectedPath -Force -ErrorAction SilentlyContinue
@@ -143,6 +177,25 @@ try {
 }
 finally {
     $archive.Dispose()
+}
+
+$signedWorkflowPath = Join-Path $repoRoot '.github\workflows\signed-release-candidate.yml'
+$signedWorkflow = Get-Content -LiteralPath $signedWorkflowPath -Raw
+foreach ($requiredPolicy in @(
+    "environment: production-signing",
+    "`$env:GITHUB_REF -ne 'refs/heads/main'",
+    'PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}',
+    '-ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT'
+)) {
+    if (-not $signedWorkflow.Contains($requiredPolicy, [StringComparison]::Ordinal)) {
+        throw "Signed release workflow policy is missing: $requiredPolicy"
+    }
+}
+
+$verifyStepIndex = $signedWorkflow.IndexOf('- name: Verify repository', [StringComparison]::Ordinal)
+$certificateStepIndex = $signedWorkflow.IndexOf('- name: Materialize signing certificate', [StringComparison]::Ordinal)
+if ($verifyStepIndex -lt 0 -or $certificateStepIndex -lt 0 -or $verifyStepIndex -gt $certificateStepIndex) {
+    throw 'Repository verification must complete before the signing certificate is materialized.'
 }
 
 Write-Host "Release package checks passed for PageMaker365 Installer $ExpectedVersion."

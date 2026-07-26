@@ -6,6 +6,7 @@ Source commit: `{{SOURCE_COMMIT}}`
 
 This package is a pilot ZIP distribution. It is customer-releasable only when
 `release-manifest.json` reports `Signed` and the included verifier completes
+with the publisher and certificate thumbprint from the official release record,
 without `-AllowUnsignedDevelopment`.
 
 ## Included Workflows

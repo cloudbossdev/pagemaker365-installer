@@ -21,11 +21,11 @@ Scenario status meanings:
 
 | ID | Scenario | Expected result | Status |
 | --- | --- | --- | --- |
-| W01 | Approved signed ZIP is verified | Archive hash, inventory, file hashes, signatures, publisher, and certificate thumbprint pass before launch. | Automated contract; signed candidate pending |
+| W01 | Approved signed ZIP is verified | Archive hash, inventory, file hashes, signatures, and externally supplied official publisher/thumbprint pass before launch. | Automated contract; signed candidate pending |
 | W02 | ZIP, manifest-listed file, or checksum is modified | Verification fails and the installer is not launched. | Automated |
 | W03 | Extracted package contains a missing or extra file | Exact-inventory verification fails. | Automated |
 | W04 | Unsigned development package is supplied to a customer | Default verification rejects `UnsignedDevelopment`; only explicit engineering mode permits CI inspection. | Automated |
-| W05 | Required file has the wrong signer, publisher, or certificate thumbprint | Verification fails closed. | Automated contract; signed candidate pending |
+| W05 | Required file or manifest has the wrong signer, publisher, or certificate thumbprint | Verification fails closed against the official release identity rather than trusting values declared inside the ZIP. | Automated contract; signed candidate pending |
 | W06 | Approved package is extracted on a clean supported Windows 11 workstation | Verification passes, icon/metadata render, and the installer opens without repository tooling. | Planned |
 | W07 | Operator rolls back the local program version | Previous approved signed ZIP is extracted to a new folder; no Azure or SharePoint state is implied to change. | Planned |
 | W08 | Identical unsigned source/version is packaged twice | Both deterministic ZIP archives have the same SHA-256 value. | Automated |
