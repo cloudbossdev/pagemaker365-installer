@@ -17,7 +17,7 @@ The documents are:
 1. A task-focused user guide for authorized customer operators.
 2. A technical and security guide for architecture, identity, security, networking, operations, and support review.
 
-This branch owns documentation structure, verified content, approved screenshots, review records, and publication readiness. Product behavior changes must be implemented and reviewed on their own issue-linked branches before this branch describes them as supported.
+This branch establishes the documentation structure, evidence gates, review responsibilities, and publication controls. Merging this delivery plan does not approve either customer guide: both guide files must retain their controlled-draft status until the release and evidence gates below are satisfied. Product behavior changes must be implemented and reviewed on their own issue-linked branches before the guides describe them as supported.
 
 ## Audience And Content Boundaries
 
@@ -67,11 +67,12 @@ Unknown or incomplete behavior must be labeled as a release blocker in the contr
 
 ## Branch And Pull Request Strategy
 
-- `docs/customer-guides-v1` contains the controlled guide drafts and this delivery plan.
+- `docs/customer-guides-v1` establishes the delivery plan and initial guide controls.
 - Each product gap uses a branch named `issue/<number>-<short-description>` from current `main`.
 - Product pull requests include implementation, tests, traceability changes, and any immediately affected draft language.
 - Product pull requests merge before the documentation branch records the capability as supported.
-- The documentation pull request is rebased or merged from current `main` after each dependency lands.
+- The delivery-plan pull request may merge before implementation dependencies so CI enforces the guide controls early; this does not change either guide from controlled draft to approved.
+- The final publication pull request starts from current `main` after all implementation, release, and live-evidence dependencies land.
 - No direct customer-publication changes are made on `main`.
 - The final documentation pull request links #11, #12, the readiness epic #2, the release candidate commit, acceptance evidence, and reviewer approvals.
 
@@ -81,8 +82,8 @@ Unknown or incomplete behavior must be labeled as a release blocker in the contr
 | --- | --- | --- |
 | 1 | Stabilize requirements and technical security baseline | #3 and #8 closed; story catalog and security profile enforced by CI |
 | 2 | Close setup, authentication, and preflight negative paths | #4 accepted with automated and staging evidence |
-| 3 | Deploy and identify the real runtime | #5 accepted; API and portal artifacts pass deployment-bound validation |
-| 4 | Implement protected runtime configuration | #7 accepted; secrets are written to customer Key Vault and never persisted or reported |
+| 3 | Implement protected runtime configuration | #7 accepted; secrets are written to customer Key Vault and never persisted or reported |
+| 4 | Deploy and identify the real runtime | #5 accepted; API and portal artifacts pass deployment-bound validation |
 | 5 | Define the supported upgrade contract | #6 accepted or explicitly excluded from v1 with approved customer wording |
 | 6 | Harden removal reporting | #9 accepted; removal callbacks and retry outbox are verified |
 | 7 | Run lifecycle acceptance | #10 accepted on a clean workstation, including repeated install/remove/reinstall |
@@ -117,8 +118,8 @@ An individual may hold more than one role, but each decision must be recorded in
 
 ## Immediate Actions
 
-1. Keep both guide files as controlled drafts while #4 through #10 and #13 remain open.
-2. Implement the next release dependency through issue #7 on its own branch; do not add actual secret values to packages, logs, evidence, or tests.
-3. Update this branch after each implementation merge, replacing blocker language only with traceable verified behavior.
+1. Merge the delivery-plan and CI controls while keeping both guide files as controlled drafts until #4 through #10 and #13 are accepted.
+2. Integrate issue #7 before issue #5 so runtime deployment consumes the approved Key Vault-backed configuration contract; do not add actual secret values to packages, logs, evidence, or tests.
+3. Update the controlled drafts through each implementation pull request, replacing blocker language only with traceable verified behavior.
 4. During #10, complete a clean-operator walkthrough using the user guide alone and record the screenshot states needed for publication.
 5. After #13 produces the signed release candidate, capture sanitized final screenshots, request the required reviews, and record decisions in the documentation pull request.
