@@ -6,14 +6,33 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $storyPath = Join-Path $repoRoot 'docs/install-uninstall-user-stories.md'
 $scenarioPath = Join-Path $repoRoot 'docs/install-uninstall-test-matrix.md'
 $traceabilityPath = Join-Path $repoRoot 'docs/installer-requirements-traceability.md'
+$removalEvidenceContractPath = Join-Path $repoRoot 'docs/removal-evidence-callback-contract.md'
 $customerDraftPaths = @(
     (Join-Path $repoRoot 'docs/customer/installer-user-guide.md'),
     (Join-Path $repoRoot 'docs/customer/installer-technical-security-guide.md')
 )
 
-foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath) + $customerDraftPaths) {
+foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath, $removalEvidenceContractPath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
+    }
+}
+
+$removalContractText = Get-Content -LiteralPath $removalEvidenceContractPath -Raw
+@(
+    'removal_started',
+    'removal_inventory_completed',
+    'removal_execution_completed',
+    'removal_validation_completed',
+    'removal_completed',
+    'removal_blocked',
+    'removal_failed',
+    'removalAttemptId',
+    'RemovalStatusSync',
+    'Idempotency-Key'
+) | ForEach-Object {
+    if ($removalContractText -notmatch [regex]::Escape($_)) {
+        throw "Removal evidence callback contract is missing required term: $_"
     }
 }
 

@@ -23,7 +23,7 @@ The current alpha provisions the Azure foundation but does not yet deploy produc
 7. The installer deploys only the package-named PageMaker365 resource group and resources. Ownership tags and the approved preview are rechecked at destructive boundaries.
 8. Sanitized lifecycle evidence is sent to the portal with stable event IDs, sequence numbers, and idempotency keys. Sync failures remain in a local outbox and do not redefine the Azure result.
 
-Implementation: `OnboardingSessionService`, `TrustedPageMaker365EndpointPolicy`, `CustomerConfigService`, `DeploymentApprovalManifestService`, `InstallerEvidenceOutboxState`, and the PowerShell deployment/removal commands.
+Implementation: `OnboardingSessionService`, `TrustedPageMaker365EndpointPolicy`, `CustomerConfigService`, `DeploymentApprovalManifestService`, the install/removal evidence outboxes, and the PowerShell deployment/removal commands.
 
 ## Operator Identities And Permissions
 
@@ -145,7 +145,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 - SharePoint content and customer-created SharePoint data are not removed.
 - Key Vault purge is never performed. Azure soft-delete recovery remains available for the configured 90-day vault retention period.
 - A later reinstall uses a new package and new disposable Key Vault name during testing.
-- Hardened removal lifecycle callbacks are not implemented; see #9.
+- Authorized removal callbacks use a distinct `ra_` attempt, ordered removal-only event types, sanitized disposition counts, stable idempotency keys, and a persisted outbox. Portal v0.3 acceptance and staging proof remain open under #9.
 
 ## Known Release Blockers
 
@@ -154,7 +154,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 | API and portal application delivery | Not implemented | #5 |
 | Supported upgrade/version policy | Not defined | #6 |
 | Runtime secret inventory and protected provisioning | Not implemented | #7 |
-| Removal lifecycle callbacks | Not implemented | #9 |
+| Removal lifecycle callbacks | Installer implemented; portal/API acceptance and staging proof pending | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
 | Production code signing and distribution | Not implemented | #13 |

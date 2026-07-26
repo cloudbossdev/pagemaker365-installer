@@ -128,12 +128,12 @@ Scenario status meanings:
 | E06 | Portal is offline after a successful local action | Local result is unchanged and event remains in outbox. | Automated |
 | E07 | Outbox event is retried | Payload, event ID, attempt ID, sequence, and idempotency key remain stable. | Automated |
 | E08 | Callback contains a token, secret, raw log, file, or prohibited tenant content | Payload is rejected or redacted before transport. | Partial |
-| E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Planned |
-| E10 | Removal inventory/preview completes | Portal receives sanitized removed/retained/blocked intent without raw inventory export. | Planned |
-| E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Planned |
-| E12 | Removal blocks or fails | Sanitized terminal/blocked outcome preserves the Azure result. | Planned |
-| E13 | Removal portal sync fails | Stable removal event remains in a dedicated outbox for retry. | Planned |
-| E14 | Install and removal callbacks coexist | Event types and attempt state cannot be confused or reordered across lifecycles. | Planned |
+| E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Automated |
+| E10 | Removal inventory/preview completes | Portal receives sanitized removed/retained/blocked intent without raw inventory export. | Automated contract; live pending |
+| E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Automated contract; live pending |
+| E12 | Removal blocks or fails | Sanitized terminal/blocked outcome preserves the Azure result. | Automated |
+| E13 | Removal portal sync fails | Stable removal event remains in a dedicated outbox for retry. | Automated installer; portal pending |
+| E14 | Install and removal callbacks coexist | Event types and attempt state cannot be confused or reordered across lifecycles. | Automated installer; portal pending |
 
 ## Troubleshooting And Support Scenarios
 

@@ -21,6 +21,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
     };
 
     private static readonly CustomerConfigService ConfigService = new();
+    private static readonly RedactionService EvidenceRedactionService = new();
 
     private readonly OnboardingApiOptions _options;
     private readonly HttpClient _httpClient;
@@ -213,13 +214,16 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                         "sessionId",
                         "eventId",
                         "eventType",
-                        "installAttemptId",
                         "sequence",
                         "correlationId"),
                     request => request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey));
                 EnsureSessionMatches("installer evidence", endpoint, session, receipt.SessionId);
+                var submittedAttemptId = EvidenceAttemptId(evidence);
+                var receivedAttemptId = First(receipt.AttemptId, receipt.RemovalAttemptId, receipt.InstallAttemptId);
                 if (!receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
-                    receipt.Sequence != evidence.Sequence)
+                    receipt.Sequence != evidence.Sequence ||
+                    string.IsNullOrWhiteSpace(receivedAttemptId) ||
+                    !receivedAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal))
                 {
                     throw new OnboardingApiException(
                         "Portal onboarding API installer evidence response did not match the submitted event.",
@@ -456,10 +460,16 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         InstallerEvidenceEvent evidence,
         string idempotencyKey)
     {
+        var lifecycle = string.IsNullOrWhiteSpace(evidence.Lifecycle)
+            ? evidence.EventType.StartsWith("removal_", StringComparison.Ordinal)
+                ? InstallerEvidenceLifecycle.Removal
+                : InstallerEvidenceLifecycle.Install
+            : evidence.Lifecycle;
+        var attemptId = EvidenceAttemptId(evidence);
         if (string.IsNullOrWhiteSpace(idempotencyKey) ||
             string.IsNullOrWhiteSpace(evidence.EventId) ||
             string.IsNullOrWhiteSpace(evidence.EventType) ||
-            string.IsNullOrWhiteSpace(evidence.InstallAttemptId) ||
+            string.IsNullOrWhiteSpace(attemptId) ||
             evidence.Sequence <= 0 ||
             string.IsNullOrWhiteSpace(evidence.OnboardingSessionId) ||
             string.IsNullOrWhiteSpace(evidence.DeploymentExportId) ||
@@ -469,9 +479,38 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             throw new InvalidDataException("Installer evidence is missing required hardened contract fields.");
         }
 
+        if (lifecycle is not (InstallerEvidenceLifecycle.Install or InstallerEvidenceLifecycle.Removal) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Install, StringComparison.Ordinal) &&
+                !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal)) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+                !attemptId.Equals(evidence.RemovalAttemptId, StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException("Installer evidence lifecycle and attempt identity do not match.");
+        }
+
         if (!evidence.OnboardingSessionId.Equals(session.SessionId, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("Installer evidence does not match the active onboarding session.");
+        }
+
+        ValidateSanitizedEvidenceText(evidence.Message, "message");
+        if (evidence.Error is not null)
+        {
+            ValidateSanitizedEvidenceText(evidence.Error.Message, "error.message");
+            ValidateSanitizedEvidenceText(evidence.Error.Detail, "error.detail");
+        }
+    }
+
+    private static string EvidenceAttemptId(InstallerEvidenceEvent evidence)
+    {
+        return First(evidence.AttemptId, evidence.RemovalAttemptId, evidence.InstallAttemptId);
+    }
+
+    private static void ValidateSanitizedEvidenceText(string value, string field)
+    {
+        if (!string.Equals(value, EvidenceRedactionService.Redact(value), StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"Installer evidence {field} contains prohibited secret-like content.");
         }
     }
 

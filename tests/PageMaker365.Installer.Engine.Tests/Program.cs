@@ -29,6 +29,10 @@ internal static class Program
             ("SubmitEvidenceAsync sends hardened callback contract", SubmitEvidenceAsyncSendsHardenedCallbackContract),
             ("SubmitEvidenceAsync retries transient failure with stable identity", SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity),
             ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
+            ("SubmitEvidenceAsync sends hardened removal callback contract", SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract),
+            ("SubmitEvidenceAsync rejects secret-looking removal error", SubmitEvidenceAsyncRejectsSecretLookingRemovalError),
+            ("Removal evidence lifecycle enforces ordered terminal flow", RemovalEvidenceLifecycleEnforcesOrderedTerminalFlow),
+            ("Removal evidence lifecycle preserves prior attempt outbox", RemovalEvidenceLifecyclePreservesPriorAttemptOutbox),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
             ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
@@ -227,6 +231,125 @@ internal static class Program
 
         AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
         AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var pending = lifecycle.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var evidence = pending.Payload;
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "lifecycle": "removal",
+              "attemptId": "{{evidence.AttemptId}}",
+              "removalAttemptId": "{{evidence.RemovalAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "removing",
+              "outcome": "passed",
+              "correlationId": "corr-removal-evidence-001",
+              "receivedAt": "2026-07-26T18:00:00Z"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var receipt = await client.SubmitEvidenceAsync(CreateSession(), evidence, pending.IdempotencyKey);
+
+        AssertEx.Equal("Accepted", receipt.Status);
+        AssertEx.Equal(evidence.RemovalAttemptId, receipt.RemovalAttemptId);
+        AssertEx.Contains(handler.HeaderValues("Idempotency-Key"), pending.IdempotencyKey);
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertJsonString(body, "lifecycle", InstallerEvidenceLifecycle.Removal);
+        AssertJsonString(body, "attemptId", evidence.AttemptId);
+        AssertJsonString(body, "removalAttemptId", evidence.RemovalAttemptId);
+        AssertJsonString(body, "installAttemptId", evidence.RemovalAttemptId);
+        AssertEx.Equal(3, body.RootElement.GetProperty("removalOutcomes").GetProperty("retained").GetInt32());
+        AssertEx.False(handler.RequestBodies[0].Contains("TEST-CODE-001", StringComparison.Ordinal));
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsSecretLookingRemovalError()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var evidence = lifecycle.Queue(
+            state,
+            CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted)).Payload;
+        evidence.Error = new InstallerEvidenceError
+        {
+            Code = "REMOVAL_TEST_FAILURE",
+            Message = "Authorization: Bearer test-secret-token",
+            Category = "network",
+            Retryable = true
+        };
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, $"{evidence.AttemptId}:1:{evidence.EventId}"));
+
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static Task RemovalEvidenceLifecycleEnforcesOrderedTerminalFlow()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        service.StartNewAttempt(state);
+
+        AssertEx.Throws<InvalidOperationException>(() =>
+            service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted)));
+
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var unsafePayload = CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted);
+        unsafePayload.RemovalOutcomes!.RetainedCategories.Add("raw_customer_resource_inventory");
+        AssertEx.Throws<InvalidDataException>(() => service.Queue(state, unsafePayload));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalExecutionCompleted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalValidationCompleted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalCompleted));
+
+        AssertEx.Equal(5, state.PendingEvents.Count);
+        AssertEx.Equal(6, state.NextSequence);
+        AssertEx.True(state.IsTerminal);
+        AssertEx.Equal(InstallerEvidenceEventType.RemovalCompleted, state.LastEventType);
+        AssertEx.Equal(InstallerEvidenceLifecycle.Removal, state.PendingEvents[0].Payload.Lifecycle);
+        AssertEx.Equal(state.RemovalAttemptId, state.PendingEvents[0].Payload.AttemptId);
+        AssertEx.Equal(state.RemovalAttemptId, state.PendingEvents[0].Payload.RemovalAttemptId);
+        AssertEx.Equal(state.RemovalAttemptId, state.PendingEvents[0].Payload.InstallAttemptId);
+        AssertEx.Equal(5, state.PendingEvents[4].Payload.Sequence);
+        AssertEx.Throws<InvalidOperationException>(() =>
+            service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalFailed)));
+        return Task.CompletedTask;
+    }
+
+    private static Task RemovalEvidenceLifecyclePreservesPriorAttemptOutbox()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        var firstAttempt = service.StartNewAttempt(state);
+        var started = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var blocked = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalBlocked));
+        var startedIdentity = (started.IdempotencyKey, started.Payload.EventId, started.Payload.Sequence);
+
+        var secondAttempt = service.StartNewAttempt(state);
+        var retryStarted = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+
+        AssertEx.False(firstAttempt.Equals(secondAttempt, StringComparison.Ordinal));
+        AssertEx.Equal(3, state.PendingEvents.Count);
+        AssertEx.Equal(firstAttempt, blocked.Payload.AttemptId);
+        AssertEx.Equal(secondAttempt, retryStarted.Payload.AttemptId);
+        AssertEx.Equal(1, retryStarted.Payload.Sequence);
+        AssertEx.Equal(startedIdentity.IdempotencyKey, state.PendingEvents[0].IdempotencyKey);
+        AssertEx.Equal(startedIdentity.EventId, state.PendingEvents[0].Payload.EventId);
+        AssertEx.Equal(startedIdentity.Sequence, state.PendingEvents[0].Payload.Sequence);
+        return Task.CompletedTask;
     }
 
     private static async Task SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload()
@@ -1494,6 +1617,30 @@ internal static class Program
                             }
                         }
                     }
+                },
+                RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+                {
+                    RemovalAttemptId = "removal-attempt-persisted-001",
+                    NextSequence = 2,
+                    RemovalStarted = true,
+                    LastEventType = InstallerEvidenceEventType.RemovalStarted,
+                    PendingEvents =
+                    {
+                        new PendingInstallerEvidenceEvent
+                        {
+                            IdempotencyKey = "removal-attempt-persisted-001:1:event-removal-persisted-001",
+                            Payload = new InstallerEvidenceEvent
+                            {
+                                Lifecycle = InstallerEvidenceLifecycle.Removal,
+                                AttemptId = "removal-attempt-persisted-001",
+                                EventId = "event-removal-persisted-001",
+                                EventType = InstallerEvidenceEventType.RemovalStarted,
+                                RemovalAttemptId = "removal-attempt-persisted-001",
+                                InstallAttemptId = "removal-attempt-persisted-001",
+                                Sequence = 1
+                            }
+                        }
+                    }
                 }
             });
 
@@ -1508,6 +1655,9 @@ internal static class Program
             AssertEx.Equal("attempt-persisted-001", loaded.InstallerEvidenceOutbox.InstallAttemptId);
             AssertEx.Equal(3, loaded.InstallerEvidenceOutbox.NextSequence);
             AssertEx.Equal("event-persisted-002", loaded.InstallerEvidenceOutbox.PendingEvents[0].Payload.EventId);
+            AssertEx.Equal("removal-attempt-persisted-001", loaded.RemovalEvidenceOutbox.RemovalAttemptId);
+            AssertEx.Equal(2, loaded.RemovalEvidenceOutbox.NextSequence);
+            AssertEx.Equal("event-removal-persisted-001", loaded.RemovalEvidenceOutbox.PendingEvents[0].Payload.EventId);
         }
         finally
         {
@@ -2132,6 +2282,33 @@ internal static class Program
         };
     }
 
+    private static InstallerEvidenceEvent CreateRemovalEvidencePayload(string eventType)
+    {
+        return new InstallerEvidenceEvent
+        {
+            EventType = eventType,
+            OccurredAt = new DateTimeOffset(2026, 7, 26, 18, 0, 0, TimeSpan.Zero),
+            OnboardingSessionId = "onb_test_001",
+            DeploymentExportId = "7f2d7c2e-4f1f-4c7d-8e7d-111111111111",
+            LifecycleStatus = eventType == InstallerEvidenceEventType.RemovalCompleted ? "removed" : "removing",
+            Outcome = "passed",
+            InstallerVersion = "test-version",
+            PackageHash = "sha256:test-hash",
+            AzureResourceGroup = "rg-pm365-example",
+            RemovalOutcomes = new RemovalEvidenceOutcomeSummary
+            {
+                Retained = 3,
+                RetainedCategories =
+                [
+                    "key_vault_soft_deleted",
+                    "sharepoint_content_unchanged",
+                    "local_evidence_retained"
+                ]
+            },
+            Message = "Removal lifecycle milestone."
+        };
+    }
+
     private static TenantDiscoveryResult CreateDiscovery()
     {
         return new TenantDiscoveryResult
@@ -2433,6 +2610,21 @@ internal static class AssertEx
         {
             throw new InvalidOperationException($"Expected '{value}' to contain '{expected}'.");
         }
+    }
+
+    public static TException Throws<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException($"Expected exception of type {typeof(TException).Name}.");
     }
 
     public static async Task<TException> ThrowsAsync<TException>(Func<Task> action)

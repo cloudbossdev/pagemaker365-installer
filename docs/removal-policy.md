@@ -64,4 +64,4 @@ The control plane must generate a new deployment export and a package with a new
 
 ## Control-Plane Reporting
 
-The v1 installer writes local removal inventory, execution, validation, report, manifest, and bundle artifacts. It must not reuse install lifecycle event types for removal. Portal removal callbacks remain disabled until the control plane defines hardened removal event types, ordering, terminal-state rules, and idempotent outbox behavior under the existing `RemovalStatusSync` authorization operation.
+The v1 installer writes local removal inventory, execution, validation, report, manifest, and bundle artifacts. It also implements the distinct v0.3 removal lifecycle and persisted retry outbox defined in `removal-evidence-callback-contract.md`. Callbacks require the existing `RemovalStatusSync` authorization operation and never reuse install event types or install state. Portal/control-plane acceptance, UI state, API negative tests, and staging proof remain pending under issue #9; delivery failure leaves the original event queued and never changes the Azure removal result.
