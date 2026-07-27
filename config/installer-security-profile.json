@@ -150,7 +150,8 @@
       "tenant and subscription identifiers",
       "resource names, IDs, locations, tags, states, and deployment outcomes",
       "configured SharePoint site URL, site ID, and document-library metadata",
-      "package hashes, deployment export ID, event IDs, sequence, status, outcome, and sanitized error summaries"
+      "package hashes, deployment export ID, event IDs, sequence, status, outcome, and sanitized error summaries",
+      "sanitized assistant messages, selected diagnostic fields, opaque attachment metadata, and explicitly approved redacted text artifacts"
     ],
     "prohibited": [
       "secrets",
@@ -159,7 +160,8 @@
       "document or mailbox content",
       "user files",
       "broad tenant or user-profile exports",
-      "unsanitized raw logs"
+      "unsanitized raw logs",
+      "local filesystem paths, original attachment filenames, screenshots, and binary assistant attachments in portal requests"
     ]
   },
   "retention": {
@@ -172,6 +174,9 @@
     "src/PageMaker365.Installer.Engine/Services/TrustedPageMaker365EndpointPolicy.cs",
     "src/PageMaker365.Installer.Engine/Services/InstallerStateStore.cs",
     "src/PageMaker365.Installer.Engine/Services/OnboardingApiClient.cs",
+    "src/PageMaker365.Installer.Engine/Services/AssistantApiClient.cs",
+    "src/PageMaker365.Installer.Engine/Services/AssistantTransferPolicy.cs",
+    "src/PageMaker365.Installer.Engine/Services/AssistantActionPolicy.cs",
     "modules/PageMaker365.Install/Public/Test-PM365AzureContext.ps1",
     "modules/PageMaker365.Install/Public/Test-PM365EntraPermissions.ps1",
     "modules/PageMaker365.Install/Public/Get-PM365GraphDiscovery.ps1",

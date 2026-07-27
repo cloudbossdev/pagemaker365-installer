@@ -127,4 +127,18 @@ foreach ($reference in $profile.implementationReferences) {
     Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot ([string]$reference))) "Security profile implementation reference does not exist: $reference"
 }
 
+$assistantApi = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Services\AssistantApiClient.cs') -Raw
+$assistantTransfer = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Services\AssistantTransferPolicy.cs') -Raw
+$assistantActions = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Services\AssistantActionPolicy.cs') -Raw
+$assistantContract = Get-Content -LiteralPath (Join-Path $repoRoot 'docs\assistant-api-contract.md') -Raw
+$assistantRunbookPath = Join-Path $repoRoot 'docs\testing\assistant-support-handoff.md'
+
+Assert-True ($assistantApi.Contains('ShouldFallback')) 'Assistant API fallback must remain restricted by the local transient-failure policy.'
+Assert-True ($assistantTransfer.Contains('RedactedText')) 'Assistant transfer policy must retain the redacted-text content treatment.'
+Assert-True ($assistantTransfer.Contains('LocalOnlyBinary')) 'Assistant transfer policy must keep binary attachments local-only.'
+Assert-True ($assistantActions.Contains('rerun-preflight') -and $assistantActions.Contains('requiresApproval: true')) 'Privileged assistant actions must retain their local approval floor.'
+Assert-True ($assistantContract.Contains('draft, not a final submitted ticket')) 'Assistant contract must retain the draft-only support-ticket boundary.'
+Assert-True (Test-Path -LiteralPath $assistantRunbookPath) 'The live assistant support-handoff runbook is missing.'
+Assert-True (@($profile.dataBoundaries.prohibited) -contains 'local filesystem paths, original attachment filenames, screenshots, and binary assistant attachments in portal requests') 'The security profile is missing the assistant local-data boundary.'
+
 Write-Host "Security contract verified: $($expectedScopes.Count) read-only Graph scopes, $($roleSets.Count) Azure role sets, $(@($profile.network.destinations).Count) network destinations, and protected runtime provisioning."

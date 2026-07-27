@@ -2,6 +2,12 @@
 
 Status: active working record
 
+Live acceptance procedure: `docs/testing/customer-lifecycle-acceptance-runbook.md`
+
+Machine acceptance policy and result contract: `config/customer-lifecycle-acceptance.json`, `docs/testing/schemas/customer-lifecycle-result.schema.json`, and `scripts/validate-customer-lifecycle-result.ps1`
+
+Customer documentation approval template: `docs/customer/customer-documentation-review-record.md`
+
 This document prevents drift between requirements, implementation, tests, live evidence, and customer documentation. A status of `Implemented` is not equivalent to `Verified`.
 
 ## Status Vocabulary
@@ -26,10 +32,10 @@ This document prevents drift between requirements, implementation, tests, live e
 | US-08 Upgrade | Install/update | U01-U08 | None sufficient | Not run | Explicitly marked unsupported/TBD | Planned | [#6](https://github.com/cloudbossdev/pagemaker365-installer/issues/6) |
 | US-09 Validate runtime | Validate | L07-L09, V01-V07 | Runtime smoke contract tests | Cannot pass until runtime applications deploy | User and technical drafts | Blocked | [#5](https://github.com/cloudbossdev/pagemaker365-installer/issues/5) |
 | US-10 Finish and synchronize | Finish, Current Session | L06, E01-E08 | Evidence callback/outbox tests | Successful terminal staging callback after verified runtime is pending | User and technical drafts | Partial | [#5](https://github.com/cloudbossdev/pagemaker365-installer/issues/5) |
-| US-11 Recover failure | All long-running steps | L04-L06, S01-S05, D08-D10 | Timeout, cancellation, resume, cleanup, and outbox tests | Full interruption matrix pending | User guide draft | Partial | [#4](https://github.com/cloudbossdev/pagemaker365-installer/issues/4) |
-| US-12 Troubleshoot and support | Guidance, support bundle | T01-T06 | Redaction/repository/package checks cover part of contract | Support handoff review pending | User and technical drafts | Partial | [#12](https://github.com/cloudbossdev/pagemaker365-installer/issues/12) |
+| US-11 Recover failure | All long-running steps | L04-L06, S01-S05, D08-D10 | Timeout, cancellation, resume, cleanup, outbox, and cross-app activity-state tests; see `docs/testing/long-running-action-state-audit.md` | Full interruption and release-candidate UI matrix pending | User guide draft | Partial | [#4](https://github.com/cloudbossdev/pagemaker365-installer/issues/4) |
+| US-12 Troubleshoot and support | Guidance, support bundle | T01-T06 | Assistant endpoint, trusted-origin, redaction, attachment, exact-draft, fallback, local-action-policy, operation-state, and sanitized-failure tests plus support-bundle checks | Execute `docs/testing/assistant-support-handoff.md`; portal retention and customer-approved handoff review pending | User and technical drafts | Partial | [#28](https://github.com/cloudbossdev/pagemaker365-installer/issues/28) |
 | US-13 Inventory uninstall | Removal inventory/preview | R01-R08 | Partial cleanup safety tests | UI workflow and staging inventory evidence pending | User and technical drafts | Implemented | [#10](https://github.com/cloudbossdev/pagemaker365-installer/issues/10) |
-| US-14 Execute uninstall | Removal approval/validation | R09-R13, E09-E14 | Partial cleanup and Key Vault retention tests | Complete staging removal and portal sync pending | User and technical drafts | Partial | [#9](https://github.com/cloudbossdev/pagemaker365-installer/issues/9) |
+| US-14 Execute uninstall | Removal approval/validation | R09-R13, E09-E14 | Cleanup safety, Key Vault retention, removal lifecycle ordering, v0.3 payload, terminal, retry identity, and persisted outbox tests | Portal v0.3 implementation and complete staging removal/sync pending | User, technical, and removal callback contract drafts | Implemented | [#9](https://github.com/cloudbossdev/pagemaker365-installer/issues/9) |
 | US-15 Reinstall | New setup session | L02-L03, R14-R15 | Key Vault recovery and package provenance tests | Three consecutive lifecycle runs pending | User guide draft | Partial | [#10](https://github.com/cloudbossdev/pagemaker365-installer/issues/10) |
 
 ## Release-Blocking Decisions
@@ -42,7 +48,7 @@ This document prevents drift between requirements, implementation, tests, live e
 | Runtime secret inventory and source | `0.3` contract and local protected provisioning tests implemented; fresh signed staging package and live reference-resolution evidence remain | [#7](https://github.com/cloudbossdev/pagemaker365-installer/issues/7) |
 | Upgrade compatibility | Version policy, preview semantics, recovery, and live upgrade evidence | [#6](https://github.com/cloudbossdev/pagemaker365-installer/issues/6) |
 | Network allowlist | Machine-readable endpoint inventory and trusted PageMaker365 host enforcement implemented; enterprise proxy acceptance remains | [#8](https://github.com/cloudbossdev/pagemaker365-installer/issues/8) |
-| Removal portal lifecycle | Hardened event contract, outbox, API tests, and staging proof | [#9](https://github.com/cloudbossdev/pagemaker365-installer/issues/9) |
+| Removal portal lifecycle | Installer v0.3 contract/state machine/outbox implemented; portal API/UI tests and staging proof remain | [#9](https://github.com/cloudbossdev/pagemaker365-installer/issues/9) |
 | Customer distribution | Versioned deterministic ZIP, signing/verifier, manifest, hashes, and CI evidence implemented; production certificate and clean-workstation launch evidence remain | [#13](https://github.com/cloudbossdev/pagemaker365-installer/issues/13) |
 
 ## Pull Request Requirement

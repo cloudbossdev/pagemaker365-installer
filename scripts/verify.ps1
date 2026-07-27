@@ -36,6 +36,12 @@ Get-ChildItem -Path $repoRoot -Recurse -File -Include *.json |
 Write-Host 'Validating sample schemas...'
 & (Join-Path $repoRoot 'scripts\validate-schemas.ps1')
 
+Write-Host 'Testing customer lifecycle result approval contract...'
+& (Join-Path $repoRoot 'scripts\test-customer-lifecycle-result.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Customer lifecycle result contract tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Checking onboarding discovery samples...'
 $bootstrapPath = Join-Path $repoRoot 'samples\contoso.onboarding.bootstrap.json'
 $discoveryPath = Join-Path $repoRoot 'samples\contoso.tenant.discovery.json'

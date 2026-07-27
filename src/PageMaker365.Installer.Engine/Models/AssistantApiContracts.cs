@@ -42,6 +42,7 @@ public sealed class AssistantAttachmentUploadRequest
     public string ContentType { get; set; } = "";
     public long SizeBytes { get; set; }
     public string Sha256 { get; set; } = "";
+    public string ContentTreatment { get; set; } = "";
     public AssistantDiagnosticContext DiagnosticContext { get; set; } = new();
 }
 
@@ -94,6 +95,7 @@ public sealed class AssistantUploadedAttachmentReference
     public string ContentType { get; set; } = "";
     public long SizeBytes { get; set; }
     public string Sha256 { get; set; } = "";
+    public string ContentTreatment { get; set; } = "";
     public string Source { get; set; } = "";
     public string Status { get; set; } = "";
     public string CorrelationId { get; set; } = "";

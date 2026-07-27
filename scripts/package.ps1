@@ -121,6 +121,7 @@ $packageDocs = @(
     'deployment-contract.md',
     'onboarding-discovery-contract.md',
     'portal-install-package-handoff.md',
+    'removal-evidence-callback-contract.md',
     'removal-policy.md',
     'runtime-artifact-contract.md',
     'runtime-secret-contract.md',

@@ -21,6 +21,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
     };
 
     private static readonly CustomerConfigService ConfigService = new();
+    private static readonly RedactionService EvidenceRedactionService = new();
 
     private readonly OnboardingApiOptions _options;
     private readonly HttpClient _httpClient;
@@ -213,13 +214,23 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                         "sessionId",
                         "eventId",
                         "eventType",
-                        "installAttemptId",
                         "sequence",
                         "correlationId"),
                     request => request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey));
                 EnsureSessionMatches("installer evidence", endpoint, session, receipt.SessionId);
-                if (!receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
-                    receipt.Sequence != evidence.Sequence)
+                var submittedAttemptId = EvidenceAttemptId(evidence);
+                var receivedAttemptId = First(receipt.AttemptId, receipt.RemovalAttemptId, receipt.InstallAttemptId);
+                var lifecycle = EvidenceLifecycle(evidence);
+                if (!receipt.Status.Equals("Accepted", StringComparison.Ordinal) ||
+                    !receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
+                    !receipt.EventType.Equals(evidence.EventType, StringComparison.Ordinal) ||
+                    receipt.Sequence != evidence.Sequence ||
+                    string.IsNullOrWhiteSpace(receivedAttemptId) ||
+                    !receivedAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) ||
+                    (!string.IsNullOrWhiteSpace(receipt.Lifecycle) &&
+                        !receipt.Lifecycle.Equals(lifecycle, StringComparison.Ordinal)) ||
+                    (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+                        !IsMatchingRemovalReceipt(receipt, evidence, submittedAttemptId)))
                 {
                     throw new OnboardingApiException(
                         "Portal onboarding API installer evidence response did not match the submitted event.",
@@ -279,56 +290,67 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             };
         }
 
-        using var httpRequest = new HttpRequestMessage(
-            HttpMethod.Get,
-            _options.PackageEndpoint(session, readiness.PackageDownloadUrl));
-        ApplyAuthorization(httpRequest, session);
-
         var endpoint = _options.PackageEndpoint(session, readiness.PackageDownloadUrl);
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        var correlationId = GetCorrelationId(response, body);
-        if (!response.IsSuccessStatusCode)
+        const int maxAttempts = 4;
+        for (var attempt = 1; ; attempt++)
         {
-            throw CreateApiException("package download", endpoint, response.StatusCode, body, correlationId);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            ApplyAuthorization(httpRequest, session);
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var correlationId = GetCorrelationId(response, body);
+            if (!response.IsSuccessStatusCode)
+            {
+                var exception = CreateApiException("package download", endpoint, response.StatusCode, body, correlationId);
+                if (attempt < maxAttempts && IsTransientStatusCode(response.StatusCode))
+                {
+                    await Task.Delay(GetPackageRetryDelay(response, attempt), cancellationToken);
+                    continue;
+                }
+
+                throw exception;
+            }
+
+            var mediaType = response.Content.Headers.ContentType?.MediaType;
+            if (!IsJsonMediaType(mediaType))
+            {
+                throw new OnboardingApiException(
+                    $"Portal package download returned unsupported content type '{mediaType ?? "none"}'. Expected application/json.",
+                    endpoint,
+                    response.StatusCode,
+                    correlationId);
+            }
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                throw new OnboardingApiException(
+                    "Portal package download returned an empty package.",
+                    endpoint,
+                    response.StatusCode,
+                    correlationId);
+            }
+
+            await ValidateDownloadedPackageAsync(body, session, discovery, endpoint, response.StatusCode, correlationId, cancellationToken);
+
+            var outputDirectory = Path.Combine(workspaceRoot, "support-bundle", "onboarding", session.SessionId, "generated-package");
+            Directory.CreateDirectory(outputDirectory);
+            var packagePath = Path.Combine(outputDirectory, SafeFileName(GetDownloadFileName(response, session)));
+
+            await File.WriteAllTextAsync(packagePath, body, Encoding.UTF8, cancellationToken);
+
+            return new OnboardingPackageDownloadResult
+            {
+                Status = "Downloaded",
+                SessionId = session.SessionId,
+                PackagePath = packagePath,
+                PackageVersion = readiness.PackageVersion,
+                CorrelationId = correlationId,
+                Message = attempt == 1
+                    ? "Generated install package downloaded from the PageMaker365 portal."
+                    : $"Generated install package downloaded from the PageMaker365 portal after {attempt} attempts."
+            };
         }
-
-        var mediaType = response.Content.Headers.ContentType?.MediaType;
-        if (!IsJsonMediaType(mediaType))
-        {
-            throw new OnboardingApiException(
-                $"Portal package download returned unsupported content type '{mediaType ?? "none"}'. Expected application/json.",
-                endpoint,
-                response.StatusCode,
-                correlationId);
-        }
-
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            throw new OnboardingApiException(
-                "Portal package download returned an empty package.",
-                endpoint,
-                response.StatusCode,
-                correlationId);
-        }
-
-        await ValidateDownloadedPackageAsync(body, session, discovery, endpoint, response.StatusCode, correlationId, cancellationToken);
-
-        var outputDirectory = Path.Combine(workspaceRoot, "support-bundle", "onboarding", session.SessionId, "generated-package");
-        Directory.CreateDirectory(outputDirectory);
-        var packagePath = Path.Combine(outputDirectory, SafeFileName(GetDownloadFileName(response, session)));
-
-        await File.WriteAllTextAsync(packagePath, body, Encoding.UTF8, cancellationToken);
-
-        return new OnboardingPackageDownloadResult
-        {
-            Status = "Downloaded",
-            SessionId = session.SessionId,
-            PackagePath = packagePath,
-            PackageVersion = readiness.PackageVersion,
-            CorrelationId = correlationId,
-            Message = "Generated install package downloaded from the PageMaker365 portal."
-        };
     }
 
     private static bool IsDownloadablePackageReadiness(string status)
@@ -434,6 +456,22 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             code >= 500;
     }
 
+    private static TimeSpan GetPackageRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        var retryAfter = response.Headers.RetryAfter?.Delta;
+        if (retryAfter is null && response.Headers.RetryAfter?.Date is not null)
+        {
+            retryAfter = response.Headers.RetryAfter.Date.Value - DateTimeOffset.UtcNow;
+        }
+
+        if (retryAfter is not null)
+        {
+            return TimeSpan.FromSeconds(Math.Clamp(retryAfter.Value.TotalSeconds, 0, 30));
+        }
+
+        return TimeSpan.FromMilliseconds(Math.Min(4000, 250 * (1 << (attempt - 1))));
+    }
+
     private static bool IsEvidenceRetryable(Exception exception, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested || exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
@@ -456,10 +494,12 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         InstallerEvidenceEvent evidence,
         string idempotencyKey)
     {
+        var lifecycle = EvidenceLifecycle(evidence);
+        var attemptId = EvidenceAttemptId(evidence);
         if (string.IsNullOrWhiteSpace(idempotencyKey) ||
             string.IsNullOrWhiteSpace(evidence.EventId) ||
             string.IsNullOrWhiteSpace(evidence.EventType) ||
-            string.IsNullOrWhiteSpace(evidence.InstallAttemptId) ||
+            string.IsNullOrWhiteSpace(attemptId) ||
             evidence.Sequence <= 0 ||
             string.IsNullOrWhiteSpace(evidence.OnboardingSessionId) ||
             string.IsNullOrWhiteSpace(evidence.DeploymentExportId) ||
@@ -469,9 +509,86 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             throw new InvalidDataException("Installer evidence is missing required hardened contract fields.");
         }
 
+        if (lifecycle is not (InstallerEvidenceLifecycle.Install or InstallerEvidenceLifecycle.Removal) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Install, StringComparison.Ordinal) &&
+                !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal)) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+                (!attemptId.Equals(evidence.AttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.RemovalAttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal))))
+        {
+            throw new InvalidDataException("Installer evidence lifecycle and attempt identity do not match.");
+        }
+
+        if (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal))
+        {
+            var expectedIdempotencyKey = $"{attemptId}:{evidence.Sequence}:{evidence.EventId}";
+            if (!idempotencyKey.Equals(expectedIdempotencyKey, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Removal evidence idempotency identity does not match its persisted event identity.");
+            }
+
+            RemovalEvidenceLifecycleService.ValidatePayload(evidence);
+        }
+
         if (!evidence.OnboardingSessionId.Equals(session.SessionId, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("Installer evidence does not match the active onboarding session.");
+        }
+
+        ValidateSanitizedEvidenceText(evidence.Message, "message");
+        ValidateSanitizedEvidenceText(evidence.RuntimeUrl, "runtimeUrl");
+        ValidateSanitizedEvidenceText(evidence.ApiUrl, "apiUrl");
+        ValidateSanitizedEvidenceText(evidence.AzureResourceGroup, "azureResourceGroup");
+        if (evidence.Error is not null)
+        {
+            ValidateSanitizedEvidenceText(evidence.Error.Code, "error.code");
+            ValidateSanitizedEvidenceText(evidence.Error.Message, "error.message");
+            ValidateSanitizedEvidenceText(evidence.Error.Category, "error.category");
+            ValidateSanitizedEvidenceText(evidence.Error.Detail, "error.detail");
+        }
+
+        foreach (var smokeTest in evidence.SmokeTests)
+        {
+            ValidateSanitizedEvidenceText(smokeTest.Name, "smokeTests.name");
+            ValidateSanitizedEvidenceText(smokeTest.Status, "smokeTests.status");
+        }
+    }
+
+    private static bool IsMatchingRemovalReceipt(
+        InstallerEvidenceReceipt receipt,
+        InstallerEvidenceEvent evidence,
+        string submittedAttemptId)
+    {
+        return receipt.ContractVersion.Equals("0.3", StringComparison.Ordinal) &&
+            receipt.Lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+            receipt.AttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) &&
+            receipt.RemovalAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) &&
+            (string.IsNullOrWhiteSpace(receipt.InstallAttemptId) ||
+                receipt.InstallAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal)) &&
+            receipt.LifecycleStatus.Equals(evidence.LifecycleStatus, StringComparison.Ordinal) &&
+            receipt.Outcome.Equals(evidence.Outcome, StringComparison.Ordinal);
+    }
+
+    private static string EvidenceLifecycle(InstallerEvidenceEvent evidence)
+    {
+        return string.IsNullOrWhiteSpace(evidence.Lifecycle)
+            ? evidence.EventType.StartsWith("removal_", StringComparison.Ordinal)
+                ? InstallerEvidenceLifecycle.Removal
+                : InstallerEvidenceLifecycle.Install
+            : evidence.Lifecycle;
+    }
+
+    private static string EvidenceAttemptId(InstallerEvidenceEvent evidence)
+    {
+        return First(evidence.AttemptId, evidence.RemovalAttemptId, evidence.InstallAttemptId);
+    }
+
+    private static void ValidateSanitizedEvidenceText(string value, string field)
+    {
+        if (!string.Equals(value, EvidenceRedactionService.Redact(value), StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"Installer evidence {field} contains prohibited secret-like content.");
         }
     }
 
@@ -691,10 +808,9 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         string correlationId)
     {
         var detail = ExtractApiErrorDetail(body, ref correlationId);
-        var reason = string.IsNullOrWhiteSpace(detail) ? body.Trim() : detail;
-        var message = string.IsNullOrWhiteSpace(reason)
+        var message = string.IsNullOrWhiteSpace(detail)
             ? $"Portal onboarding API {operation} returned {(int)statusCode} {statusCode}."
-            : $"Portal onboarding API {operation} returned {(int)statusCode} {statusCode}: {reason}";
+            : $"Portal onboarding API {operation} returned {(int)statusCode} {statusCode}: {detail}";
 
         return new OnboardingApiException(message, endpoint, statusCode, correlationId);
     }
@@ -717,22 +833,31 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId = correlationProperty.GetString() ?? "";
             }
 
-            foreach (var path in new[] { "message", "error", "details", "code" })
+            foreach (var path in new[] { "message", "error.message", "error.code", "details.message", "details", "code" })
             {
                 if (TryGetJsonPath(root, path, out var property) &&
                     property.ValueKind == JsonValueKind.String &&
                     !string.IsNullOrWhiteSpace(property.GetString()))
                 {
-                    return property.GetString() ?? "";
+                    return SanitizeApiErrorDetail(property.GetString() ?? "");
                 }
             }
         }
         catch (JsonException)
         {
-            return body.Trim();
+            return "";
         }
 
-        return body.Trim();
+        return "";
+    }
+
+    private static string SanitizeApiErrorDetail(string value)
+    {
+        var sanitized = AssistantTransferPolicy.SanitizeText(value);
+        var oneLine = string.Join(
+            " ",
+            sanitized.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine[..Math.Min(512, oneLine.Length)];
     }
 
     private static string GetDownloadFileName(HttpResponseMessage response, OnboardingBootstrapSession session)

@@ -436,12 +436,12 @@ Owner pattern: one engine-test worker, one app/UX worker after safety tests exis
 
 Scope:
 
-- Test portal message request/response.
-- Test attachment upload metadata.
-- Test support ticket draft.
-- Test auth headers.
-- Test fallback and no-fallback behavior.
-- Test max attachment enforcement.
+- [x] Test portal message request/response.
+- [x] Test attachment upload metadata.
+- [x] Test support ticket draft.
+- [x] Test auth headers.
+- [x] Test fallback and no-fallback behavior.
+- [x] Test max attachment enforcement.
 
 Acceptance criteria:
 
@@ -454,9 +454,9 @@ Needs customer: no.
 
 Scope:
 
-- Prove assistant payloads omit secrets, bearer tokens, connection strings, and local paths.
-- Decide whether text/log attachments are redacted locally before upload.
-- Keep screenshot/file upload explicit and human initiated.
+- [x] Prove assistant payloads omit secrets, bearer tokens, connection strings, and local paths.
+- [x] Redact text/log/JSON/Markdown copies locally before upload.
+- [x] Keep transfer disabled by default and binary/screenshots local-only.
 
 Acceptance criteria:
 
@@ -469,9 +469,9 @@ Needs customer: attachment policy decision.
 
 Scope:
 
-- Add local action registry.
-- Local labels, descriptions, enabled states, and approval requirements override server risk settings.
-- Unknown actions never execute.
+- [x] Add local action registry.
+- [x] Make local labels, descriptions, enabled states, and approval requirements authoritative.
+- [x] Drop unknown and duplicate actions before rendering or execution.
 
 Acceptance criteria:
 
@@ -532,6 +532,25 @@ Acceptance criteria:
 - Cleanup is idempotent and safe to retry.
 
 Needs customer: sandbox cleanup permission.
+
+#### Slice 7.4 - Removal Lifecycle Evidence
+
+Scope:
+
+- [x] Define removal-only event types, ordering, status, outcomes, and terminal rules.
+- [x] Add a distinct removal attempt identity and persisted retry outbox.
+- [x] Report sanitized removed, retained, skipped, blocked, and failed counts.
+- [x] Keep portal delivery failures independent from Azure removal results.
+- [ ] Implement the v0.3 contract and state machine in the portal API/UI.
+- [ ] Prove duplicate, conflict, stale, offline/retry, terminal, and lifecycle coexistence against staging.
+
+Acceptance criteria:
+
+- Install and removal attempts cannot share event ordering or terminal state.
+- Exact retries preserve event ID, attempt ID, sequence, payload, and idempotency key.
+- Portal sync failure remains queued and never changes the local Azure result.
+
+Needs customer: staging API deployment and a setup session authorizing `RemovalStatusSync`.
 
 ### Phase 8 - Packaging, Signing, And Release
 

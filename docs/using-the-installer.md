@@ -106,7 +106,9 @@ The assistant can support the workflow by:
 - Summarizing session status, blockers, and next actions.
 - Preparing support bundle context for PageMaker365 support.
 
-The assistant should use session data, known error rules, logs, and support bundle artifacts. It should not receive raw secrets, and it should not execute deployment commands without the normal installer approval path.
+The assistant receives sanitized session context without local paths. Recommended actions are resolved through a local registry; the portal cannot add actions, change their labels, or remove required approval. Install, upgrade, removal, consent, and tenant-write operations are not assistant actions.
+
+Attachments remain local by default. When the operator explicitly enables handoff, only redacted text, log, JSON, or Markdown copies with opaque filenames can be uploaded to a reviewable support-ticket draft. Screenshots and other binary attachments remain local and are not included in the portal request. A portal draft is not a submitted support ticket.
 
 ## Evidence Outputs
 
@@ -120,7 +122,7 @@ Important output locations:
 - `support-bundle\validate\deployment-validation.json` contains smoke-test evidence.
 - `support-bundle\final\` contains the final report, manifest, and evidence zip.
 
-When portal sync is authorized, the installer reports sanitized lifecycle evidence to `POST /api/onboarding/installer/evidence`. Each callback uses a stable event ID, install-attempt ID, monotonic sequence, and idempotency key. Package validation, install start, Azure deployment, runtime configuration, smoke tests, final completion, and terminal failures are reported without uploading raw logs, files, tokens, secrets, or document content. `runtime_configured` is emitted only after the deployed API identity and portal content pass validation; a successful Azure resource deployment alone is not sufficient.
+When portal sync is authorized, the installer reports sanitized lifecycle evidence to `POST /api/onboarding/installer/evidence`. Each callback uses a stable event ID, install-attempt ID, monotonic sequence, and idempotency key. Package validation, install start, Azure deployment, runtime configuration, smoke tests, final completion, and terminal failures are reported without uploading raw logs, files, tokens, secrets, or document content. `runtime_configured` is emitted only after protected configuration is written and required App Service Key Vault references resolve; `smoke_tests_completed` and `install_completed` still require deployment-bound runtime validation. A successful Azure resource deployment alone is not sufficient.
 
 If the portal or network is unavailable, the exact callback payload remains in the persisted installer outbox and is retried without changing its identity. Portal sync failure does not turn a successful Azure installation into an install failure. The Current Session panel shows the sync state and provides a **Retry Portal Sync** action; a session with pending final evidence remains resumable until the outbox is empty.
 

@@ -52,6 +52,10 @@ $validations = @(
     @{
         Sample = 'samples\contoso.tenant.discovery.json'
         Schema = 'schemas\tenant-discovery.schema.json'
+    },
+    @{
+        Sample = 'docs\testing\results\customer-lifecycle-result.template.json'
+        Schema = 'docs\testing\schemas\customer-lifecycle-result.schema.json'
     }
 )
 

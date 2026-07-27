@@ -188,7 +188,7 @@
                                        TextWrapping="Wrap"
                                        LineHeight="19"
                                        Margin="0,6,0,12" />
-                            <CheckBox Content="Upload attachments with handoff"
+                            <CheckBox Content="Upload redacted text attachments"
                                       IsChecked="{Binding UploadAttachmentsWithHandoff}"
                                       Foreground="{StaticResource PmText}"
                                       Margin="0,0,0,12" />
@@ -208,6 +208,7 @@
         <Border Grid.Row="2" BorderBrush="{StaticResource PmLine}" BorderThickness="0,1,0,0" Padding="20">
             <Grid>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -274,7 +275,25 @@
                     </StackPanel>
                 </Grid>
 
-                <TextBlock Grid.Row="2"
+                <Grid Grid.Row="2"
+                      Margin="0,12,0,0"
+                      Visibility="{Binding IsOperationRunning, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="{Binding OperationStatus}"
+                               Foreground="{StaticResource PmMuted}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8" />
+                    <ProgressBar Grid.Row="1"
+                                 IsIndeterminate="True"
+                                 Height="8"
+                                 Foreground="{StaticResource PmCyan}"
+                                 Background="#101B33" />
+                </Grid>
+
+                <TextBlock Grid.Row="3"
                            Text="{Binding StatusText}"
                            Foreground="{StaticResource PmMuted}"
                            TextWrapping="Wrap"

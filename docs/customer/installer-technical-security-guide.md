@@ -6,6 +6,10 @@ Tracking issues: [#8 security contract](https://github.com/cloudbossdev/pagemake
 
 Contract source: `config/installer-security-profile.json`
 
+Document revision: 2026-07-27
+
+Release version: not assigned
+
 ## Purpose And Scope
 
 This guide describes the security-relevant behavior implemented by the PageMaker365 Installer. It is intended for customer architecture, identity, security, networking, and operations reviewers.
@@ -23,7 +27,22 @@ The current alpha provisions the Azure foundation and implements protected runti
 7. The installer deploys only the package-named PageMaker365 resource group and resources. Ownership tags and the approved preview are rechecked at destructive boundaries.
 8. Sanitized lifecycle evidence is sent to the portal with stable event IDs, sequence numbers, and idempotency keys. Sync failures remain in a local outbox and do not redefine the Azure result.
 
-Implementation: `OnboardingSessionService`, `TrustedPageMaker365EndpointPolicy`, `CustomerConfigService`, `DeploymentApprovalManifestService`, `InstallerEvidenceOutboxState`, and the PowerShell deployment/removal commands.
+Implementation: `OnboardingSessionService`, `TrustedPageMaker365EndpointPolicy`, `CustomerConfigService`, `DeploymentApprovalManifestService`, the install/removal evidence outboxes, and the PowerShell deployment/removal commands.
+
+## Lifecycle And Mutation Controls
+
+| Boundary | Read-only preparation | Required authorization | Fail-closed condition |
+| --- | --- | --- | --- |
+| Package activation | Setup/session validation, readiness, download, schema, provenance, hash, and signature | Short-lived onboarding session permits the exact operation | Expired/reused code, untrusted origin, mismatched session/tenant/discovery/export, invalid hash/signature, or prohibited package content |
+| Preflight | Tooling, context, RBAC, provider/SKU/quota, Key Vault recovery, Graph scopes, and SharePoint metadata | Independently valid Azure and Graph contexts | Any mandatory result is absent, unverifiable, or failed |
+| Deployment preview | Subscription-scope Azure What-If and redacted evidence | Validated package and successful preflight | Foreign ownership, unstructured/unsafe result under policy, changed package, or target mismatch |
+| Install | Revalidation of package, preview, What-If artifact, approval state, confirmation, and target ownership | Explicit approval plus exact resource-group text | Input hash changed, authorization is stale, ownership is ambiguous, or protected runtime values do not meet the signed contract |
+| Runtime completion | Deployment-bound API identity, portal content, Key Vault reference resolution, and SharePoint access | Successful current deployment attempt | HTTP success without expected product/export identity, default content, old custom-domain content, or inaccessible target |
+| Removal | Inventory, ownership tags, contained-resource policy, active-deployment check, and retained-resource preview | Explicit removal approval plus exact resource-group text | Wrong context, ambiguous/foreign ownership, unexpected resource, active deployment, or Key Vault purge request |
+
+Application restart clears authorization-bearing state. Tokens, runtime values, deployment/removal approval checkboxes, and typed confirmations are not persisted. A saved session can restore sanitized context and evidence references, but every later mutation must pass its current boundary again.
+
+Upgrade behavior is not a production guarantee in this version. The draft installer-side version and recovery contract is tracked by issue #6; it remains excluded from customer support until signed package generation, API receipt handling, and live staging acceptance complete.
 
 ## Operator Identities And Permissions
 
@@ -122,6 +141,7 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 - Expired setup files and disallowed operations fail closed.
 - Portal and API origins must match the trusted PageMaker365 host policy and use HTTPS.
 - The downloaded package is bound to the active onboarding session, customer tenant, discovery ID, and deployment export ID.
+- Package download retries are limited to four attempts for HTTP 408, 429, and 5xx. Each attempt uses a fresh same-origin request; `Retry-After` is capped at 30 seconds, cancellation remains effective, and 401/403 or package validation failures do not retry.
 - SHA-256 integrity is recalculated locally.
 - Signed-required packages use Ed25519 verification against a trusted key from the PageMaker365 JWKS endpoint.
 - Raw secret containers and secret-looking payload fields are rejected.
@@ -134,6 +154,20 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 
 The pilot distribution is a deterministic versioned ZIP. The executable, PageMaker365 first-party libraries, and shipped PowerShell files support Authenticode signing. The manifest and SHA-256 files record the exact payload and ZIP integrity. Unsigned CI packages are labeled `UnsignedDevelopment` and are rejected by the customer verifier by default. Production certificate configuration and clean-workstation verification remain open under #13.
 
+## Cryptographic Trust Layers
+
+The installer uses separate trust layers. Passing one does not substitute for another.
+
+| Layer | Mechanism | Trust source | Failure behavior |
+| --- | --- | --- | --- |
+| Distribution archive | SHA-256 archive checksum | Checksum delivered with the approved release | Extraction/launch is stopped when the archive differs. |
+| Release inventory | Detached CMS signature over the exact `release-manifest.json` bytes | Official publisher and certificate thumbprint supplied outside the ZIP | Missing/extra files, hash differences, signature failure, or signer mismatch stop launch. |
+| Shipped code/scripts | Authenticode signing where required by the release contract | Same externally approved publisher/thumbprint policy | Required unsigned or wrongly signed files fail verification. |
+| Customer install package | Canonical JSON SHA-256 plus Ed25519 signature | Trusted PageMaker365 JWKS key ID and fixed trusted endpoint policy | The package is not activated and later workflow gates remain locked. |
+| Portal callback | TLS plus stable event identity, sequence, and `Idempotency-Key`; exact response receipt validation | Active trusted onboarding API/session | Delivery remains queued; Azure/local result is not reclassified. |
+
+The verifier must receive the expected official publisher and certificate thumbprint from the release record or another approved external channel. A value declared inside the package being verified is not an independent trust anchor.
+
 ## Token And Secret Handling
 
 - The Microsoft Graph access token is held in process memory and passed to the PowerShell child process through a process-scoped environment variable. It is not included in resumable session state, logs, evidence, or callbacks.
@@ -145,6 +179,17 @@ The pilot distribution is a deterministic versioned ZIP. The executable, PageMak
 - Parent-process secure buffers and password controls are cleared after each attempt and when the window closes. PowerShell releases child-process string references in `finally`; managed runtimes do not guarantee immediate zeroing of immutable strings before process exit.
 - Resumable state, command arguments, environment variables, callbacks, reports, and support bundles contain no runtime values. Sanitized evidence contains names, resolution status, `rawValuesIncluded: false`, and `valueStorage: "CustomerKeyVault"` only.
 - Live staging proof and a full generated-artifact scan remain required before this behavior is approved for customer publication.
+
+## Assistant And Support Handoff Security
+
+- Portal assistant endpoints must remain on the exact trusted PageMaker365 production or staging HTTPS origins. Root-relative endpoint configuration cannot redirect the bearer credential to another host.
+- Message and ticket payloads contain sanitized operator text and selected diagnostic fields. Local transcript, package, discovery, and attachment paths are empty; API error bodies are not copied into transcripts.
+- Attachment transfer is disabled by default. Explicit opt-in permits only redacted `.txt`, `.log`, `.json`, and `.md` copies. The installer recalculates size and SHA-256 and sends an opaque filename.
+- Screenshots and other binary attachments remain local-only. Failed and local-only attachments are omitted from remote ticket requests rather than represented by metadata.
+- Portal message, attachment, and ticket responses must match the submitted contract identity. Ticket status must be `Drafted`; the installer never submits a final support ticket.
+- Only transient network, timeout, HTTP 408/429, or HTTP 5xx failures may use configured local-mock fallback. Authorization, validation, contract, and cancellation failures remain failures.
+- Recommended actions are intersected with a local registry. Local labels and approval requirements override portal values; unknown and duplicate actions are discarded. No local action performs install, removal, Azure mutation, consent, or tenant writes.
+- Local assistant data remains under the customer-controlled support-bundle folder. PageMaker365 portal retention and final ticket-submission policy remain a release gate under issue #28.
 
 ## Local Storage And Retention
 
@@ -164,6 +209,27 @@ The installer does not send secrets, tokens, one-time codes, raw files, document
 
 Application Insights is deployed for the customer runtime. The installer itself does not currently send a separate application-telemetry stream to Application Insights.
 
+### Lifecycle Event Families
+
+Install events use one stable install attempt and monotonic sequence:
+
+1. `package_validated` or the pre-mutation terminal package-validation failure event.
+2. `install_started` with lifecycle status `provisioning`.
+3. `azure_deployment_completed`.
+4. `runtime_configured` only after protected configuration is written and the required App Service Key Vault references report resolved.
+5. `smoke_tests_completed`.
+6. `install_completed` with status `completed`, or `install_failed` with status `failed` and a sanitized error.
+
+Removal uses a separate `ra_` attempt and removal-only state machine:
+
+1. `removal_started`.
+2. `removal_inventory_completed`, which may repeat for an active inventory refresh while sequence advances.
+3. `removal_execution_completed`.
+4. `removal_validation_completed`.
+5. `removal_completed`, `removal_blocked`, or `removal_failed` as the terminal outcome.
+
+The removal payload may include sanitized removed/retained/skipped/blocked/failed counts and approved disposition categories. It must not include raw Azure inventory exports. Install and removal outboxes are persisted independently so their attempts and event ordering cannot be confused.
+
 ## Removal And Recovery Boundaries
 
 - Removal uses the original package tenant, subscription, resource group, application name, deployment export, and ownership tags.
@@ -171,21 +237,55 @@ Application Insights is deployed for the customer runtime. The installer itself 
 - Ambiguous ownership, unexpected contained resources, active deployments, or context mismatch blocks removal.
 - The installer removes only the dedicated PageMaker365 resource group after explicit confirmation.
 - SharePoint content and customer-created SharePoint data are not removed.
-- Key Vault purge is never performed. Azure soft-delete recovery remains available for the configured 90-day vault retention period.
+- Key Vault purge is never performed. When inventory proves that the package-named vault exists before successful resource-group deletion, final evidence records it as soft-deleted and recoverable for the configured 90-day retention period. A missing or already-absent resource group does not produce an unverified vault-retention claim.
 - A later reinstall uses a new package and new disposable Key Vault name during testing.
-- Hardened removal lifecycle callbacks are not implemented; see #9.
+- Authorized removal callbacks use a distinct `ra_` attempt, ordered removal-only event types, sanitized disposition counts, identity-derived idempotency keys, exact `Accepted` receipt validation, and a persisted outbox. Portal v0.3 acceptance and staging proof remain open under #9.
+
+## Troubleshooting And Correlation
+
+Use the narrowest identifier that follows the failing boundary. Do not paste raw logs or protected values into a ticket.
+
+| Symptom or boundary | Primary identifier | Supporting artifact | Safe escalation content |
+| --- | --- | --- | --- |
+| Setup connect/readiness/download | Onboarding session ID and API correlation ID | `support-bundle\onboarding\{sessionId}\portal-sync-receipt.json` | UTC time, readiness/error code, package version, sanitized endpoint host |
+| Package validation | Deployment export ID and package hash | Local package-trust result; do not attach setup file | Trust status, signing key ID, expected customer/environment alias |
+| Azure sign-in/preflight | Azure tenant/subscription aliases and check code | Preflight evidence | Missing role/scope/check code and target scope; no token |
+| Graph/SharePoint preflight | Graph tenant alias and check code | Preflight/validation evidence | Missing delegated scope or configured site/library result; no unrelated library list |
+| What-If | Azure What-If deployment/correlation ID | `support-bundle\preview\deployment-preview.json` and redacted What-If artifact | Counts, warning code, target resource group |
+| Install/runtime configuration | Azure deployment name/correlation and installer attempt ID | `support-bundle\install\deployment-install.json`, Azure deployment artifact, runtime-configuration artifact | Failed phase, sanitized error code, Key Vault reference resolution state; no values |
+| Runtime validation | Deployment export ID and validation attempt | `support-bundle\validate\deployment-validation.json` | Expected/observed product and export identity, HTTP status, endpoint host |
+| Portal evidence sync | Event ID, attempt ID, sequence, idempotency identity, API correlation ID | Persisted outbox and portal status receipt | Event type/status/outcome and retry count; no raw callback body if it contains restricted identifiers |
+| Removal | Removal attempt ID, Azure resource-group operation/correlation | Removal inventory/execution/validation evidence | Ownership result, terminal disposition counts, retained categories |
+
+Before transfer, review the support bundle manifest and selected artifacts. The approved handoff must state who owns the copy, transfer destination, retention period, and deletion responsibility. The assistant/support workflow cannot execute privileged actions, modify a signed package, or bypass normal approval gates.
+
+## Customer Security Review Checklist
+
+- Confirm the exact release version, publisher, certificate thumbprint, and approved distribution channel.
+- Approve the Azure subscription and accepted role set assigned to the operator.
+- Approve the four delegated Graph scopes and customer consent process.
+- Approve HTTPS destinations, proxy inspection behavior, and customer SharePoint/deployed-app endpoints.
+- Review Azure resource types, public-network settings, regions, tags, managed identity, Key Vault RBAC, and 90-day soft-delete/no-purge policy.
+- Review package/setup-file handling and the separate distribution/package trust anchors.
+- Review the exact runtime secret metadata contract and confirm raw values never enter packages, state, arguments, environment variables, callbacks, or support bundles.
+- Approve local workspace/session retention and secure deletion responsibilities.
+- Approve portal-side evidence schema, idempotency, retention, and support-handoff policy outside this repository.
+- Confirm upgrade is excluded until issue #6 is accepted and that removal is Azure-only with no SharePoint mutation.
+- Require completed clean-workstation and lifecycle evidence from `docs/testing/customer-lifecycle-acceptance-runbook.md` before production authorization.
+- Require the sanitized lifecycle JSON to pass `scripts/validate-customer-lifecycle-result.ps1 -RequireApproval` for the exact release commit before approving publication.
 
 ## Known Release Blockers
 
 | Capability | Current state | Issue |
 | --- | --- | --- |
-| API and portal application delivery | Installer implementation complete locally; runtime release, portal package, and staging proof pending | #5 |
-| Supported upgrade/version policy | Not defined | #6 |
+| API and portal application delivery | Installer contract implemented in draft PR #22; immutable producers and staging proof pending | #5 |
+| Supported upgrade/version policy | Installer contract implemented in draft PR #21; control-plane support and staging proof pending | #6 |
 | Runtime secret inventory and protected provisioning | Implemented locally; live staging proof pending | #7 |
-| Removal lifecycle callbacks | Not implemented | #9 |
+| Removal lifecycle callbacks | Installer implemented; portal/API acceptance and staging proof pending | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
 | Production code signing and distribution | Signing and verification implemented; certificate-backed release and clean-workstation proof pending | #13 |
+| Assistant portal retention and approved support handoff | Installer boundary implemented; live portal review pending | #28 |
 
 ## Verification And Review
 

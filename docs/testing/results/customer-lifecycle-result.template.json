@@ -1,0 +1,103 @@
+{
+  "contractVersion": "1.0",
+  "status": "Planned",
+  "run": {
+    "runId": "PM365-ACCEPT-TEMPLATE",
+    "utcStartedAt": "",
+    "utcCompletedAt": "",
+    "releaseVersion": "",
+    "installerSourceCommit": "",
+    "archiveSha256": "",
+    "publisherEvidenceLink": "",
+    "portalApiBuild": "",
+    "customerEnvironmentAlias": "",
+    "workstationAlias": "",
+    "windowsBuild": "",
+    "evidenceRootLink": ""
+  },
+  "entryGates": [
+    { "id": "source-ci", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "signed-candidate", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "clean-workstation", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "runtime-packages", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "staging-contracts", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "roles-and-stop-authority", "result": "NotRun", "evidenceLink": "", "reviewer": "" }
+  ],
+  "packages": [
+    {
+      "id": "INSTALL-01",
+      "packageHash": "",
+      "sessionAlias": "",
+      "deploymentExportId": "",
+      "resourceGroup": "",
+      "keyVault": "",
+      "runtimeVersion": "",
+      "portalReadiness": "",
+      "producerRef": "",
+      "evidenceLink": ""
+    },
+    {
+      "id": "INSTALL-02",
+      "packageHash": "",
+      "sessionAlias": "",
+      "deploymentExportId": "",
+      "resourceGroup": "",
+      "keyVault": "",
+      "runtimeVersion": "",
+      "portalReadiness": "",
+      "producerRef": "",
+      "evidenceLink": ""
+    },
+    {
+      "id": "INSTALL-03",
+      "packageHash": "",
+      "sessionAlias": "",
+      "deploymentExportId": "",
+      "resourceGroup": "",
+      "keyVault": "",
+      "runtimeVersion": "",
+      "portalReadiness": "",
+      "producerRef": "",
+      "evidenceLink": ""
+    },
+    {
+      "id": "RECOVERY-01",
+      "packageHash": "",
+      "sessionAlias": "",
+      "deploymentExportId": "",
+      "resourceGroup": "",
+      "keyVault": "",
+      "runtimeVersion": "",
+      "portalReadiness": "",
+      "producerRef": "",
+      "evidenceLink": ""
+    }
+  ],
+  "scenarioResults": [],
+  "reconciliation": [
+    { "id": "installer-terminal", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "azure-ownership", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "sharepoint-preservation", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "keyvault-disposition", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "portal-lifecycle", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "final-evidence", "result": "NotRun", "evidenceLink": "", "reviewer": "" }
+  ],
+  "securityChecks": [
+    { "id": "repository-and-release", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "installer-local-artifacts", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "portal-and-assistant", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "keyvault-runtime-secrets", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "removal-boundary", "result": "NotRun", "evidenceLink": "", "reviewer": "" },
+    { "id": "publisher-identity", "result": "NotRun", "evidenceLink": "", "reviewer": "" }
+  ],
+  "deviations": [],
+  "approvals": [
+    { "id": "product", "decision": "NotApproved", "approver": "", "utcDecidedAt": "", "evidenceLink": "" },
+    { "id": "installer-engineering", "decision": "NotApproved", "approver": "", "utcDecidedAt": "", "evidenceLink": "" },
+    { "id": "runtime-api-engineering", "decision": "NotApproved", "approver": "", "utcDecidedAt": "", "evidenceLink": "" },
+    { "id": "identity-security", "decision": "NotApproved", "approver": "", "utcDecidedAt": "", "evidenceLink": "" },
+    { "id": "operations-support", "decision": "NotApproved", "approver": "", "utcDecidedAt": "", "evidenceLink": "" },
+    { "id": "clean-operator-usability", "decision": "NotApproved", "approver": "", "utcDecidedAt": "", "evidenceLink": "" }
+  ],
+  "finalDecision": "NotApproved"
+}

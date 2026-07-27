@@ -55,7 +55,7 @@ Scenario status meanings:
 | P09 | Package response is not supported JSON or fails schema/contract validation | Body is not activated or saved as a usable generated package. | Automated |
 | P10 | Portal reports missing onboarding fields and permits discovery | Only missing install-readiness metadata is collected and synchronized. | Automated |
 | P11 | Discovery is not authorized by bootstrap policy | Discovery controls remain unavailable and no tenant query runs. | Automated |
-| P12 | Portal is unavailable during connect, readiness, or download | Error and correlation context remain visible; operator can retry without restarting. | Partial |
+| P12 | Portal is unavailable during connect, readiness, or download | Transient package download responses receive bounded automatic retry; exhausted or non-retryable failures remain visible and manually retryable without restart. | Automated client; live portal retry pending |
 | P13 | Previously downloaded package is requested again for the active session | Package is downloaded and fully revalidated rather than trusted from stale UI state. | Automated |
 
 ## Authentication Scenarios
@@ -141,12 +141,12 @@ Scenario status meanings:
 | E06 | Portal is offline after a successful local action | Local result is unchanged and event remains in outbox. | Automated |
 | E07 | Outbox event is retried | Payload, event ID, attempt ID, sequence, and idempotency key remain stable. | Automated |
 | E08 | Callback contains a token, secret, raw log, file, or prohibited tenant content | Payload is rejected or redacted before transport. | Partial |
-| E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Planned |
-| E10 | Removal inventory/preview completes | Portal receives sanitized removed/retained/blocked intent without raw inventory export. | Planned |
-| E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Planned |
-| E12 | Removal blocks or fails | Sanitized terminal/blocked outcome preserves the Azure result. | Planned |
-| E13 | Removal portal sync fails | Stable removal event remains in a dedicated outbox for retry. | Planned |
-| E14 | Install and removal callbacks coexist | Event types and attempt state cannot be confused or reordered across lifecycles. | Planned |
+| E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Automated |
+| E10 | Removal inventory/preview completes or is refreshed | Portal receives ordered sanitized intent without raw inventory export; an active refresh keeps the same attempt and advances sequence. | Automated contract; live pending |
+| E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Automated contract; live pending |
+| E12 | Removal blocks or fails | Sanitized terminal/blocked outcome preserves the Azure result. | Automated |
+| E13 | Removal portal sync fails | Stable removal event remains in a dedicated outbox for retry. | Automated installer; portal pending |
+| E14 | Install and removal callbacks coexist | Event types and attempt state cannot be confused or reordered across lifecycles. | Automated installer; portal pending |
 
 ## Troubleshooting And Support Scenarios
 
@@ -156,8 +156,8 @@ Scenario status meanings:
 | T02 | Operator needs administrator assistance | Generated message identifies required action without secrets. | Partial |
 | T03 | Operator creates a support bundle | Bundle contains manifest, sanitized evidence, versions, and correlations. | Partial |
 | T04 | Evidence and support artifacts are scanned | No prohibited secret or customer-content patterns are present. | Automated |
-| T05 | Assistant recommends a privileged or destructive action | Recommendation cannot bypass normal approval or execute the action directly. | Partial |
-| T06 | Customer approves a support handoff | Transferred scope and retention are explicit and traceable. | Planned |
+| T05 | Assistant recommends a privileged, unknown, duplicated, or approval-downgraded action | Only the locally registered action renders, with the local label and approval floor; destructive actions cannot execute. | Automated |
+| T06 | Customer approves a support handoff | Transfer is off by default; only explicitly approved redacted text artifacts enter a draft, while binary/local-only items are omitted. | Partial |
 
 ## Lifecycle Scenarios
 
@@ -179,13 +179,13 @@ Scenario status meanings:
 | --- | --- | --- |
 | R01 | Inventory only | No delete command runs; preview artifact lists owned resources and retention. |
 | R02 | Wrong subscription or tenant | Inventory/removal blocks before deletion. |
-| R03 | Resource group missing | Validation reports already absent; rerun is successful and idempotent. |
+| R03 | Resource group missing | Validation reports already absent; rerun is successful and idempotent, and evidence does not invent a Key Vault disposition. |
 | R04 | Resource group ownership tag missing or changed | Removal blocks. |
 | R05 | Unrelated resource inserted into the group | Removal blocks. |
 | R06 | Active Azure deployment | Removal blocks. |
 | R07 | Incorrect typed confirmation | Removal blocks and no delete command runs. |
 | R08 | PowerShell WhatIf | Removal reports skipped and no delete command runs. |
-| R09 | Approved removal | Dedicated resource group is deleted and a cleanup artifact is written. |
+| R09 | Approved removal | Dedicated resource group is deleted, a cleanup artifact is written, and Key Vault disposition distinguishes present, never-created, and unverified states. |
 | R10 | Key Vault retention disabled | Installer rejects the request; purge is never attempted. |
 | R11 | Run cleanup again after success | Result reports already absent without failure. |
 | R12 | Interrupt deletion and resume validation | Installer detects the live Azure state and does not duplicate unsafe work. |

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pagemaker365.com/schemas/customer-lifecycle-result.schema.json",
+  "title": "PageMaker365 Customer Lifecycle Acceptance Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "status",
+    "run",
+    "entryGates",
+    "packages",
+    "scenarioResults",
+    "reconciliation",
+    "securityChecks",
+    "deviations",
+    "approvals",
+    "finalDecision"
+  ],
+  "properties": {
+    "contractVersion": { "const": "1.0" },
+    "status": { "enum": ["Planned", "InProgress", "Completed"] },
+    "run": { "$ref": "#/$defs/run" },
+    "entryGates": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "packages": { "type": "array", "items": { "$ref": "#/$defs/package" } },
+    "scenarioResults": { "type": "array", "items": { "$ref": "#/$defs/scenario" } },
+    "reconciliation": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "securityChecks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "deviations": { "type": "array", "items": { "$ref": "#/$defs/deviation" } },
+    "approvals": { "type": "array", "items": { "$ref": "#/$defs/approval" } },
+    "finalDecision": { "enum": ["NotApproved", "Approved"] }
+  },
+  "$defs": {
+    "shortText": { "type": "string", "maxLength": 256 },
+    "link": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^(|https://[^@/?#\\s]+(?:/[^?#\\s]*)?|evidence://[A-Za-z0-9._/-]+)$"
+    },
+    "result": { "enum": ["Pass", "Fail", "Blocked", "NotRun"] },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId", "utcStartedAt", "utcCompletedAt", "releaseVersion",
+        "installerSourceCommit", "archiveSha256", "publisherEvidenceLink",
+        "portalApiBuild", "customerEnvironmentAlias", "workstationAlias",
+        "windowsBuild", "evidenceRootLink"
+      ],
+      "properties": {
+        "runId": { "type": "string", "pattern": "^PM365-ACCEPT-[A-Za-z0-9._-]{1,96}$" },
+        "utcStartedAt": { "$ref": "#/$defs/shortText" },
+        "utcCompletedAt": { "$ref": "#/$defs/shortText" },
+        "releaseVersion": { "type": "string", "pattern": "^(|[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$" },
+        "installerSourceCommit": { "type": "string", "pattern": "^(|[a-f0-9]{40})$" },
+        "archiveSha256": { "type": "string", "pattern": "^(|[a-f0-9]{64})$" },
+        "publisherEvidenceLink": { "$ref": "#/$defs/link" },
+        "portalApiBuild": { "$ref": "#/$defs/shortText" },
+        "customerEnvironmentAlias": { "$ref": "#/$defs/shortText" },
+        "workstationAlias": { "$ref": "#/$defs/shortText" },
+        "windowsBuild": { "$ref": "#/$defs/shortText" },
+        "evidenceRootLink": { "$ref": "#/$defs/link" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "result", "evidenceLink", "reviewer"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+        "result": { "$ref": "#/$defs/result" },
+        "evidenceLink": { "$ref": "#/$defs/link" },
+        "reviewer": { "$ref": "#/$defs/shortText" }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "packageHash", "sessionAlias", "deploymentExportId",
+        "resourceGroup", "keyVault", "runtimeVersion", "portalReadiness",
+        "producerRef", "evidenceLink"
+      ],
+      "properties": {
+        "id": { "enum": ["INSTALL-01", "INSTALL-02", "INSTALL-03", "RECOVERY-01"] },
+        "packageHash": { "type": "string", "pattern": "^(|(?:sha256:)?[a-f0-9]{64})$" },
+        "sessionAlias": { "type": "string", "pattern": "^(|[A-Za-z0-9._-]{1,128})$" },
+        "deploymentExportId": { "type": "string", "pattern": "^(|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+        "resourceGroup": { "type": "string", "pattern": "^(|[A-Za-z0-9._()\\-]{1,90})$" },
+        "keyVault": { "type": "string", "pattern": "^(|[A-Za-z][A-Za-z0-9-]{1,22}[A-Za-z0-9])$" },
+        "runtimeVersion": { "type": "string", "pattern": "^(|[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$" },
+        "portalReadiness": { "$ref": "#/$defs/shortText" },
+        "producerRef": { "$ref": "#/$defs/link" },
+        "evidenceLink": { "$ref": "#/$defs/link" }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenarioId", "segment", "result", "utcStartedAt", "utcCompletedAt",
+        "evidenceLink", "correlationAliases", "deviationIssue", "reviewer"
+      ],
+      "properties": {
+        "scenarioId": { "type": "string", "pattern": "^[A-Z][0-9]{2}$" },
+        "segment": { "enum": ["baseline", "recovery", "cycle-01", "cycle-02", "cycle-03", "negative", "security"] },
+        "result": { "$ref": "#/$defs/result" },
+        "utcStartedAt": { "$ref": "#/$defs/shortText" },
+        "utcCompletedAt": { "$ref": "#/$defs/shortText" },
+        "evidenceLink": { "$ref": "#/$defs/link" },
+        "correlationAliases": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+          "uniqueItems": true
+        },
+        "deviationIssue": { "$ref": "#/$defs/link" },
+        "reviewer": { "$ref": "#/$defs/shortText" }
+      }
+    },
+    "deviation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scenarioId", "observation", "decision", "issue", "decisionOwner"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^DEV-[0-9]{3}$" },
+        "scenarioId": { "type": "string", "pattern": "^[A-Z][0-9]{2}$" },
+        "observation": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "decision": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "issue": { "$ref": "#/$defs/link" },
+        "decisionOwner": { "$ref": "#/$defs/shortText" }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "decision", "approver", "utcDecidedAt", "evidenceLink"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+        "decision": { "enum": ["NotApproved", "Approved"] },
+        "approver": { "$ref": "#/$defs/shortText" },
+        "utcDecidedAt": { "$ref": "#/$defs/shortText" },
+        "evidenceLink": { "$ref": "#/$defs/link" }
+      }
+    }
+  }
+}

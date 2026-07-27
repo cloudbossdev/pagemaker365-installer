@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
 using System.Reflection;
 using System.Security;
 using System.Security.Cryptography;
@@ -31,7 +32,19 @@ internal static class Program
             ("SubmitEvidenceAsync sends hardened callback contract", SubmitEvidenceAsyncSendsHardenedCallbackContract),
             ("SubmitEvidenceAsync retries transient failure with stable identity", SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity),
             ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
+            ("SubmitEvidenceAsync sends hardened removal callback contract", SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract),
+            ("SubmitEvidenceAsync rejects secret-looking removal error", SubmitEvidenceAsyncRejectsSecretLookingRemovalError),
+            ("SubmitEvidenceAsync rejects noncanonical accepted receipt", SubmitEvidenceAsyncRejectsNoncanonicalAcceptedReceipt),
+            ("SubmitEvidenceAsync rejects mismatched removal receipt", SubmitEvidenceAsyncRejectsMismatchedRemovalReceipt),
+            ("SubmitEvidenceAsync rejects mismatched removal idempotency identity", SubmitEvidenceAsyncRejectsMismatchedRemovalIdempotencyIdentity),
+            ("Removal evidence lifecycle enforces ordered terminal flow", RemovalEvidenceLifecycleEnforcesOrderedTerminalFlow),
+            ("Removal evidence lifecycle supports inventory refresh", RemovalEvidenceLifecycleSupportsInventoryRefresh),
+            ("Removal evidence lifecycle rejects inconsistent event semantics", RemovalEvidenceLifecycleRejectsInconsistentEventSemantics),
+            ("Removal evidence lifecycle preserves prior attempt outbox", RemovalEvidenceLifecyclePreservesPriorAttemptOutbox),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
+            ("DownloadPackageAsync retries transient rate limits", DownloadPackageAsyncRetriesTransientRateLimits),
+            ("DownloadPackageAsync cancels transient retry wait", DownloadPackageAsyncCancelsTransientRetryWait),
+            ("DownloadPackageAsync does not retry unauthorized response", DownloadPackageAsyncDoesNotRetryUnauthorizedResponse),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
             ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
             ("PackageTrustKeyResolver rejects untrusted JWKS host", PackageTrustKeyResolverRejectsUntrustedJwksHost),
@@ -59,6 +72,8 @@ internal static class Program
             ("GetOnboardingStatusAsync rejects status session mismatch", GetOnboardingStatusAsyncRejectsStatusSessionMismatch),
             ("GetOnboardingStatusAsync validates sample status contract", GetOnboardingStatusAsyncValidatesSampleStatusContract),
             ("ConnectAsync surfaces portal API error details", ConnectAsyncSurfacesPortalApiErrorDetails),
+            ("ConnectAsync sanitizes nested portal API error", ConnectAsyncSanitizesNestedPortalApiError),
+            ("ConnectAsync omits unrecognized raw error body", ConnectAsyncOmitsUnrecognizedRawErrorBody),
             ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
             ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
             ("DownloadPackageAsync rejects generated package missing required contract sections", DownloadPackageAsyncRejectsGeneratedPackageMissingRequiredContractSections),
@@ -86,6 +101,20 @@ internal static class Program
             ("CustomerConfigService rejects unexpected runtime secret setting", CustomerConfigServiceRejectsUnexpectedRuntimeSecretSetting),
             ("CustomerConfigService rejects oversized runtime secret minimum", CustomerConfigServiceRejectsOversizedRuntimeSecretMinimum),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
+            ("Assistant API rejects untrusted portal origin", AssistantApiRejectsUntrustedPortalOrigin),
+            ("Assistant message sends trusted sanitized contract", AssistantMessageSendsTrustedSanitizedContract),
+            ("Assistant message rejects prohibited payload before transport", AssistantMessageRejectsProhibitedPayloadBeforeTransport),
+            ("Assistant message falls back only for transient failure", AssistantMessageFallsBackOnlyForTransientFailure),
+            ("Assistant message does not fall back for unauthorized response", AssistantMessageDoesNotFallbackForUnauthorizedResponse),
+            ("Assistant message rejects mismatched receipt", AssistantMessageRejectsMismatchedReceipt),
+            ("Assistant attachment import redacts text and retains images locally", AssistantAttachmentImportRedactsTextAndRetainsImagesLocally),
+            ("Support bundle excludes local binary assistant attachments", SupportBundleExcludesLocalBinaryAssistantAttachments),
+            ("Assistant attachment upload enforces exact prepared artifact", AssistantAttachmentUploadEnforcesExactPreparedArtifact),
+            ("Assistant attachment rejects oversize payload before transport", AssistantAttachmentRejectsOversizePayloadBeforeTransport),
+            ("Assistant attachment rejects hash mismatch before transport", AssistantAttachmentRejectsHashMismatchBeforeTransport),
+            ("Assistant support ticket requires exact draft receipt", AssistantSupportTicketRequiresExactDraftReceipt),
+            ("Assistant support ticket rejects submitted terminal state", AssistantSupportTicketRejectsSubmittedTerminalState),
+            ("Assistant action policy prevents approval downgrade", AssistantActionPolicyPreventsApprovalDowngrade),
             ("RuntimeSecretMaterial generates required protected length", RuntimeSecretMaterialGeneratesRequiredProtectedLength),
             ("RuntimeSecretMaterial rejects oversized generation", RuntimeSecretMaterialRejectsOversizedGeneration),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
@@ -244,6 +273,230 @@ internal static class Program
         AssertEx.Equal(1, handler.Requests.Count);
     }
 
+    private static async Task SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var pending = lifecycle.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var evidence = pending.Payload;
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "lifecycle": "removal",
+              "attemptId": "{{evidence.AttemptId}}",
+              "removalAttemptId": "{{evidence.RemovalAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "removing",
+              "outcome": "passed",
+              "correlationId": "corr-removal-evidence-001",
+              "receivedAt": "2026-07-26T18:00:00Z"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var receipt = await client.SubmitEvidenceAsync(CreateSession(), evidence, pending.IdempotencyKey);
+
+        AssertEx.Equal("Accepted", receipt.Status);
+        AssertEx.Equal(evidence.RemovalAttemptId, receipt.RemovalAttemptId);
+        AssertEx.Contains(handler.HeaderValues("Idempotency-Key"), pending.IdempotencyKey);
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertJsonString(body, "lifecycle", InstallerEvidenceLifecycle.Removal);
+        AssertJsonString(body, "attemptId", evidence.AttemptId);
+        AssertJsonString(body, "removalAttemptId", evidence.RemovalAttemptId);
+        AssertJsonString(body, "installAttemptId", evidence.RemovalAttemptId);
+        AssertEx.Equal(0, body.RootElement.GetProperty("removalOutcomes").GetProperty("retained").GetInt32());
+        AssertEx.False(handler.RequestBodies[0].Contains("TEST-CODE-001", StringComparison.Ordinal));
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsSecretLookingRemovalError()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        lifecycle.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var evidence = lifecycle.Queue(
+            state,
+            CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalFailed)).Payload;
+        evidence.Error!.Message = "Authorization: Bearer test-secret-token";
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, $"{evidence.AttemptId}:1:{evidence.EventId}"));
+
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsNoncanonicalAcceptedReceipt()
+    {
+        var evidence = CreateInstallerEvidence();
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "status": "accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "correlationId": "corr-noncanonical-001"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.InstallAttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedRemovalReceipt()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var pending = lifecycle.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var evidence = pending.Payload;
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "removal_inventory_completed",
+              "lifecycle": "removal",
+              "attemptId": "{{evidence.AttemptId}}",
+              "removalAttemptId": "{{evidence.RemovalAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "removing",
+              "outcome": "passed",
+              "correlationId": "corr-mismatch-001"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, pending.IdempotencyKey));
+
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedRemovalIdempotencyIdentity()
+    {
+        var lifecycle = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        lifecycle.StartNewAttempt(state);
+        var evidence = lifecycle.Queue(
+            state,
+            CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted)).Payload;
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, "ra_wrong:1:evt_wrong"));
+
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static Task RemovalEvidenceLifecycleEnforcesOrderedTerminalFlow()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        service.StartNewAttempt(state);
+
+        AssertEx.Throws<InvalidOperationException>(() =>
+            service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted)));
+
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var unsafePayload = CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted);
+        unsafePayload.RemovalOutcomes!.RetainedCategories.Add("raw_customer_resource_inventory");
+        AssertEx.Throws<InvalidDataException>(() => service.Queue(state, unsafePayload));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalExecutionCompleted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalValidationCompleted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalCompleted));
+
+        AssertEx.Equal(5, state.PendingEvents.Count);
+        AssertEx.Equal(6, state.NextSequence);
+        AssertEx.True(state.IsTerminal);
+        AssertEx.Equal(InstallerEvidenceEventType.RemovalCompleted, state.LastEventType);
+        AssertEx.Equal(InstallerEvidenceLifecycle.Removal, state.PendingEvents[0].Payload.Lifecycle);
+        AssertEx.Equal(state.RemovalAttemptId, state.PendingEvents[0].Payload.AttemptId);
+        AssertEx.Equal(state.RemovalAttemptId, state.PendingEvents[0].Payload.RemovalAttemptId);
+        AssertEx.Equal(state.RemovalAttemptId, state.PendingEvents[0].Payload.InstallAttemptId);
+        AssertEx.Equal(5, state.PendingEvents[4].Payload.Sequence);
+        AssertEx.Throws<InvalidOperationException>(() =>
+            service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalFailed)));
+        return Task.CompletedTask;
+    }
+
+    private static Task RemovalEvidenceLifecyclePreservesPriorAttemptOutbox()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        var firstAttempt = service.StartNewAttempt(state);
+        var started = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        var blocked = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalBlocked));
+        var startedIdentity = (started.IdempotencyKey, started.Payload.EventId, started.Payload.Sequence);
+
+        var secondAttempt = service.StartNewAttempt(state);
+        var retryStarted = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+
+        AssertEx.False(firstAttempt.Equals(secondAttempt, StringComparison.Ordinal));
+        AssertEx.Equal(3, state.PendingEvents.Count);
+        AssertEx.Equal(firstAttempt, blocked.Payload.AttemptId);
+        AssertEx.Equal(secondAttempt, retryStarted.Payload.AttemptId);
+        AssertEx.Equal(1, retryStarted.Payload.Sequence);
+        AssertEx.Equal(startedIdentity.IdempotencyKey, state.PendingEvents[0].IdempotencyKey);
+        AssertEx.Equal(startedIdentity.EventId, state.PendingEvents[0].Payload.EventId);
+        AssertEx.Equal(startedIdentity.Sequence, state.PendingEvents[0].Payload.Sequence);
+        return Task.CompletedTask;
+    }
+
+    private static Task RemovalEvidenceLifecycleSupportsInventoryRefresh()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        var attemptId = service.StartNewAttempt(state);
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted));
+        service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted));
+        var refreshed = service.Queue(state, CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalInventoryCompleted));
+
+        AssertEx.Equal(attemptId, refreshed.Payload.AttemptId);
+        AssertEx.Equal(3, refreshed.Payload.Sequence);
+        AssertEx.False(state.IsTerminal);
+        AssertEx.True(state.InventoryCompleted);
+        return Task.CompletedTask;
+    }
+
+    private static Task RemovalEvidenceLifecycleRejectsInconsistentEventSemantics()
+    {
+        var service = new RemovalEvidenceLifecycleService();
+        var state = new RemovalEvidenceOutboxState();
+        service.StartNewAttempt(state);
+        var payload = CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted);
+        payload.LifecycleStatus = "removed";
+
+        AssertEx.Throws<InvalidDataException>(() => service.Queue(state, payload));
+        AssertEx.Equal(0, state.PendingEvents.Count);
+        AssertEx.Equal(1, state.NextSequence);
+
+        var prematureDisposition = CreateRemovalEvidencePayload(InstallerEvidenceEventType.RemovalStarted);
+        prematureDisposition.RemovalOutcomes!.Retained = 1;
+        prematureDisposition.RemovalOutcomes.RetainedCategories.Add("key_vault_soft_deleted");
+        AssertEx.Throws<InvalidDataException>(() => service.Queue(state, prematureDisposition));
+        AssertEx.Equal(0, state.PendingEvents.Count);
+        AssertEx.Equal(1, state.NextSequence);
+        return Task.CompletedTask;
+    }
+
     private static async Task SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload()
     {
         var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
@@ -354,6 +607,120 @@ internal static class Program
             AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
             AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
             AssertEx.StringContains(result.PackagePath, Path.Combine("support-bundle", "onboarding", "onb_test_001", "generated-package"));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRetriesTransientRateLimits()
+    {
+        var packageJson = CustomerConfigService.ToJson(CreateConfig());
+        var attempts = 0;
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            attempts++;
+            if (attempts < 3)
+            {
+                var rateLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent("rate limited", Encoding.UTF8, "text/plain")
+                };
+                rateLimited.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+                rateLimited.Headers.Add("X-Correlation-ID", $"corr-rate-limit-{attempts}");
+                return rateLimited;
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(packageJson, Encoding.UTF8, "application/json")
+            };
+            response.Headers.Add("X-Correlation-ID", "corr-rate-limit-success");
+            return response;
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot);
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.Equal("corr-rate-limit-success", result.CorrelationId);
+            AssertEx.StringContains(result.Message, "after 3 attempts");
+            AssertEx.Equal(3, handler.Requests.Count);
+            foreach (var request in handler.Requests)
+            {
+                AssertEx.Equal(HttpMethod.Get, request.Method);
+                AssertEx.Equal("https://localhost:5443/custom/download", request.RequestUri?.ToString());
+                AssertEx.True(
+                    request.Headers.TryGetValue("X-PM365-Onboarding-Session", out var sessions) &&
+                    sessions.Contains("onb_test_001"),
+                    "Retried package request did not preserve the onboarding session header.");
+                AssertEx.True(
+                    request.Headers.TryGetValue("X-PM365-Onboarding-Code", out var codes) &&
+                    codes.Contains("TEST-CODE-001"),
+                    "Retried package request did not preserve the onboarding code header.");
+            }
+            AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncDoesNotRetryUnauthorizedResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("unauthorized", Encoding.UTF8, "text/plain")
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot));
+
+            AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+            AssertEx.Equal(1, handler.Requests.Count);
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncCancelsTransientRetryWait()
+    {
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            var rateLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("rate limited", Encoding.UTF8, "text/plain")
+            };
+            rateLimited.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(30));
+            return rateLimited;
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        try
+        {
+            await AssertEx.ThrowsAsync<OperationCanceledException>(() =>
+                client.DownloadPackageAsync(
+                    CreateSession(),
+                    CreateReadyReadiness(),
+                    workspaceRoot,
+                    cancellationToken: cancellation.Token));
+
+            AssertEx.Equal(1, handler.Requests.Count);
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot));
         }
         finally
         {
@@ -1008,6 +1375,56 @@ internal static class Program
         AssertEx.StringContains(exception.Message, "Expired onboarding code");
     }
 
+    private static async Task ConnectAsyncSanitizesNestedPortalApiError()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+        {
+            Content = new StringContent(
+                """
+                {
+                  "error": {
+                    "code": "rate_limited",
+                    "message": "Review C:\\Users\\operator\\portal.log Authorization: Bearer secret-token-value"
+                  },
+                  "debug": { "secret": "must-not-surface" },
+                  "correlationId": "corr-nested-429"
+                }
+                """,
+                Encoding.UTF8,
+                "application/json")
+        });
+        var client = CreatePortalClient(handler, fallbackToMock: false);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.Equal(HttpStatusCode.TooManyRequests, exception.StatusCode.GetValueOrDefault());
+        AssertEx.Equal("corr-nested-429", exception.CorrelationId);
+        AssertEx.StringContains(exception.Message, "[local path omitted]");
+        AssertEx.StringContains(exception.Message, "[REDACTED]");
+        AssertEx.False(exception.Message.Contains("C:\\Users", StringComparison.Ordinal));
+        AssertEx.False(exception.Message.Contains("secret-token-value", StringComparison.Ordinal));
+        AssertEx.False(exception.Message.Contains("must-not-surface", StringComparison.Ordinal));
+    }
+
+    private static async Task ConnectAsyncOmitsUnrecognizedRawErrorBody()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadGateway)
+        {
+            Content = new StringContent(
+                "<html>proxy debug C:\\Users\\operator\\trace.log secret-value</html>",
+                Encoding.UTF8,
+                "text/html")
+        });
+        var client = CreatePortalClient(handler, fallbackToMock: false);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.Equal(HttpStatusCode.BadGateway, exception.StatusCode.GetValueOrDefault());
+        AssertEx.Equal("Portal onboarding API connect returned 502 BadGateway.", exception.Message);
+        AssertEx.False(exception.Message.Contains("proxy debug", StringComparison.Ordinal));
+        AssertEx.False(exception.Message.Contains("secret-value", StringComparison.Ordinal));
+    }
+
     private static async Task DownloadPackageAsyncRejectsNonJsonPackageResponse()
     {
         var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
@@ -1232,52 +1649,52 @@ internal static class Program
         var sessionValidation = sessionService.Validate(session);
         AssertEx.True(sessionValidation.IsValid, string.Join(" ", sessionValidation.Errors));
 
-        var baseUri = new Uri(session.ApiBaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-        var packageEndpoint = new Uri(baseUri, $"api/onboarding/installer/{Uri.EscapeDataString(session.SessionId)}/install-package");
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        using var request = new HttpRequestMessage(HttpMethod.Get, packageEndpoint);
-        request.Headers.Add("X-PM365-Onboarding-Session", session.SessionId);
-        request.Headers.Add("X-PM365-Onboarding-Code", session.OneTimeCode);
-
         var apiKeyVariable = Environment.GetEnvironmentVariable("PM365_LIVE_ONBOARDING_API_KEY_ENV") ?? "PM365_ONBOARDING_API_KEY";
-        var apiKey = Environment.GetEnvironmentVariable(apiKeyVariable);
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        using var response = await httpClient.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Live portal package download failed with HTTP {(int)response.StatusCode}.");
-        }
-
-        AssertEx.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
-        using var document = JsonDocument.Parse(body);
-        foreach (var section in new[]
-        {
-            "contractVersion",
-            "customer",
-            "azure",
-            "sharePoint",
-            "app",
-            "entra",
-            "controlPlane",
-            "secrets",
-            "features",
-            "smokeTests"
-        })
-        {
-            AssertEx.True(document.RootElement.TryGetProperty(section, out _), $"Downloaded package missing top-level section '{section}'.");
-        }
-
         var workspaceRoot = CreateTempDirectory();
         try
         {
-            var packagePath = Path.Combine(workspaceRoot, "downloaded.customer.install.json");
-            await File.WriteAllTextAsync(packagePath, body);
-            var config = await new CustomerConfigService().LoadAsync(packagePath);
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new OnboardingApiClient(
+                new OnboardingApiOptions
+                {
+                    Mode = "Portal",
+                    ApiBaseUrl = session.ApiBaseUrl,
+                    ApiKeyEnvironmentVariable = apiKeyVariable,
+                    TimeoutSeconds = 30,
+                    FallbackToMockOnFailure = false
+                },
+                httpClient);
+            var download = await client.DownloadPackageAsync(
+                session,
+                new OnboardingPackageReadiness
+                {
+                    Status = "Ready",
+                    PackageVersion = "live"
+                },
+                workspaceRoot);
+
+            AssertEx.Equal("Downloaded", download.Status);
+            AssertEx.True(File.Exists(download.PackagePath), "Live package was not saved by the production client.");
+            var body = await File.ReadAllTextAsync(download.PackagePath);
+            using var document = JsonDocument.Parse(body);
+            foreach (var section in new[]
+            {
+                "contractVersion",
+                "customer",
+                "azure",
+                "sharePoint",
+                "app",
+                "entra",
+                "controlPlane",
+                "secrets",
+                "features",
+                "smokeTests"
+            })
+            {
+                AssertEx.True(document.RootElement.TryGetProperty(section, out _), $"Downloaded package missing top-level section '{section}'.");
+            }
+
+            var config = await new CustomerConfigService().LoadAsync(download.PackagePath);
 
             AssertEx.Equal(session.SessionId, config.ControlPlane.OnboardingSessionId);
             AssertEx.False(string.IsNullOrWhiteSpace(config.ControlPlane.DeploymentExportId), "Downloaded package missing deployment export ID.");
@@ -1520,6 +1937,388 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static async Task AssistantApiRejectsUntrustedPortalOrigin()
+    {
+        var options = CreateAssistantOptions();
+        options.PortalApiBaseUrl = "https://example.invalid";
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() => Task.Run(() =>
+            new AssistantApiClient(options, new HttpClient(new RecordingHttpMessageHandler(_ => JsonResponse("{}"))))));
+
+        AssertEx.StringContains(exception.Message, "not a trusted PageMaker365 endpoint");
+    }
+
+    private static async Task AssistantMessageSendsTrustedSanitizedContract()
+    {
+        using var apiKey = new EnvironmentVariableScope("PM365_ASSISTANT_TEST_KEY", "assistant-test-key");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "2026-07-05",
+              "conversationId": "assistant-test-001",
+              "correlationId": "corr-assistant-message-001",
+              "source": "PortalApi",
+              "message": {
+                "role": "Assistant",
+                "content": "Review C:\\Users\\operator\\diagnostic.log before retrying.",
+                "attachments": []
+              },
+              "recommendedActions": []
+            }
+            """));
+        var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+
+        var response = await client.SendMessageAsync(CreateAssistantMessageRequest());
+
+        AssertEx.Equal("corr-assistant-message-001", response.CorrelationId);
+        AssertEx.StringContains(response.Message.Content, "[local path omitted]");
+        AssertEx.False(response.Message.Content.Contains("C:\\Users", StringComparison.Ordinal));
+        AssertEx.Equal("Bearer", handler.Requests[0].Authorization?.Scheme);
+        AssertEx.Equal("assistant-test-key", handler.Requests[0].Authorization?.Parameter);
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertJsonString(body, "localTranscriptPath", "");
+        AssertJsonString(body.RootElement.GetProperty("diagnosticContext"), "packagePath", "");
+    }
+
+    private static async Task AssistantMessageRejectsProhibitedPayloadBeforeTransport()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+        var request = CreateAssistantMessageRequest();
+        request.UserMessage.Content = "Authorization: Bearer secret-token-value";
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() => client.SendMessageAsync(request));
+
+        AssertEx.StringContains(exception.Message, "prohibited secret-like");
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static async Task AssistantMessageFallsBackOnlyForTransientFailure()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var options = CreateAssistantOptions();
+        options.FallbackToMockOnFailure = true;
+        var client = new AssistantApiClient(options, new HttpClient(handler));
+
+        var response = await client.SendMessageAsync(CreateAssistantMessageRequest());
+
+        AssertEx.True(response.UsedFallback);
+        AssertEx.Equal("LocalMockFallback", response.Source);
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task AssistantMessageDoesNotFallbackForUnauthorizedResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var options = CreateAssistantOptions();
+        options.FallbackToMockOnFailure = true;
+        var client = new AssistantApiClient(options, new HttpClient(handler));
+
+        var exception = await AssertEx.ThrowsAsync<AssistantApiException>(() =>
+            client.SendMessageAsync(CreateAssistantMessageRequest()));
+
+        AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task AssistantMessageRejectsMismatchedReceipt()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+            {
+              "contractVersion": "2026-07-05",
+              "conversationId": "assistant-other",
+              "correlationId": "corr-assistant-mismatch",
+              "message": { "role": "Assistant", "content": "Done." }
+            }
+            """));
+        var options = CreateAssistantOptions();
+        options.FallbackToMockOnFailure = true;
+        var client = new AssistantApiClient(options, new HttpClient(handler));
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SendMessageAsync(CreateAssistantMessageRequest()));
+
+        AssertEx.StringContains(exception.Message, "does not match");
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task AssistantAttachmentImportRedactsTextAndRetainsImagesLocally()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var sourceText = Path.Combine(root, "diagnostic.log");
+            var sourceImage = Path.Combine(root, "screenshot.png");
+            await File.WriteAllTextAsync(sourceText, "Authorization: Bearer secret-token-value");
+            await File.WriteAllBytesAsync(sourceImage, [0x89, 0x50, 0x4E, 0x47]);
+            var service = new AssistantAttachmentService();
+
+            var textAttachment = await service.ImportAsync(sourceText, Path.Combine(root, "attachments"));
+            var imageAttachment = await service.ImportAsync(sourceImage, Path.Combine(root, "attachments"));
+
+            AssertEx.True(textAttachment.PortalUploadAllowed);
+            AssertEx.Equal("RedactedText", textAttachment.ContentTreatment);
+            AssertEx.StringContains(await File.ReadAllTextAsync(textAttachment.StoredPath), "[REDACTED]");
+            AssertEx.False(imageAttachment.PortalUploadAllowed);
+            AssertEx.Equal("LocalOnlyBinary", imageAttachment.ContentTreatment);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task SupportBundleExcludesLocalBinaryAssistantAttachments()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var outputRoot = Path.Combine(root, "support-bundle");
+            var conversationRoot = Path.Combine(outputRoot, "assistant", "assistant-test-001");
+            var attachmentRoot = Path.Combine(conversationRoot, "attachments");
+            var outboxAttachmentRoot = Path.Combine(conversationRoot, "portal-outbox", "attachments");
+            Directory.CreateDirectory(attachmentRoot);
+            Directory.CreateDirectory(outboxAttachmentRoot);
+            await File.WriteAllTextAsync(
+                Path.Combine(conversationRoot, "assistant-conversation.redacted.json"),
+                "{\"status\":\"Review C:\\\\Users\\\\operator\\\\diagnostic.log\"}");
+            await File.WriteAllBytesAsync(Path.Combine(attachmentRoot, "screenshot.png"), [0x89, 0x50, 0x4E, 0x47]);
+            await File.WriteAllTextAsync(
+                Path.Combine(outboxAttachmentRoot, "attachment-att_test.log"),
+                "Authorization: Bearer secret-token-value");
+            var session = InstallerSession.Create(CreateConfig(), root);
+            var bundle = await new SupportBundleService(new RedactionService()).CreateAsync(session, outputRoot);
+
+            using var archive = ZipFile.OpenRead(bundle);
+            AssertEx.False(archive.Entries.Any(entry => entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase)));
+            var transcript = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith("assistant-conversation.redacted.json", StringComparison.Ordinal));
+            await using (var stream = transcript.Open())
+            using (var reader = new StreamReader(stream))
+            {
+                var content = await reader.ReadToEndAsync();
+                AssertEx.StringContains(content, "[local path omitted]");
+            }
+
+            var diagnostic = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith("attachment-att_test.log", StringComparison.Ordinal));
+            await using (var stream = diagnostic.Open())
+            using (var reader = new StreamReader(stream))
+            {
+                var content = await reader.ReadToEndAsync();
+                AssertEx.StringContains(content, "[REDACTED]");
+                AssertEx.False(content.Contains("secret-token-value", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantAttachmentUploadEnforcesExactPreparedArtifact()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var storedPath = Path.Combine(root, "prepared.log");
+            await File.WriteAllTextAsync(storedPath, "Sanitized diagnostic output.");
+            var attachmentId = "att_test_001";
+            var request = new AssistantAttachmentUploadRequest
+            {
+                ConversationId = "assistant-test-001",
+                AttachmentId = attachmentId,
+                FileName = AssistantTransferPolicy.CreateTransferFileName(attachmentId, "diagnostic.log"),
+                ContentType = "text/plain",
+                SizeBytes = new FileInfo(storedPath).Length,
+                Sha256 = ComputeSha256(storedPath),
+                ContentTreatment = "RedactedText",
+                DiagnosticContext = CreateAssistantContext()
+            };
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+                {
+                  "contractVersion": "2026-07-05",
+                  "conversationId": "assistant-test-001",
+                  "attachmentId": "att_test_001",
+                  "uploadedAttachmentId": "portal-attachment-001",
+                  "correlationId": "corr-assistant-upload-001",
+                  "source": "PortalApi",
+                  "status": "Uploaded",
+                  "message": "Uploaded"
+                }
+                """));
+            var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+
+            var response = await client.UploadAttachmentAsync(request, storedPath, Path.Combine(root, "outbox"));
+
+            AssertEx.Equal("portal-attachment-001", response.UploadedAttachmentId);
+            AssertEx.StringContains(handler.RequestBodies[0], request.FileName);
+            AssertEx.False(handler.RequestBodies[0].Contains(storedPath, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantAttachmentRejectsOversizePayloadBeforeTransport()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var storedPath = Path.Combine(root, "prepared.log");
+            await File.WriteAllTextAsync(storedPath, "1234567890");
+            var options = CreateAssistantOptions();
+            options.MaxAttachmentBytes = 5;
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+            var client = new AssistantApiClient(options, new HttpClient(handler));
+            var request = new AssistantAttachmentUploadRequest
+            {
+                ConversationId = "assistant-test-001",
+                AttachmentId = "att_test_002",
+                FileName = AssistantTransferPolicy.CreateTransferFileName("att_test_002", "diagnostic.log"),
+                ContentType = "text/plain",
+                SizeBytes = new FileInfo(storedPath).Length,
+                Sha256 = ComputeSha256(storedPath),
+                ContentTreatment = "RedactedText",
+                DiagnosticContext = CreateAssistantContext()
+            };
+
+            var exception = await AssertEx.ThrowsAsync<InvalidOperationException>(() =>
+                client.UploadAttachmentAsync(request, storedPath, Path.Combine(root, "outbox")));
+
+            AssertEx.StringContains(exception.Message, "upload limit");
+            AssertEx.Equal(0, handler.Requests.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantAttachmentRejectsHashMismatchBeforeTransport()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var storedPath = Path.Combine(root, "prepared.log");
+            await File.WriteAllTextAsync(storedPath, "Sanitized diagnostic output.");
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+            var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+            var request = new AssistantAttachmentUploadRequest
+            {
+                ConversationId = "assistant-test-001",
+                AttachmentId = "att_test_003",
+                FileName = AssistantTransferPolicy.CreateTransferFileName("att_test_003", "diagnostic.log"),
+                ContentType = "text/plain",
+                SizeBytes = new FileInfo(storedPath).Length,
+                Sha256 = new string('A', 64),
+                ContentTreatment = "RedactedText",
+                DiagnosticContext = CreateAssistantContext()
+            };
+
+            var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+                client.UploadAttachmentAsync(request, storedPath, Path.Combine(root, "outbox")));
+
+            AssertEx.StringContains(exception.Message, "hash does not match");
+            AssertEx.Equal(0, handler.Requests.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantSupportTicketRequiresExactDraftReceipt()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+                {
+                  "contractVersion": "2026-07-05",
+                  "conversationId": "assistant-test-001",
+                  "ticketDraftId": "ticket-draft-001",
+                  "portalRecordUrl": "https://pagemaker365.com/support/ticket-draft-001",
+                  "correlationId": "corr-assistant-ticket-001",
+                  "source": "PortalApi",
+                  "status": "Drafted",
+                  "message": "Draft created",
+                  "uploadedAttachments": []
+                }
+                """));
+            var client = new AssistantApiClient(CreateAssistantOptions(), new HttpClient(handler));
+            var request = CreateAssistantSupportTicketRequest();
+
+            var response = await client.CreateSupportTicketDraftAsync(request, root);
+
+            AssertEx.Equal("Drafted", response.Status);
+            using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+            AssertJsonString(body, "localTranscriptPath", "");
+            AssertJsonString(body, "description", "Sanitized operator summary.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssistantSupportTicketRejectsSubmittedTerminalState()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var handler = new RecordingHttpMessageHandler(_ => JsonResponse("""
+                {
+                  "contractVersion": "2026-07-05",
+                  "conversationId": "assistant-test-001",
+                  "ticketDraftId": "ticket-submitted-001",
+                  "portalRecordUrl": "https://pagemaker365.com/support/ticket-submitted-001",
+                  "correlationId": "corr-assistant-ticket-submitted",
+                  "source": "PortalApi",
+                  "status": "Submitted",
+                  "message": "Ticket submitted"
+                }
+                """));
+            var options = CreateAssistantOptions();
+            options.FallbackToMockOnFailure = true;
+            var client = new AssistantApiClient(options, new HttpClient(handler));
+
+            var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+                client.CreateSupportTicketDraftAsync(CreateAssistantSupportTicketRequest(), root));
+
+            AssertEx.StringContains(exception.Message, "does not match");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static Task AssistantActionPolicyPreventsApprovalDowngrade()
+    {
+        var policy = new AssistantActionPolicy();
+        var actions = policy.Normalize(
+        [
+            new AssistantRecommendedAction
+            {
+                ActionId = "rerun-preflight",
+                Label = "Run without approval",
+                Description = "Server-controlled text",
+                Category = "Unsafe",
+                RequiresApproval = false,
+                Enabled = true
+            },
+            new AssistantRecommendedAction { ActionId = "rerun-preflight", Enabled = true },
+            new AssistantRecommendedAction { ActionId = "delete-resource-group", Enabled = true }
+        ]);
+
+        AssertEx.Equal(1, actions.Count);
+        AssertEx.Equal("Rerun preflight", actions[0].Label);
+        AssertEx.True(actions[0].RequiresApproval);
+        AssertEx.Equal("Installer", actions[0].Category);
+        return Task.CompletedTask;
+    }
+
     private static Task CustomerConfigServiceRejectsLegacyRuntimeSecretContract()
     {
         var config = CreateConfig();
@@ -1696,7 +2495,32 @@ internal static class Program
                             }
                         }
                     }
-                }
+                },
+                RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+                {
+                    RemovalAttemptId = "removal-attempt-persisted-001",
+                    NextSequence = 2,
+                    RemovalStarted = true,
+                    LastEventType = InstallerEvidenceEventType.RemovalStarted,
+                    PendingEvents =
+                    {
+                        new PendingInstallerEvidenceEvent
+                        {
+                            IdempotencyKey = "removal-attempt-persisted-001:1:event-removal-persisted-001",
+                            Payload = new InstallerEvidenceEvent
+                            {
+                                Lifecycle = InstallerEvidenceLifecycle.Removal,
+                                AttemptId = "removal-attempt-persisted-001",
+                                EventId = "event-removal-persisted-001",
+                                EventType = InstallerEvidenceEventType.RemovalStarted,
+                                RemovalAttemptId = "removal-attempt-persisted-001",
+                                InstallAttemptId = "removal-attempt-persisted-001",
+                                Sequence = 1
+                            }
+                        }
+                    }
+                },
+                RemovalKeyVaultDisposition = "SoftDeletedRecoverable"
             });
 
             var loaded = store.LoadMostRecentActive();
@@ -1710,6 +2534,10 @@ internal static class Program
             AssertEx.Equal("attempt-persisted-001", loaded.InstallerEvidenceOutbox.InstallAttemptId);
             AssertEx.Equal(3, loaded.InstallerEvidenceOutbox.NextSequence);
             AssertEx.Equal("event-persisted-002", loaded.InstallerEvidenceOutbox.PendingEvents[0].Payload.EventId);
+            AssertEx.Equal("removal-attempt-persisted-001", loaded.RemovalEvidenceOutbox.RemovalAttemptId);
+            AssertEx.Equal(2, loaded.RemovalEvidenceOutbox.NextSequence);
+            AssertEx.Equal("event-removal-persisted-001", loaded.RemovalEvidenceOutbox.PendingEvents[0].Payload.EventId);
+            AssertEx.Equal("SoftDeletedRecoverable", loaded.RemovalKeyVaultDisposition);
         }
         finally
         {
@@ -2396,6 +3224,45 @@ internal static class Program
         };
     }
 
+    private static InstallerEvidenceEvent CreateRemovalEvidencePayload(string eventType)
+    {
+        var blocked = eventType.Equals(InstallerEvidenceEventType.RemovalBlocked, StringComparison.Ordinal);
+        var failed = eventType.Equals(InstallerEvidenceEventType.RemovalFailed, StringComparison.Ordinal);
+        return new InstallerEvidenceEvent
+        {
+            EventType = eventType,
+            OccurredAt = new DateTimeOffset(2026, 7, 26, 18, 0, 0, TimeSpan.Zero),
+            OnboardingSessionId = "onb_test_001",
+            DeploymentExportId = "7f2d7c2e-4f1f-4c7d-8e7d-111111111111",
+            LifecycleStatus = eventType == InstallerEvidenceEventType.RemovalCompleted
+                ? "removed"
+                : blocked
+                ? "needs_attention"
+                : failed
+                ? "failed"
+                : "removing",
+            Outcome = blocked ? "blocked" : failed ? "failed" : "passed",
+            Error = blocked || failed
+                ? new InstallerEvidenceError
+                {
+                    Code = blocked ? "REMOVAL_INVENTORY_BLOCKED" : "REMOVAL_EXECUTION_FAILED",
+                    Message = "Removal lifecycle test failure.",
+                    Category = "azure",
+                    Retryable = true
+                }
+                : null,
+            InstallerVersion = "test-version",
+            PackageHash = "sha256:test-hash",
+            AzureResourceGroup = "rg-pm365-example",
+            RemovalOutcomes = new RemovalEvidenceOutcomeSummary
+            {
+                Blocked = blocked ? 1 : 0,
+                Failed = failed ? 1 : 0
+            },
+            Message = "Removal lifecycle milestone."
+        };
+    }
+
     private static TenantDiscoveryResult CreateDiscovery()
     {
         return new TenantDiscoveryResult
@@ -2644,6 +3511,91 @@ internal static class Program
     {
         AssertEx.True(element.TryGetProperty(propertyName, out var property), $"Missing JSON property: {propertyName}");
         AssertEx.Equal(expected, property.GetString());
+    }
+
+    private static AssistantApiOptions CreateAssistantOptions()
+    {
+        return new AssistantApiOptions
+        {
+            Mode = "Portal",
+            PortalApiBaseUrl = "https://localhost:5443",
+            ApiKeyEnvironmentVariable = "PM365_ASSISTANT_TEST_KEY",
+            FallbackToMockOnFailure = false
+        };
+    }
+
+    private static AssistantDiagnosticContext CreateAssistantContext()
+    {
+        return new AssistantDiagnosticContext
+        {
+            WorkflowMode = "Setup",
+            WorkflowTitle = "Install PageMaker365",
+            CurrentStep = "Preflight",
+            CustomerName = "Example Customer",
+            PackagePath = "",
+            AzureSubscription = "Example Subscription",
+            SharePointSite = "https://example.sharepoint.com/sites/intranet",
+            OnboardingSessionId = "onb_test_001",
+            OnboardingStatus = "Ready",
+            OnboardingApiBaseUrl = "https://api-staging.pagemaker365.com",
+            PortalSyncStatus = "Ready",
+            DiscoverySummary = "Discovery complete.",
+            DiscoveryOutputPath = "",
+            InstallerSessionId = "pm365-install-test-001",
+            InstallerSessionStatus = "Warning",
+            FooterStatus = "Review the preflight warning.",
+            Checks =
+            [
+                new AssistantCheckSummary
+                {
+                    Name = "SharePoint access",
+                    Code = "SharePointSiteReady",
+                    Status = "Warning",
+                    Summary = "Review access.",
+                    RetrySafe = true
+                }
+            ]
+        };
+    }
+
+    private static AssistantMessageRequest CreateAssistantMessageRequest()
+    {
+        var userMessage = new AssistantMessage
+        {
+            Role = "User",
+            Content = "Explain the current warning.",
+            Attachments = []
+        };
+        return new AssistantMessageRequest
+        {
+            ConversationId = "assistant-test-001",
+            IncludeDiagnostics = true,
+            DiagnosticContext = CreateAssistantContext(),
+            UserMessage = userMessage,
+            ConversationHistory = [userMessage],
+            LocalTranscriptPath = ""
+        };
+    }
+
+    private static AssistantSupportTicketRequest CreateAssistantSupportTicketRequest()
+    {
+        return new AssistantSupportTicketRequest
+        {
+            ConversationId = "assistant-test-001",
+            IncludeDiagnostics = true,
+            DiagnosticContext = CreateAssistantContext(),
+            Subject = "PageMaker365 installer assistance",
+            Description = "Sanitized operator summary.",
+            ConversationHistory = CreateAssistantMessageRequest().ConversationHistory,
+            UploadedAttachments = [],
+            LocalTranscriptPath = ""
+        };
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream));
     }
 
     private static string CreateTempDirectory()
