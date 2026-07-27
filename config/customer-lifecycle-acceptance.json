@@ -1,0 +1,70 @@
+{
+  "contractVersion": "1.0",
+  "requiredSingleRunScenarioIds": [
+    "A01", "A02", "A03", "A06", "A07", "A08", "A09",
+    "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
+    "E01", "E03", "E04", "E05", "E06", "E07", "E08", "E09", "E10", "E11", "E12", "E13", "E14",
+    "F01", "F11", "F12",
+    "L01", "L04", "L05", "L06", "L07", "L08", "L09",
+    "P01", "P02", "P03", "P12", "P13",
+    "R01", "R02", "R03", "R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "R12", "R14", "R15",
+    "S01", "S02", "S03", "S04", "S05",
+    "T01", "T02", "T03", "T04", "T05", "T06",
+    "V01", "V02", "V03", "V04", "V05", "V06", "V07",
+    "W01", "W02", "W03", "W04", "W05", "W06", "W07"
+  ],
+  "requiredCycleScenarioIds": [
+    "A01", "A02", "A03",
+    "D01", "D02", "D03", "D04", "D05", "D06",
+    "E01", "E03", "E04", "E05", "E07",
+    "F01", "F11", "F12",
+    "L01", "L02", "L03",
+    "P01", "P02",
+    "R03", "R09", "R10", "R11", "R12", "R13", "R14", "R15",
+    "T01", "T02", "T03", "T04",
+    "V01", "V07"
+  ],
+  "requiredCycleSegments": [
+    "cycle-01",
+    "cycle-02",
+    "cycle-03"
+  ],
+  "requiredEntryGateIds": [
+    "source-ci",
+    "signed-candidate",
+    "clean-workstation",
+    "runtime-packages",
+    "staging-contracts",
+    "roles-and-stop-authority"
+  ],
+  "requiredPackageIds": [
+    "INSTALL-01",
+    "INSTALL-02",
+    "INSTALL-03",
+    "RECOVERY-01"
+  ],
+  "requiredReconciliationIds": [
+    "installer-terminal",
+    "azure-ownership",
+    "sharepoint-preservation",
+    "keyvault-disposition",
+    "portal-lifecycle",
+    "final-evidence"
+  ],
+  "requiredSecurityCheckIds": [
+    "repository-and-release",
+    "installer-local-artifacts",
+    "portal-and-assistant",
+    "keyvault-runtime-secrets",
+    "removal-boundary",
+    "publisher-identity"
+  ],
+  "requiredApprovalIds": [
+    "product",
+    "installer-engineering",
+    "runtime-api-engineering",
+    "identity-security",
+    "operations-support",
+    "clean-operator-usability"
+  ]
+}

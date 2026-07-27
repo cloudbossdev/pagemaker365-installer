@@ -10,6 +10,7 @@ $removalEvidenceContractPath = Join-Path $repoRoot 'docs/removal-evidence-callba
 $documentationPlanPath = Join-Path $repoRoot 'docs/customer/customer-documentation-delivery-plan.md'
 $documentationReviewPath = Join-Path $repoRoot 'docs/customer/customer-documentation-review-record.md'
 $lifecycleRunbookPath = Join-Path $repoRoot 'docs/testing/customer-lifecycle-acceptance-runbook.md'
+$lifecycleResultTemplatePath = Join-Path $repoRoot 'docs/testing/results/customer-lifecycle-result-template.md'
 $customerDraftPaths = @(
     (Join-Path $repoRoot 'docs/customer/installer-user-guide.md'),
     (Join-Path $repoRoot 'docs/customer/installer-technical-security-guide.md')
@@ -22,7 +23,8 @@ foreach ($path in @(
     $removalEvidenceContractPath,
     $documentationPlanPath,
     $documentationReviewPath,
-    $lifecycleRunbookPath) + $customerDraftPaths) {
+    $lifecycleRunbookPath,
+    $lifecycleResultTemplatePath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
     }
@@ -168,6 +170,50 @@ if ($lifecycleRunbookText -notmatch [regex]::Escape('assistant-support-handoff.m
     throw 'Customer lifecycle acceptance runbook must invoke the assistant support-handoff staging runbook.'
 }
 
+if ($lifecycleRunbookText -notmatch [regex]::Escape('results/customer-lifecycle-result-template.md')) {
+    throw 'Customer lifecycle acceptance runbook must invoke the sanitized campaign result template.'
+}
+
+$lifecycleResultTemplateText = Get-Content -LiteralPath $lifecycleResultTemplatePath -Raw
+@(
+    'Status: template; no test result or approval recorded',
+    '## Run Identity',
+    '## Entry Gates',
+    '## Package Set',
+    '## Phase Results',
+    '## Reconciliation',
+    '## Security Review',
+    '## Deviations And Stop Decisions',
+    '## Approval',
+    '## Machine Approval Record',
+    'Final decision: Not approved'
+) | ForEach-Object {
+    if ($lifecycleResultTemplateText -notmatch [regex]::Escape($_)) {
+        throw "Customer lifecycle result template is missing required control: $_"
+    }
+}
+
+@(
+    'docs/testing/results/customer-lifecycle-result.template.json',
+    'validate-customer-lifecycle-result.ps1',
+    'config/customer-lifecycle-acceptance.json',
+    '-RequireApproval'
+) | ForEach-Object {
+    if ($lifecycleRunbookText -notmatch [regex]::Escape($_)) {
+        throw "Customer lifecycle acceptance runbook is missing machine-approval control: $_"
+    }
+}
+
+@(
+    'docs/testing/results/customer-lifecycle-result.template.json',
+    'scripts/validate-customer-lifecycle-result.ps1 -RequireApproval',
+    'Minimum required passing executions: 192'
+) | ForEach-Object {
+    if ($lifecycleResultTemplateText -notmatch [regex]::Escape($_)) {
+        throw "Customer lifecycle result template is missing machine-approval control: $_"
+    }
+}
+
 @(
     'W01', 'W06', 'S03', 'P01', 'A01', 'F01', 'D01', 'D07',
     'L01', 'L02', 'L03', 'L04', 'L05', 'L06', 'L07', 'L08', 'L09',
@@ -186,7 +232,8 @@ $documentationReviewText = Get-Content -LiteralPath $documentationReviewPath -Ra
     '## Required Decisions',
     '## Publication Decision',
     'Identity and security',
-    'Clean test operator'
+    'Clean test operator',
+    'Lifecycle JSON passes `-RequireApproval` for the exact release'
 ) | ForEach-Object {
     if ($documentationReviewText -notmatch [regex]::Escape($_)) {
         throw "Customer documentation review template is missing required control: $_"

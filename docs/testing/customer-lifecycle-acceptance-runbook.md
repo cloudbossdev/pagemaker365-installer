@@ -226,3 +226,13 @@ The run is acceptable only when:
 - product, installer engineering, runtime/API engineering, identity/security, and operations/support approvals are recorded.
 
 Link the completed run from issue #10 and `docs/installer-requirements-traceability.md`. Do not mark the customer guides approved until this run and all other publication dependencies pass.
+
+Start each campaign from [results/customer-lifecycle-result-template.md](results/customer-lifecycle-result-template.md). Commit only the sanitized result record; keep screenshots, setup material, raw logs, and protected evidence in the approved evidence system.
+
+Create the corresponding machine-readable result from `docs/testing/results/customer-lifecycle-result.template.json`. Before approval, run:
+
+```powershell
+.\scripts\validate-customer-lifecycle-result.ps1 -Path <sanitized-result.json> -RequireApproval
+```
+
+Approval requires all policy-defined live scenarios, each repeated-cycle scenario in cycles 1-3, entry gates, package identities, reconciliation checks, security checks, deviation decisions, and named approvals to validate. The canonical policy is `config/customer-lifecycle-acceptance.json`; do not reduce it in an individual campaign.
