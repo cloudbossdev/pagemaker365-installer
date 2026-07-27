@@ -29,6 +29,9 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     private string _supportTicketStatus = "No support ticket draft created.";
     private bool _includeDiagnostics = true;
     private bool _uploadAttachmentsWithHandoff;
+    private bool _isOperationRunning;
+    private int _activeOperationCount;
+    private string _operationStatus = "Ready";
 
     public AssistantWorkspaceViewModel(
         AssistantDiagnosticContext diagnosticContext,
@@ -51,12 +54,18 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         _outboxRoot = Path.Combine(_conversationRoot, "portal-outbox");
         _statusText = $"{_assistantApiClient.ConnectionLabel}. Transcript will be saved to {_conversationRoot}";
 
-        AttachFilesCommand = new RelayCommand(AttachFilesAsync);
-        PasteClipboardImageCommand = new RelayCommand(PasteClipboardImageAsync);
-        SendMessageCommand = new RelayCommand(SendMessageAsync, CanSendMessage);
-        RemovePendingAttachmentCommand = new RelayCommand(RemovePendingAttachmentAsync);
-        CreateSupportTicketDraftCommand = new RelayCommand(CreateSupportTicketDraftAsync, CanCreateSupportTicketDraft);
-        ExecuteRecommendedActionCommand = new RelayCommand(ExecuteRecommendedActionAsync);
+        AttachFilesCommand = new RelayCommand(AttachFilesAsync, CanStartOperation, OnOperationRunningChanged);
+        PasteClipboardImageCommand = new RelayCommand(PasteClipboardImageAsync, CanStartOperation, OnOperationRunningChanged);
+        SendMessageCommand = new RelayCommand(SendMessageAsync, CanSendMessage, OnOperationRunningChanged);
+        RemovePendingAttachmentCommand = new RelayCommand(RemovePendingAttachmentAsync, _ => CanStartOperation());
+        CreateSupportTicketDraftCommand = new RelayCommand(
+            CreateSupportTicketDraftAsync,
+            CanCreateSupportTicketDraft,
+            OnOperationRunningChanged);
+        ExecuteRecommendedActionCommand = new RelayCommand(
+            ExecuteRecommendedActionAsync,
+            CanExecuteRecommendedAction,
+            OnOperationRunningChanged);
 
         AddAssistantGreeting();
     }
@@ -107,6 +116,18 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         set => SetProperty(ref _supportTicketStatus, value);
     }
 
+    public bool IsOperationRunning
+    {
+        get => _isOperationRunning;
+        private set => SetProperty(ref _isOperationRunning, value);
+    }
+
+    public string OperationStatus
+    {
+        get => _operationStatus;
+        private set => SetProperty(ref _operationStatus, value);
+    }
+
     public bool UploadAttachmentsWithHandoff
     {
         get => _uploadAttachmentsWithHandoff;
@@ -124,11 +145,27 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     public async Task AddDroppedFilesAsync(IEnumerable<string> paths)
     {
-        await AddFilesAsync(paths);
+        if (!CanStartOperation())
+        {
+            StatusText = "Wait for the current assistant operation to finish before adding files.";
+            return;
+        }
+
+        OperationStatus = "Importing dropped files";
+        OnOperationRunningChanged(true);
+        try
+        {
+            await AddFilesAsync(paths);
+        }
+        finally
+        {
+            OnOperationRunningChanged(false);
+        }
     }
 
     private async Task AttachFilesAsync()
     {
+        OperationStatus = "Waiting for file selection";
         var dialog = new OpenFileDialog
         {
             Title = "Attach assistant context",
@@ -138,12 +175,14 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
         if (dialog.ShowDialog() == true)
         {
+            OperationStatus = "Importing selected files";
             await AddFilesAsync(dialog.FileNames);
         }
     }
 
     private async Task PasteClipboardImageAsync()
     {
+        OperationStatus = "Preparing clipboard image";
         if (!Clipboard.ContainsImage())
         {
             StatusText = "Clipboard does not contain an image.";
@@ -158,16 +197,20 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         }
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"pm365-clipboard-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
-        await using (var stream = File.Create(tempPath))
-        {
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(image));
-            encoder.Save(stream);
-        }
-
         try
         {
+            await using (var stream = File.Create(tempPath))
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                encoder.Save(stream);
+            }
+
             await AddFilesAsync([tempPath]);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText = $"Clipboard image could not be added: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
         }
         finally
         {
@@ -216,16 +259,22 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     private bool CanSendMessage()
     {
+        return CanStartOperation() && HasMessageToSend();
+    }
+
+    private bool HasMessageToSend()
+    {
         return !string.IsNullOrWhiteSpace(DraftMessage) || PendingAttachments.Count > 0;
     }
 
     private async Task SendMessageAsync()
     {
-        if (!CanSendMessage())
+        if (!HasMessageToSend())
         {
             return;
         }
 
+        OperationStatus = "Contacting the deployment assistant";
         var userMessage = new AssistantMessage
         {
             Role = "User",
@@ -246,8 +295,17 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         Messages.Add(new AssistantMessageViewModel(assistantMessage));
         SetRecommendedActions(response.RecommendedActions);
 
-        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"Saved assistant transcript: {savedPath}. Source: {response.Source}; correlation: {response.CorrelationId}.";
+        OperationStatus = "Saving the assistant transcript";
+        try
+        {
+            var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+            StatusText = $"Saved assistant transcript: {savedPath}. Source: {response.Source}; correlation: {response.CorrelationId}.";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText =
+                $"The assistant response was received, but the transcript could not be saved: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
+        }
         CreateSupportTicketDraftCommand.RaiseCanExecuteChanged();
     }
 
@@ -327,6 +385,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             }
         }
 
+        OperationStatus = $"Running {action.Label}";
         action.ExecutionStatus = "Running";
         AppendSystemMessage($"Recommended action started: {action.Label}");
 
@@ -336,10 +395,16 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             action.ExecutionStatus = "Complete";
             AppendSystemMessage($"Recommended action completed: {action.Label}{Environment.NewLine}{result}");
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is
+            IOException or
+            InvalidOperationException or
+            UnauthorizedAccessException or
+            HttpRequestException or
+            TaskCanceledException)
         {
             action.ExecutionStatus = "Failed";
-            AppendSystemMessage($"Recommended action failed: {action.Label}{Environment.NewLine}{exception.Message}");
+            AppendSystemMessage(
+                $"Recommended action failed: {action.Label}{Environment.NewLine}{AssistantTransferPolicy.SanitizeText(exception.Message)}");
         }
 
         await SaveTranscriptAsync();
@@ -391,17 +456,23 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     private bool CanCreateSupportTicketDraft()
     {
+        return CanStartOperation() && HasSupportTicketSourceMessage();
+    }
+
+    private bool HasSupportTicketSourceMessage()
+    {
         return _conversation.Messages.Any(message => message.Role.Equals("User", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task CreateSupportTicketDraftAsync()
     {
-        if (!CanCreateSupportTicketDraft())
+        if (!HasSupportTicketSourceMessage())
         {
             SupportTicketStatus = "Send at least one message before creating a support ticket draft.";
             return;
         }
 
+        OperationStatus = "Preparing support ticket draft";
         SupportTicketStatus = "Preparing support ticket draft...";
         var uploadedAttachments = await UploadConversationAttachmentsAsync();
         var request = new AssistantSupportTicketRequest
@@ -433,8 +504,17 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         }
 
         RefreshMessages();
-        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"{StatusText} Transcript saved: {savedPath}";
+        OperationStatus = "Saving the support handoff transcript";
+        try
+        {
+            var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+            StatusText = $"{StatusText} Transcript saved: {savedPath}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText =
+                $"{StatusText} The transcript could not be saved: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
+        }
     }
 
     private async Task<List<AssistantUploadedAttachmentReference>> UploadConversationAttachmentsAsync()
@@ -652,8 +732,46 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     private async Task SaveTranscriptAsync()
     {
-        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"Assistant transcript saved: {savedPath}";
+        OperationStatus = "Saving the assistant transcript";
+        try
+        {
+            var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+            StatusText = $"Assistant transcript saved: {savedPath}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText =
+                $"The assistant transcript could not be saved: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
+        }
+    }
+
+    private bool CanStartOperation()
+    {
+        return !IsOperationRunning;
+    }
+
+    private bool CanExecuteRecommendedAction(object? parameter)
+    {
+        return CanStartOperation() &&
+            parameter is AssistantRecommendedActionViewModel action &&
+            action.Enabled;
+    }
+
+    private void OnOperationRunningChanged(bool running)
+    {
+        _activeOperationCount = Math.Max(0, _activeOperationCount + (running ? 1 : -1));
+        IsOperationRunning = _activeOperationCount > 0;
+        RaiseOperationCommandStates();
+    }
+
+    private void RaiseOperationCommandStates()
+    {
+        AttachFilesCommand.RaiseCanExecuteChanged();
+        PasteClipboardImageCommand.RaiseCanExecuteChanged();
+        SendMessageCommand.RaiseCanExecuteChanged();
+        RemovePendingAttachmentCommand.RaiseCanExecuteChanged();
+        CreateSupportTicketDraftCommand.RaiseCanExecuteChanged();
+        ExecuteRecommendedActionCommand.RaiseCanExecuteChanged();
     }
 
     private static string ShortPath(string path)

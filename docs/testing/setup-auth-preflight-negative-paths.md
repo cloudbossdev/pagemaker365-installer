@@ -4,6 +4,8 @@ Status: active staging test plan
 
 Tracking issue: [#4](https://github.com/cloudbossdev/pagemaker365-installer/issues/4)
 
+Cross-app UI audit: `docs/testing/long-running-action-state-audit.md`
+
 ## Purpose
 
 Use this runbook to collect live evidence for setup-file, authentication, and preflight behavior that cannot be proven by local mocks alone. Run only in a dedicated test tenant and subscription.
@@ -72,6 +74,7 @@ For each run, record:
 - Sanitized setup session ID, deployment export ID, tenant/subscription suffixes, and correlation ID.
 - Relevant installer evidence path and a redacted screenshot of the resulting UI state.
 - Confirmation that no token, setup code, secret, document content, or raw tenant export appears in the evidence.
+- Confirmation that the activity indicator remains visible for the awaited operation, duplicate execution is unavailable, and the UI returns to a retryable idle state.
 - GitHub issue link for every failure or contract ambiguity.
 
 Live evidence should be summarized in `docs/installer-requirements-traceability.md`; sensitive source artifacts remain outside the repository.

@@ -19,6 +19,8 @@ internal static class Program
             ("RelayCommand reports asynchronous operation state", RelayCommandReportsAsynchronousOperationState),
             ("Assistant handoff defaults attachments to local only", AssistantHandoffDefaultsAttachmentsToLocalOnly),
             ("Assistant workspace applies local action and payload policy", AssistantWorkspaceAppliesLocalActionAndPayloadPolicy),
+            ("Assistant workspace reports long-running action state", AssistantWorkspaceReportsLongRunningActionState),
+            ("Assistant workspace sanitizes action failures", AssistantWorkspaceSanitizesActionFailures),
             ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Runtime secret contract exposes only operator inputs", RuntimeSecretContractExposesOnlyOperatorInputs),
@@ -152,6 +154,98 @@ internal static class Program
         AssertEx.Equal("", apiContext.DiscoveryOutputPath);
         AssertEx.StringContains(apiContext.FooterStatus, "[local path omitted]");
         return Task.CompletedTask;
+    }
+
+    private static async Task AssistantWorkspaceReportsLongRunningActionState()
+    {
+        using var scope = TestScope.Create();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var viewModel = new AssistantWorkspaceViewModel(
+            new AssistantDiagnosticContext(),
+            scope.RootDirectory,
+            new RedactionService(),
+            new AssistantActionHandlers
+            {
+                CreateSupportBundleAsync = async () =>
+                {
+                    started.SetResult();
+                    await release.Task;
+                    return "Bundle created.";
+                }
+            });
+        var action = new AssistantRecommendedActionViewModel(new AssistantRecommendedAction
+        {
+            ActionId = "create-support-bundle",
+            Label = "Create support bundle",
+            Description = "Create a local sanitized installer support bundle.",
+            Category = "Support",
+            Enabled = true
+        });
+
+        var execution = viewModel.ExecuteRecommendedActionCommand.ExecuteAsync(action);
+        await started.Task;
+
+        AssertEx.True(viewModel.IsOperationRunning, "The assistant operation indicator should remain active while the action awaits work.");
+        AssertEx.Equal("Running Create support bundle", viewModel.OperationStatus);
+        AssertEx.Equal("Running", action.ExecutionStatus);
+        AssertEx.False(viewModel.AttachFilesCommand.CanExecute(null), "Other assistant operations should remain disabled while an action is running.");
+        AssertEx.False(viewModel.ExecuteRecommendedActionCommand.CanExecute(action), "A running assistant action must not be started twice.");
+
+        release.SetResult();
+        await execution;
+
+        AssertEx.False(viewModel.IsOperationRunning, "The assistant operation indicator should stop after the action completes.");
+        AssertEx.Equal("Complete", action.ExecutionStatus);
+        AssertEx.True(viewModel.AttachFilesCommand.CanExecute(null), "Assistant operations should be available again after completion.");
+
+        viewModel.DraftMessage = "Help explain the current installer state.";
+        AssertEx.True(viewModel.SendMessageCommand.CanExecute(null), "A prepared message should enable Send while the workspace is idle.");
+        await viewModel.SendMessageCommand.ExecuteAsync();
+        AssertEx.True(
+            viewModel.Messages.Any(message => message.Role == "User"),
+            "Starting the busy state must not invalidate the message prerequisite inside Send.");
+        AssertEx.True(
+            viewModel.CreateSupportTicketDraftCommand.CanExecute(null),
+            "A completed user message should enable support-ticket draft creation.");
+
+        await viewModel.CreateSupportTicketDraftCommand.ExecuteAsync();
+        AssertEx.StringContains(viewModel.SupportTicketStatus, "Drafted");
+        AssertEx.False(
+            viewModel.IsOperationRunning,
+            "Support-ticket draft completion should return the workspace to an idle state.");
+    }
+
+    private static async Task AssistantWorkspaceSanitizesActionFailures()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = new AssistantWorkspaceViewModel(
+            new AssistantDiagnosticContext(),
+            scope.RootDirectory,
+            new RedactionService(),
+            new AssistantActionHandlers
+            {
+                CreateSupportBundleAsync = () => throw new InvalidOperationException(
+                    @"Authorization: Bearer topsecret failed at C:\customer\secret.log")
+            });
+        var action = new AssistantRecommendedActionViewModel(new AssistantRecommendedAction
+        {
+            ActionId = "create-support-bundle",
+            Label = "Create support bundle",
+            Description = "Create a local sanitized installer support bundle.",
+            Category = "Support",
+            Enabled = true
+        });
+
+        await viewModel.ExecuteRecommendedActionCommand.ExecuteAsync(action);
+
+        var failure = viewModel.Messages.Last().Content;
+        AssertEx.Equal("Failed", action.ExecutionStatus);
+        AssertEx.StringContains(failure, "[REDACTED]");
+        AssertEx.StringContains(failure, "[local path omitted]");
+        AssertEx.False(failure.Contains("topsecret", StringComparison.Ordinal), "Action errors must not retain bearer tokens.");
+        AssertEx.False(failure.Contains(@"C:\customer", StringComparison.OrdinalIgnoreCase), "Action errors must not retain local paths.");
+        AssertEx.False(viewModel.IsOperationRunning, "Failed actions must return the assistant workspace to an idle state.");
     }
 
     private static async Task PackageStepLocksSignInUntilPackageIsValidated()

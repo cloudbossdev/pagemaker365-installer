@@ -211,6 +211,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <ItemsControl Grid.Row="0" ItemsSource="{Binding PendingAttachments}" Margin="0,0,0,10">
@@ -274,7 +275,25 @@
                     </StackPanel>
                 </Grid>
 
-                <TextBlock Grid.Row="2"
+                <Grid Grid.Row="2"
+                      Margin="0,12,0,0"
+                      Visibility="{Binding IsOperationRunning, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="{Binding OperationStatus}"
+                               Foreground="{StaticResource PmMuted}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8" />
+                    <ProgressBar Grid.Row="1"
+                                 IsIndeterminate="True"
+                                 Height="8"
+                                 Foreground="{StaticResource PmCyan}"
+                                 Background="#101B33" />
+                </Grid>
+
+                <TextBlock Grid.Row="3"
                            Text="{Binding StatusText}"
                            Foreground="{StaticResource PmMuted}"
                            TextWrapping="Wrap"
