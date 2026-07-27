@@ -67,6 +67,8 @@ The PageMaker365 setup file contains a short-lived authorization handoff, not an
 
 Azure and Microsoft Graph sign-in are not required to download a package that the portal has already generated. Read-only discovery is a recovery path used only when the portal explicitly reports missing onboarding values; its controls remain hidden during the normal ready-package path.
 
+If Azure or Graph sign-in is canceled, the Sign In step remains incomplete and the action becomes retryable. If a Graph device code expires, the installer clears it and requires a new code; stale codes and expired tokens never unlock Preflight.
+
 Portal mode is intentionally strict. The app does not silently accept incomplete portal responses, mismatched session IDs, unsupported package download content types, or generated packages that fail local validation. Failures stay visible in the workflow and are written to the portal sync receipt with the correlation ID when the API provides one.
 
 Important local outputs:
@@ -132,7 +134,11 @@ The current alpha provisions the Azure runtime resources but does not yet deploy
 
 ## Handling Blockers
 
-Preflight blockers should stop the user from moving into deployment until the issue is fixed or an authorized operator explicitly changes the result. Warnings can allow progress, but they should remain visible in the evidence package.
+Failed preflight results stop the user from moving into deployment until the issue is fixed and the check passes on rerun. Warnings can allow progress, but they remain visible in the evidence package.
+
+Mandatory tooling, Azure context and RBAC verification, Microsoft Graph authentication and required delegated scopes, Key Vault recovery verification, and access to the package-configured SharePoint site and document library fail closed. Advisory readiness information, such as whether the current Graph operator holds a role commonly used to grant consent after the required scopes are already present, can remain a warning.
+
+Azure platform readiness checks the deployment resource-provider registrations, confirms that App Service B1 is offered to the target subscription in the package region, and reads regional App Service core quota. An unregistered provider, unavailable B1 SKU, or less than one remaining core is a blocker. A passing result is not a capacity reservation: Azure can still report a transient regional allocation conflict while creating the App Service plan, which remains a retryable deployment-time failure.
 
 Common blocker categories include:
 

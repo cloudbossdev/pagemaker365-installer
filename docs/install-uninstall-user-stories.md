@@ -19,6 +19,7 @@ As an installer operator, I want to start the correct workflow or safely resume 
 
 Acceptance criteria:
 
+- The customer can verify the distribution version, integrity, publisher, and signing certificate before launch.
 - The operator can choose install/update or Azure-only removal.
 - A saved active session identifies the customer, environment, workflow, last step, and save time.
 - The operator can resume, start new, or forget the saved session.

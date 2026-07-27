@@ -221,7 +221,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 var submittedAttemptId = EvidenceAttemptId(evidence);
                 var receivedAttemptId = First(receipt.AttemptId, receipt.RemovalAttemptId, receipt.InstallAttemptId);
                 var lifecycle = EvidenceLifecycle(evidence);
-                if (!receipt.Status.Equals("Accepted", StringComparison.OrdinalIgnoreCase) ||
+                if (!receipt.Status.Equals("Accepted", StringComparison.Ordinal) ||
                     !receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
                     !receipt.EventType.Equals(evidence.EventType, StringComparison.Ordinal) ||
                     receipt.Sequence != evidence.Sequence ||

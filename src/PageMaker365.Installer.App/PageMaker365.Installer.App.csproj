@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>PageMaker365.Installer</AssemblyName>
     <RootNamespace>PageMaker365.Installer.App</RootNamespace>
-    <ApplicationIcon />
+    <ApplicationIcon>Assets\pagemaker365-icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,5 +16,6 @@
     <Resource Include="Assets\pagemaker365-logo.png" />
     <Resource Include="Assets\pagemaker365-icon.png" />
     <Resource Include="Assets\pagemaker365-wordmark.png" />
+    <Resource Include="Assets\pagemaker365-icon.ico" />
   </ItemGroup>
 </Project>
