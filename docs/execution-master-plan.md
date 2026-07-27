@@ -507,6 +507,25 @@ Acceptance criteria:
 
 Needs customer: sandbox cleanup permission.
 
+#### Slice 7.4 - Removal Lifecycle Evidence
+
+Scope:
+
+- [x] Define removal-only event types, ordering, status, outcomes, and terminal rules.
+- [x] Add a distinct removal attempt identity and persisted retry outbox.
+- [x] Report sanitized removed, retained, skipped, blocked, and failed counts.
+- [x] Keep portal delivery failures independent from Azure removal results.
+- [ ] Implement the v0.3 contract and state machine in the portal API/UI.
+- [ ] Prove duplicate, conflict, stale, offline/retry, terminal, and lifecycle coexistence against staging.
+
+Acceptance criteria:
+
+- Install and removal attempts cannot share event ordering or terminal state.
+- Exact retries preserve event ID, attempt ID, sequence, payload, and idempotency key.
+- Portal sync failure remains queued and never changes the local Azure result.
+
+Needs customer: staging API deployment and a setup session authorizing `RemovalStatusSync`.
+
 ### Phase 8 - Packaging, Signing, And Release
 
 Goal: ship a customer-ready installer distribution.

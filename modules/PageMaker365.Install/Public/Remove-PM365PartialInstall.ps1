@@ -26,7 +26,13 @@ function Remove-PM365PartialInstall {
             -Code 'PartialInstallAbsent' `
             -Summary 'No partial PageMaker365 install was found.' `
             -Details "Resource group '$resourceGroupName' does not exist." `
-            -Data @{ resourceGroupName = $resourceGroupName; removed = $false }
+            -Data @{
+                resourceGroupName = $resourceGroupName
+                removed = $false
+                keyVaultFound = $false
+                keyVaultPurged = $false
+                keyVaultDisposition = 'UnverifiedResourceGroupAbsent'
+            }
         return
     }
 
@@ -75,6 +81,7 @@ function Remove-PM365PartialInstall {
         return
     }
 
+    $keyVaultDisposition = if ($inventory.keyVault.found) { 'SoftDeletedRecoverable' } else { 'NotPresent' }
     $cleanupResult = [pscustomobject][ordered]@{
         artifactType = 'PageMaker365.PartialInstallCleanupResult'
         schemaVersion = '0.1'
@@ -85,7 +92,8 @@ function Remove-PM365PartialInstall {
         removedResourceCount = $inventory.resourceCount
         keyVault = [pscustomobject][ordered]@{
             name = $inventory.keyVault.name
-            state = 'SoftDeletedRecoverable'
+            foundBeforeRemoval = [bool]$inventory.keyVault.found
+            state = $keyVaultDisposition
             purgeExecuted = $false
         }
     }
@@ -101,7 +109,20 @@ function Remove-PM365PartialInstall {
         -Status 'Passed' `
         -Code 'PartialInstallCleanupCompleted' `
         -Summary 'The partial PageMaker365 install was removed.' `
-        -Details "Deleted dedicated resource group '$resourceGroupName'. Key Vault '$($inventory.keyVault.name)' was not purged and remains recoverable through Azure soft delete." `
+        -Details $(if ($inventory.keyVault.found) {
+            "Deleted dedicated resource group '$resourceGroupName'. Key Vault '$($inventory.keyVault.name)' was not purged and remains recoverable through Azure soft delete."
+        } else {
+            "Deleted dedicated resource group '$resourceGroupName'. The package-named Key Vault was not present before removal, and no purge was requested."
+        }) `
         -RetrySafe $false `
-        -Data @{ resourceGroupName = $resourceGroupName; removed = $true; removedResourceCount = $inventory.resourceCount; keyVaultName = $inventory.keyVault.name; keyVaultPurged = $false; artifactPath = $artifactPath }
+        -Data @{
+            resourceGroupName = $resourceGroupName
+            removed = $true
+            removedResourceCount = $inventory.resourceCount
+            keyVaultName = $inventory.keyVault.name
+            keyVaultFound = [bool]$inventory.keyVault.found
+            keyVaultPurged = $false
+            keyVaultDisposition = $keyVaultDisposition
+            artifactPath = $artifactPath
+        }
 }

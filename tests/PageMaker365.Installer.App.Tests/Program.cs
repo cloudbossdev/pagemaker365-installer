@@ -44,6 +44,8 @@ internal static class Program
             ("DownloadGeneratedPackageCommand loads downloaded portal package", DownloadGeneratedPackageCommandLoadsDownloadedPortalPackage),
             ("Evidence sync failure keeps package event in persisted outbox", EvidenceSyncFailureKeepsPackageEventInPersistedOutbox),
             ("Removal workflow enables Azure inventory but keeps removal gated", RemovalWorkflowEnablesAzureInventoryButKeepsRemovalGated),
+            ("Removal evidence outbox resumes and retries stable event", RemovalEvidenceOutboxResumesAndRetriesStableEvent),
+            ("Terminal removal attempt disables duplicate final evidence", TerminalRemovalAttemptDisablesDuplicateFinalEvidence),
             ("DownloadGeneratedPackageCommand rejects provenance mismatch without loading package", DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage),
             ("DownloadGeneratedPackageCommand rejects invalid downloaded package", DownloadGeneratedPackageCommandRejectsInvalidDownloadedPackage)
         };
@@ -709,6 +711,125 @@ internal static class Program
         AssertEx.Equal(0, client.EvidenceEvents.Count);
     }
 
+    private static async Task RemovalEvidenceOutboxResumesAndRetriesStableEvent()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true, allowRemovalStatusSync: true);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var config = CreateConfig("Removal Outbox Customer");
+        var packagePath = scope.WritePackage(config);
+        var removalAttemptId = "ra_persisted_removal_001";
+        var eventId = "evt_persisted_removal_001";
+        var idempotencyKey = $"{removalAttemptId}:1:{eventId}";
+        scope.SaveState(new PersistedInstallerState
+        {
+            StateId = "state-removal-outbox-001",
+            WorkflowMode = "Removal",
+            WorkflowSelected = true,
+            CurrentStepNumber = 8,
+            MaxAccessibleStepNumber = 8,
+            PackagePath = packagePath,
+            Config = config,
+            BootstrapSourcePath = bootstrapPath,
+            FinishStatus = "Complete",
+            FinishSummary = "Local removal completed; portal sync pending.",
+            RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+            {
+                RemovalAttemptId = removalAttemptId,
+                NextSequence = 2,
+                RemovalStarted = true,
+                LastEventType = InstallerEvidenceEventType.RemovalStarted,
+                PendingEvents =
+                {
+                    new PendingInstallerEvidenceEvent
+                    {
+                        IdempotencyKey = idempotencyKey,
+                        Payload = new InstallerEvidenceEvent
+                        {
+                            Lifecycle = InstallerEvidenceLifecycle.Removal,
+                            AttemptId = removalAttemptId,
+                            EventId = eventId,
+                            EventType = InstallerEvidenceEventType.RemovalStarted,
+                            InstallAttemptId = removalAttemptId,
+                            RemovalAttemptId = removalAttemptId,
+                            Sequence = 1,
+                            OnboardingSessionId = bootstrap.SessionId,
+                            DeploymentExportId = config.ControlPlane.DeploymentExportId,
+                            LifecycleStatus = "removing",
+                            Outcome = "passed"
+                        }
+                    }
+                }
+            }
+        });
+        var client = new FakeOnboardingApiClient
+        {
+            EvidenceFailure = new HttpRequestException("Simulated removal portal outage")
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.ResumeSessionCommand.ExecuteAsync();
+
+        var pendingState = scope.LoadActiveState();
+        AssertEx.True(pendingState is not null, "Removal state must remain active while portal evidence is queued.");
+        AssertEx.Equal(1, pendingState!.RemovalEvidenceOutbox.PendingEvents.Count);
+        AssertEx.True(viewModel.RetryEvidenceSyncCommand.CanExecute(null), "The queued removal event must remain retryable.");
+        AssertEx.StringContains(viewModel.PortalSyncStatus, "Azure result is unchanged");
+
+        client.EvidenceFailure = null;
+        await viewModel.RetryEvidenceSyncCommand.ExecuteAsync();
+
+        AssertEx.Equal(2, client.EvidenceEvents.Count);
+        AssertEx.Equal(eventId, client.EvidenceEvents[0].EventId);
+        AssertEx.Equal(eventId, client.EvidenceEvents[1].EventId);
+        AssertEx.Equal(idempotencyKey, client.EvidenceIdempotencyKeys[0]);
+        AssertEx.Equal(idempotencyKey, client.EvidenceIdempotencyKeys[1]);
+        AssertEx.False(viewModel.RetryEvidenceSyncCommand.CanExecute(null), "The retry command must disable after delivery succeeds.");
+        AssertEx.True(scope.LoadActiveState() is null, "A locally complete removal should close after the pending callback is delivered.");
+    }
+
+    private static async Task TerminalRemovalAttemptDisablesDuplicateFinalEvidence()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true, allowRemovalStatusSync: true);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var config = CreateConfig("Completed Removal Customer");
+        var packagePath = scope.WritePackage(config);
+        scope.SaveState(new PersistedInstallerState
+        {
+            StateId = "state-terminal-removal-001",
+            WorkflowMode = "Removal",
+            WorkflowSelected = true,
+            CurrentStepNumber = 8,
+            MaxAccessibleStepNumber = 8,
+            PackagePath = packagePath,
+            Config = config,
+            BootstrapSourcePath = bootstrapPath,
+            LastRemovalInventoryStatus = InstallStatus.Passed,
+            LastRemovalStatus = InstallStatus.Passed,
+            LastRemovalValidationStatus = InstallStatus.Passed,
+            FinishStatus = "Ready",
+            RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+            {
+                RemovalAttemptId = "ra_terminal_removal_001",
+                NextSequence = 6,
+                RemovalStarted = true,
+                InventoryCompleted = true,
+                ExecutionCompleted = true,
+                ValidationCompleted = true,
+                IsTerminal = true,
+                LastEventType = InstallerEvidenceEventType.RemovalCompleted
+            }
+        });
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.ResumeSessionCommand.ExecuteAsync();
+
+        AssertEx.False(
+            viewModel.CreateRemovalEvidenceCommand.CanExecute(null),
+            "A terminal removal attempt must not generate or queue a second removal_completed event.");
+    }
+
     private static async Task DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage()
     {
         using var scope = TestScope.Create();
@@ -795,7 +916,10 @@ internal static class Program
         };
     }
 
-    private static OnboardingBootstrapSession CreateBootstrap(bool allowPortalSync, bool allowPackageGeneration = true)
+    private static OnboardingBootstrapSession CreateBootstrap(
+        bool allowPortalSync,
+        bool allowPackageGeneration = true,
+        bool allowRemovalStatusSync = false)
     {
         var session = OnboardingSessionService.CreateFallbackSession();
         session.ExpiresAt = DateTimeOffset.UtcNow.AddDays(7);
@@ -809,6 +933,10 @@ internal static class Program
             if (allowPackageGeneration)
             {
                 session.AllowedOperations.Add("InstallPackageGeneration");
+            }
+            if (allowRemovalStatusSync)
+            {
+                session.AllowedOperations.Add("RemovalStatusSync");
             }
         }
 
@@ -996,6 +1124,7 @@ internal static class Program
         public int StatusCalls { get; private set; }
         public int SaveStatusCalls { get; private set; }
         public List<InstallerEvidenceEvent> EvidenceEvents { get; } = [];
+        public List<string> EvidenceIdempotencyKeys { get; } = [];
         public Exception? EvidenceFailure { get; set; }
         public Exception? ConnectFailure { get; set; }
         public TaskCompletionSource? ConnectStarted { get; set; }
@@ -1074,6 +1203,7 @@ internal static class Program
             CancellationToken cancellationToken = default)
         {
             EvidenceEvents.Add(evidence);
+            EvidenceIdempotencyKeys.Add(idempotencyKey);
             if (EvidenceFailure is not null)
             {
                 return Task.FromException<InstallerEvidenceReceipt>(EvidenceFailure);
@@ -1086,7 +1216,10 @@ internal static class Program
                 SessionId = session.SessionId,
                 EventId = evidence.EventId,
                 EventType = evidence.EventType,
+                Lifecycle = evidence.Lifecycle,
+                AttemptId = evidence.AttemptId,
                 InstallAttemptId = evidence.InstallAttemptId,
+                RemovalAttemptId = evidence.RemovalAttemptId,
                 Sequence = evidence.Sequence,
                 LifecycleStatus = evidence.LifecycleStatus,
                 Outcome = evidence.Outcome,
@@ -1171,6 +1304,11 @@ internal static class Program
         public PersistedInstallerState? LoadActiveState()
         {
             return new InstallerStateStore(Path.Combine(RootDirectory, "state")).LoadMostRecentActive();
+        }
+
+        public void SaveState(PersistedInstallerState state)
+        {
+            new InstallerStateStore(Path.Combine(RootDirectory, "state")).Save(state);
         }
 
         public string WriteBootstrap(OnboardingBootstrapSession session)

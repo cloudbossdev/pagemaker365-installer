@@ -100,6 +100,7 @@ Start here before wiring the production payload:
 - `docs/customer/installer-technical-security-guide.md`
 - `docs/deployment-contract.md`
 - `docs/onboarding-discovery-contract.md`
+- `docs/removal-evidence-callback-contract.md`
 - `docs/using-the-installer.md`
 - `docs/implementation-backlog.md`
 - `schemas/customer-install.schema.json`

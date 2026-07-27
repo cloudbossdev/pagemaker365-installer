@@ -48,6 +48,7 @@ public sealed class PersistedInstallerState
     public string PackageComputedHash { get; set; } = "";
     public PersistedPortalSyncReceipt PortalSyncReceipt { get; set; } = new();
     public InstallerEvidenceOutboxState InstallerEvidenceOutbox { get; set; } = new();
+    public RemovalEvidenceOutboxState RemovalEvidenceOutbox { get; set; } = new();
     public List<InstallerStepResult> CheckResults { get; set; } = [];
     public List<InstallerStepResult> PreviewResults { get; set; } = [];
     public List<InstallerStepResult> DeploymentResults { get; set; } = [];
@@ -92,6 +93,8 @@ public sealed class PersistedInstallerState
     public InstallStatus LastRemovalInventoryStatus { get; set; } = InstallStatus.NotStarted;
     public InstallStatus LastRemovalStatus { get; set; } = InstallStatus.NotStarted;
     public InstallStatus LastRemovalValidationStatus { get; set; } = InstallStatus.NotStarted;
+    public bool RemovalResourceGroupAlreadyAbsent { get; set; }
+    public string RemovalKeyVaultDisposition { get; set; } = "NotChecked";
     public string AiTitle { get; set; } = "";
     public string AiSummary { get; set; } = "";
     public string SessionId { get; set; } = "";

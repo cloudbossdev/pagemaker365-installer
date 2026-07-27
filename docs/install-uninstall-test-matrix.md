@@ -141,12 +141,12 @@ Scenario status meanings:
 | E06 | Portal is offline after a successful local action | Local result is unchanged and event remains in outbox. | Automated |
 | E07 | Outbox event is retried | Payload, event ID, attempt ID, sequence, and idempotency key remain stable. | Automated |
 | E08 | Callback contains a token, secret, raw log, file, or prohibited tenant content | Payload is rejected or redacted before transport. | Partial |
-| E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Planned |
-| E10 | Removal inventory/preview completes | Portal receives sanitized removed/retained/blocked intent without raw inventory export. | Planned |
-| E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Planned |
-| E12 | Removal blocks or fails | Sanitized terminal/blocked outcome preserves the Azure result. | Planned |
-| E13 | Removal portal sync fails | Stable removal event remains in a dedicated outbox for retry. | Planned |
-| E14 | Install and removal callbacks coexist | Event types and attempt state cannot be confused or reordered across lifecycles. | Planned |
+| E09 | Removal begins | A distinct removal attempt and ordered event contract is used. | Automated |
+| E10 | Removal inventory/preview completes or is refreshed | Portal receives ordered sanitized intent without raw inventory export; an active refresh keeps the same attempt and advances sequence. | Automated contract; live pending |
+| E11 | Removal completes | Terminal state agrees with validated Azure absence and retained resources. | Automated contract; live pending |
+| E12 | Removal blocks or fails | Sanitized terminal/blocked outcome preserves the Azure result. | Automated |
+| E13 | Removal portal sync fails | Stable removal event remains in a dedicated outbox for retry. | Automated installer; portal pending |
+| E14 | Install and removal callbacks coexist | Event types and attempt state cannot be confused or reordered across lifecycles. | Automated installer; portal pending |
 
 ## Troubleshooting And Support Scenarios
 
@@ -179,13 +179,13 @@ Scenario status meanings:
 | --- | --- | --- |
 | R01 | Inventory only | No delete command runs; preview artifact lists owned resources and retention. |
 | R02 | Wrong subscription or tenant | Inventory/removal blocks before deletion. |
-| R03 | Resource group missing | Validation reports already absent; rerun is successful and idempotent. |
+| R03 | Resource group missing | Validation reports already absent; rerun is successful and idempotent, and evidence does not invent a Key Vault disposition. |
 | R04 | Resource group ownership tag missing or changed | Removal blocks. |
 | R05 | Unrelated resource inserted into the group | Removal blocks. |
 | R06 | Active Azure deployment | Removal blocks. |
 | R07 | Incorrect typed confirmation | Removal blocks and no delete command runs. |
 | R08 | PowerShell WhatIf | Removal reports skipped and no delete command runs. |
-| R09 | Approved removal | Dedicated resource group is deleted and a cleanup artifact is written. |
+| R09 | Approved removal | Dedicated resource group is deleted, a cleanup artifact is written, and Key Vault disposition distinguishes present, never-created, and unverified states. |
 | R10 | Key Vault retention disabled | Installer rejects the request; purge is never attempted. |
 | R11 | Run cleanup again after success | Result reports already absent without failure. |
 | R12 | Interrupt deletion and resume validation | Installer detects the live Azure state and does not duplicate unsafe work. |

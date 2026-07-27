@@ -44,6 +44,8 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - Restarting the app does not restore tokens, secrets, or destructive approval.
 - Successful validation displays the verified PageMaker365 customer URL.
 - Removal never deletes SharePoint content or purges Key Vault.
+- An authorized removal session reports sanitized progress to the portal; a sync warning can be retried without rerunning Azure deletion. Refreshing inventory before deletion remains in the same active removal attempt, while retrying after a terminal blocker or failure starts a new attempt.
+- Final removal evidence reports a soft-deleted Key Vault only when the package-named vault was found before successful deletion. An already-absent resource group is treated idempotently without inventing a vault disposition.
 
 ## Content Still Required Before Publication
 

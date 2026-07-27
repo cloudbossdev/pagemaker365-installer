@@ -27,6 +27,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly FinalEvidenceService _finalEvidenceService = new();
     private readonly DeploymentApprovalManifestService _deploymentApprovalManifestService = new();
     private readonly TenantDiscoveryService _tenantDiscoveryService;
+    private readonly RemovalEvidenceLifecycleService _removalEvidenceLifecycleService = new();
     private readonly InstallerStateStore _stateStore;
     private readonly IOnboardingApiClient _onboardingApiClient;
     private readonly string _workspaceRoot;
@@ -37,6 +38,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private OnboardingPortalStatus? _onboardingPortalStatus;
     private OnboardingPackageReadiness? _packageReadiness;
     private InstallerEvidenceOutboxState _installerEvidenceOutbox = new();
+    private RemovalEvidenceOutboxState _removalEvidenceOutbox = new();
     private AssistantWorkspaceWindow? _assistantWindow;
     private PackageTrustOptions _packageTrustOptions = PackageTrustOptions.FromEnvironment();
     private string _stateId = InstallerStateStore.CreateStateId();
@@ -161,6 +163,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private InstallStatus _lastRemovalInventoryStatus = InstallStatus.NotStarted;
     private InstallStatus _lastRemovalStatus = InstallStatus.NotStarted;
     private InstallStatus _lastRemovalValidationStatus = InstallStatus.NotStarted;
+    private bool _removalResourceGroupAlreadyAbsent;
+    private string _removalKeyVaultDisposition = "NotChecked";
 
     public InstallerWizardViewModel()
         : this(null, null, null)
@@ -196,7 +200,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SyncDiscoveryCommand = new RelayCommand(SyncDiscoveryAsync, CanSyncDiscovery, OnOperationRunningChanged);
         SaveDiscoveryCommand = new RelayCommand(SaveDiscoveryAsync, () => _tenantDiscovery is not null, OnOperationRunningChanged);
         CheckPackageReadinessCommand = new RelayCommand(CheckPackageReadinessAsync, () => _bootstrapSession is not null, OnOperationRunningChanged);
-        RetryEvidenceSyncCommand = new RelayCommand(FlushInstallerEvidenceOutboxAsync, CanRetryInstallerEvidenceSync, OnOperationRunningChanged);
+        RetryEvidenceSyncCommand = new RelayCommand(FlushEvidenceOutboxesAsync, CanRetryInstallerEvidenceSync, OnOperationRunningChanged);
         DownloadGeneratedPackageCommand = new RelayCommand(DownloadGeneratedPackageAsync, CanDownloadGeneratedPackage, OnOperationRunningChanged);
         LoadSamplePackageCommand = new RelayCommand(LoadSamplePackageAsync, runningChanged: OnOperationRunningChanged);
         BrowsePackageCommand = new RelayCommand(BrowsePackageAsync, runningChanged: OnOperationRunningChanged);
@@ -3223,8 +3227,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         RefreshStepNavigation();
-        await FlushInstallerEvidenceOutboxAsync();
-        if (_installerEvidenceOutbox.PendingEvents.Count == 0 && FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase))
+        await FlushEvidenceOutboxesAsync();
+        if (_installerEvidenceOutbox.PendingEvents.Count == 0 &&
+            _removalEvidenceOutbox.PendingEvents.Count == 0 &&
+            FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase))
         {
             SaveWizardState(markCompleted: true);
         }
@@ -3238,6 +3244,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _stateCreatedAt = DateTimeOffset.UtcNow;
         _stateCompleted = false;
         _installerEvidenceOutbox = new InstallerEvidenceOutboxState();
+        _removalEvidenceOutbox = new RemovalEvidenceOutboxState();
         ConfigureSetupWorkflow();
         _workflowSelected = false;
         ResumeSessionSummary = "No saved installer session selected.";
@@ -3295,6 +3302,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _onboardingPortalStatus = state.OnboardingPortalStatus;
         _packageReadiness = state.PackageReadiness ?? state.OnboardingPortalStatus?.PackageReadiness;
         _installerEvidenceOutbox = state.InstallerEvidenceOutbox ?? new InstallerEvidenceOutboxState();
+        _removalEvidenceOutbox = state.RemovalEvidenceOutbox ?? new RemovalEvidenceOutboxState();
         RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
 
         if (_tenantDiscovery is not null)
@@ -3378,6 +3386,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastRemovalInventoryStatus = state.LastRemovalInventoryStatus;
         _lastRemovalStatus = state.LastRemovalStatus;
         _lastRemovalValidationStatus = state.LastRemovalValidationStatus;
+        _removalResourceGroupAlreadyAbsent = state.RemovalResourceGroupAlreadyAbsent;
+        _removalKeyVaultDisposition = SavedOrDefault(state.RemovalKeyVaultDisposition, "NotChecked");
         AiTitle = SavedOrDefault(state.AiTitle, AiTitle);
         AiSummary = SavedOrDefault(state.AiSummary, AiSummary);
         SessionId = SavedOrDefault(state.SessionId, SessionId);
@@ -3511,6 +3521,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 ErrorMessage = PortalSyncReceipt.ErrorMessage
             },
             InstallerEvidenceOutbox = _installerEvidenceOutbox,
+            RemovalEvidenceOutbox = _removalEvidenceOutbox,
             CheckResults = CheckResults.Select(ToStepResult).ToList(),
             PreviewResults = PreviewResults.Select(ToStepResult).ToList(),
             DeploymentResults = DeploymentResults.Select(ToStepResult).ToList(),
@@ -3555,6 +3566,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             LastRemovalInventoryStatus = _lastRemovalInventoryStatus,
             LastRemovalStatus = _lastRemovalStatus,
             LastRemovalValidationStatus = _lastRemovalValidationStatus,
+            RemovalResourceGroupAlreadyAbsent = _removalResourceGroupAlreadyAbsent,
+            RemovalKeyVaultDisposition = _removalKeyVaultDisposition,
             AiTitle = AiTitle,
             AiSummary = AiSummary,
             SessionId = SessionId,
@@ -3701,6 +3714,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastRemovalInventoryStatus = InstallStatus.NotStarted;
         _lastRemovalStatus = InstallStatus.NotStarted;
         _lastRemovalValidationStatus = InstallStatus.NotStarted;
+        _removalResourceGroupAlreadyAbsent = false;
+        _removalKeyVaultDisposition = "NotChecked";
         RemovalInventoryStatus = "Not run";
         RemovalInventorySummary = "Run read-only inventory before previewing removal.";
         RemovalInventoryOutputPath = "Not saved";
@@ -3785,7 +3800,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _config is not null &&
             File.Exists(PackagePath) &&
             SignInRequirementsSatisfied() &&
-            _currentStepNumber >= 4;
+            _currentStepNumber >= 4 &&
+            _lastRemovalStatus != InstallStatus.Passed;
     }
 
     private async Task RunRemovalInventoryAsync()
@@ -3809,6 +3825,21 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _session = _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
         SessionStatus = "Removal inventory running";
+        if (CanUseRemovalEvidence(_config))
+        {
+            if (string.IsNullOrWhiteSpace(_removalEvidenceOutbox.RemovalAttemptId) ||
+                !_removalEvidenceOutbox.RemovalStarted ||
+                _removalEvidenceOutbox.IsTerminal)
+            {
+                StartNewRemovalEvidenceAttempt();
+                await QueueRemovalEvidenceAsync(
+                    InstallerEvidenceEventType.RemovalStarted,
+                    "removing",
+                    "passed",
+                    "Installer started read-only removal inventory.",
+                    CreateRemovalOutcomeSummary());
+            }
+        }
 
         IReadOnlyList<InstallerStepResult> results;
         try
@@ -3844,6 +3875,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastRemovalInventoryStatus = GetPhaseStatus(results);
         RemovalInventoryStatus = _lastRemovalInventoryStatus.ToString();
         var absent = results.Any(result => result.Code == "PartialInstallAbsent");
+        _removalResourceGroupAlreadyAbsent = absent;
+        _removalKeyVaultDisposition = results
+            .Select(result => result.Data.GetValueOrDefault("keyVaultDisposition"))
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ??
+            (absent ? "UnverifiedResourceGroupAbsent" : "NotChecked");
         RemovalInventorySummary = _lastRemovalInventoryStatus == InstallStatus.Passed
             ? absent
                 ? "The target resource group is already absent. Cleanup can be validated as an idempotent removal."
@@ -3860,6 +3896,27 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         AiSummary = _lastRemovalInventoryStatus == InstallStatus.Passed
             ? "Review the removal preview. SharePoint is not changed, and the old Key Vault will not be purged."
             : "Resolve every ownership or activity blocker before attempting removal.";
+        if (_lastRemovalInventoryStatus == InstallStatus.Passed)
+        {
+            await QueueRemovalEvidenceAsync(
+                InstallerEvidenceEventType.RemovalInventoryCompleted,
+                "removing",
+                "passed",
+                absent
+                    ? "Removal inventory confirmed the resource group is already absent."
+                    : "Removal inventory confirmed the dedicated resource group is eligible for approved cleanup.",
+                CreateRemovalOutcomeSummary(skipped: absent ? 1 : 0));
+        }
+        else
+        {
+            await QueueRemovalEvidenceAsync(
+                InstallerEvidenceEventType.RemovalBlocked,
+                "needs_attention",
+                "blocked",
+                "Removal inventory found an ownership, activity, or Azure context blocker.",
+                CreateRemovalOutcomeSummary(blocked: Math.Max(1, results.Count(result => result.Status is InstallStatus.Failed or InstallStatus.Warning))),
+                CreateRemovalEvidenceError("inventory", results));
+        }
         RefreshRemovalCommands();
         SaveWizardState();
     }
@@ -3894,6 +3951,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _lastRemovalInventoryStatus == InstallStatus.Passed &&
             RemovalApprovalConfirmed &&
             IsRemovalConfirmationValid() &&
+            (!CanUseRemovalEvidence(_config) || !_removalEvidenceOutbox.IsTerminal) &&
             !IsRemovalRunning;
     }
 
@@ -3950,6 +4008,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         _lastRemovalStatus = GetPhaseStatus(results);
+        if (_lastRemovalStatus == InstallStatus.Passed)
+        {
+            _removalKeyVaultDisposition = results
+                .Select(result => result.Data.GetValueOrDefault("keyVaultDisposition"))
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? _removalKeyVaultDisposition;
+        }
         RemovalStatus = _lastRemovalStatus.ToString();
         RemovalSummary = _lastRemovalStatus == InstallStatus.Passed
             ? "Azure removal completed. Validate that the resource group is absent."
@@ -3965,6 +4029,29 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         AiSummary = _lastRemovalStatus == InstallStatus.Passed
             ? "Validate cleanup next. SharePoint was not changed, and the Key Vault was not purged."
             : "Rerun inventory before retrying removal so ownership and activity checks are current.";
+        if (_lastRemovalStatus == InstallStatus.Passed)
+        {
+            await QueueRemovalEvidenceAsync(
+                InstallerEvidenceEventType.RemovalExecutionCompleted,
+                "removing",
+                _removalResourceGroupAlreadyAbsent ? "skipped" : "passed",
+                _removalResourceGroupAlreadyAbsent
+                    ? "Azure cleanup was idempotent because the resource group was already absent."
+                    : "Azure accepted removal of the approved dedicated resource group.",
+                CreateRemovalOutcomeSummary(
+                    removed: _removalResourceGroupAlreadyAbsent ? 0 : 1,
+                    skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0));
+        }
+        else
+        {
+            await QueueRemovalEvidenceAsync(
+                InstallerEvidenceEventType.RemovalFailed,
+                "failed",
+                "failed",
+                "Azure removal did not complete successfully.",
+                CreateRemovalOutcomeSummary(failed: Math.Max(1, results.Count(result => result.Status == InstallStatus.Failed))),
+                CreateRemovalEvidenceError("execution", results));
+        }
         RefreshRemovalCommands();
         SaveWizardState();
     }
@@ -3976,6 +4063,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             File.Exists(PackagePath) &&
             _currentStepNumber >= 7 &&
             _lastRemovalStatus == InstallStatus.Passed &&
+            (!CanUseRemovalEvidence(_config) || !_removalEvidenceOutbox.IsTerminal) &&
             !IsRemovalRunning;
     }
 
@@ -4044,6 +4132,28 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         FooterStatus = RemovalValidationSummary;
+        if (resourceGroupAbsent)
+        {
+            await QueueRemovalEvidenceAsync(
+                InstallerEvidenceEventType.RemovalValidationCompleted,
+                "removing",
+                "passed",
+                "Cleanup validation confirmed the dedicated resource group is absent.",
+                CreateRemovalOutcomeSummary(
+                    removed: _removalResourceGroupAlreadyAbsent ? 0 : 1,
+                    skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0,
+                    includeFinalRetained: true));
+        }
+        else
+        {
+            await QueueRemovalEvidenceAsync(
+                InstallerEvidenceEventType.RemovalFailed,
+                "failed",
+                "failed",
+                "Cleanup validation could not confirm that the resource group is absent.",
+                CreateRemovalOutcomeSummary(failed: 1),
+                CreateRemovalEvidenceError("validation", results));
+        }
         RefreshRemovalCommands();
         SaveWizardState();
     }
@@ -4053,7 +4163,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return IsRemovalMode &&
             _config is not null &&
             _currentStepNumber >= 8 &&
-            _lastRemovalValidationStatus == InstallStatus.Passed;
+            _lastRemovalValidationStatus == InstallStatus.Passed &&
+            !FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase) &&
+            (!CanUseRemovalEvidence(_config) || !_removalEvidenceOutbox.IsTerminal);
     }
 
     private async Task CreateRemovalEvidenceAsync()
@@ -4082,6 +4194,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             - Result: Azure resource group absent
             - SharePoint cleanup: Not performed
             - Key Vault purge: Not performed
+            - Key Vault disposition: {_removalKeyVaultDisposition}
             - Reinstall requirement: Generate a new package with a new Key Vault name
             """;
         var manifest = new
@@ -4101,7 +4214,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             validationArtifact = RemovalValidationOutputPath,
             sharePointCleanupPerformed = false,
             keyVaultPurged = false,
-            keyVaultDisposition = "SoftDeletedRecoverable",
+            keyVaultDisposition = _removalKeyVaultDisposition,
             reinstallRequiresNewKeyVaultName = true
         };
         await File.WriteAllTextAsync(reportPath, report);
@@ -4123,7 +4236,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = $"Removal workflow complete. Evidence: {bundlePath}";
         AiTitle = "Removal workflow complete";
         AiSummary = "The dedicated Azure resource group is absent. SharePoint was unchanged, and reinstall requires a new package with a new Key Vault name.";
-        SaveWizardState(markCompleted: true);
+        await QueueRemovalEvidenceAsync(
+            InstallerEvidenceEventType.RemovalCompleted,
+            "removed",
+            "passed",
+            "PageMaker365 Azure removal completed and cleanup validation passed.",
+            CreateRemovalOutcomeSummary(
+                removed: _removalResourceGroupAlreadyAbsent ? 0 : 1,
+                skipped: _removalResourceGroupAlreadyAbsent ? 1 : 0,
+                includeFinalRetained: true));
+        SaveWizardState(markCompleted: _removalEvidenceOutbox.PendingEvents.Count == 0);
     }
 
     private string PrepareRemovalOutputPath(string phase, string fileName)
@@ -4408,6 +4530,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         var eventId = $"evt_{Guid.NewGuid():N}";
         var payload = new InstallerEvidenceEvent
         {
+            Lifecycle = InstallerEvidenceLifecycle.Install,
+            AttemptId = _installerEvidenceOutbox.InstallAttemptId,
             EventId = eventId,
             EventType = eventType,
             InstallAttemptId = _installerEvidenceOutbox.InstallAttemptId,
@@ -4446,7 +4570,20 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         SaveWizardState();
+        await FlushEvidenceOutboxesAsync();
+    }
+
+    private async Task FlushEvidenceOutboxesAsync()
+    {
         await FlushInstallerEvidenceOutboxAsync();
+        await FlushRemovalEvidenceOutboxAsync();
+        if (_installerEvidenceOutbox.PendingEvents.Count == 0 &&
+            _removalEvidenceOutbox.PendingEvents.Count == 0 &&
+            FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase) &&
+            !_stateCompleted)
+        {
+            SaveWizardState(markCompleted: true);
+        }
     }
 
     private async Task FlushInstallerEvidenceOutboxAsync()
@@ -4495,9 +4632,109 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
     }
 
+    private bool CanUseRemovalEvidence(CustomerInstallConfig config)
+    {
+        return IsRemovalMode &&
+            _bootstrapSession is not null &&
+            !string.IsNullOrWhiteSpace(_bootstrapSession.SessionId) &&
+            _bootstrapSession.SessionId.Equals(config.ControlPlane.OnboardingSessionId, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(config.ControlPlane.DeploymentExportId) &&
+            IsBootstrapOperationAllowed(
+                OnboardingOperation.RemovalStatusSync,
+                requirePortalSync: true,
+                out _);
+    }
+
+    private void StartNewRemovalEvidenceAttempt()
+    {
+        _removalEvidenceLifecycleService.StartNewAttempt(_removalEvidenceOutbox);
+    }
+
+    private async Task QueueRemovalEvidenceAsync(
+        string eventType,
+        string lifecycleStatus,
+        string outcome,
+        string message,
+        RemovalEvidenceOutcomeSummary? removalOutcomes = null,
+        InstallerEvidenceError? error = null)
+    {
+        if (_config is null || !CanUseRemovalEvidence(_config))
+        {
+            return;
+        }
+
+        var payload = new InstallerEvidenceEvent
+        {
+            EventType = eventType,
+            OccurredAt = DateTimeOffset.UtcNow,
+            OnboardingSessionId = _bootstrapSession!.SessionId,
+            DeploymentExportId = _config.ControlPlane.DeploymentExportId,
+            LifecycleStatus = lifecycleStatus,
+            Outcome = outcome,
+            Error = error,
+            InstallerVersion = InstallerVersion,
+            PackageHash = EvidencePackageHash(_config),
+            AzureResourceGroup = _config.Azure.ResourceGroupName,
+            RemovalOutcomes = removalOutcomes,
+            Message = message
+        };
+        _removalEvidenceLifecycleService.Queue(_removalEvidenceOutbox, payload);
+        RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
+        SaveWizardState();
+        await FlushRemovalEvidenceOutboxAsync();
+    }
+
+    private async Task FlushRemovalEvidenceOutboxAsync()
+    {
+        if (_removalEvidenceOutbox.PendingEvents.Count == 0)
+        {
+            return;
+        }
+
+        if (_bootstrapSession is null ||
+            !IsBootstrapOperationAllowed(
+                OnboardingOperation.RemovalStatusSync,
+                requirePortalSync: true,
+                out _))
+        {
+            PortalSyncStatus = $"{_removalEvidenceOutbox.PendingEvents.Count} removal evidence event(s) queued for portal sync.";
+            SaveWizardState();
+            return;
+        }
+
+        while (_removalEvidenceOutbox.PendingEvents.Count > 0)
+        {
+            var pending = _removalEvidenceOutbox.PendingEvents[0];
+            pending.DeliveryAttempts++;
+            pending.LastAttemptAt = DateTimeOffset.UtcNow;
+            try
+            {
+                var receipt = await _onboardingApiClient.SubmitEvidenceAsync(
+                    _bootstrapSession,
+                    pending.Payload,
+                    pending.IdempotencyKey);
+                _removalEvidenceOutbox.PendingEvents.RemoveAt(0);
+                RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
+                PortalSyncStatus = $"Removal evidence synced through sequence {receipt.Sequence}; correlation {receipt.CorrelationId}.";
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                pending.LastDeliveryStatus = "Retry pending";
+                PortalSyncStatus = $"Removal portal sync pending; {_removalEvidenceOutbox.PendingEvents.Count} event(s) remain queued. The Azure result is unchanged.";
+                SaveWizardState();
+                RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
+                return;
+            }
+
+            SaveWizardState();
+        }
+    }
+
     private bool CanRetryInstallerEvidenceSync()
     {
-        return _bootstrapSession is not null && _installerEvidenceOutbox.PendingEvents.Count > 0;
+        return _bootstrapSession is not null &&
+            (_installerEvidenceOutbox.PendingEvents.Count > 0 ||
+                _removalEvidenceOutbox.PendingEvents.Count > 0);
     }
 
     private string EvidencePackageHash(CustomerInstallConfig config)
@@ -4541,6 +4778,82 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         return warning
             ? EvidenceError("SMOKE_TEST_WARNING", "Runtime smoke tests completed with warnings that require review.", "runtime", true)
             : EvidenceError("SMOKE_TEST_FAILED", "One or more required runtime smoke tests did not pass.", "runtime", failed?.RetrySafe ?? true);
+    }
+
+    private RemovalEvidenceOutcomeSummary CreateRemovalOutcomeSummary(
+        int removed = 0,
+        int skipped = 0,
+        int blocked = 0,
+        int failed = 0,
+        bool includeFinalRetained = false)
+    {
+        var retainedCategories = new List<string>();
+        var skippedCategories = new List<string>();
+        if (skipped > 0)
+        {
+            skippedCategories.Add("resource_group_already_absent");
+        }
+
+        if (includeFinalRetained)
+        {
+            retainedCategories.Add("sharepoint_content_unchanged");
+            retainedCategories.Add("local_evidence_retained");
+            if (_removalKeyVaultDisposition.Equals("SoftDeletedRecoverable", StringComparison.Ordinal))
+            {
+                retainedCategories.Insert(0, "key_vault_soft_deleted");
+            }
+            else if (_removalKeyVaultDisposition.Equals("NotPresent", StringComparison.Ordinal))
+            {
+                skipped++;
+                skippedCategories.Add("not_applicable");
+            }
+        }
+
+        return new RemovalEvidenceOutcomeSummary
+        {
+            Removed = removed,
+            Retained = retainedCategories.Count,
+            Skipped = skipped,
+            Blocked = blocked,
+            Failed = failed,
+            RetainedCategories = retainedCategories,
+            SkippedCategories = skippedCategories
+        };
+    }
+
+    private static InstallerEvidenceError CreateRemovalEvidenceError(
+        string phase,
+        IReadOnlyList<InstallerStepResult> results)
+    {
+        var failed = results.FirstOrDefault(result => result.Status == InstallStatus.Failed) ??
+            results.FirstOrDefault(result => result.Status == InstallStatus.Warning);
+        var ownershipBlocked = failed?.Code.Contains("Ownership", StringComparison.OrdinalIgnoreCase) == true ||
+            failed?.Code.Contains("Unexpected", StringComparison.OrdinalIgnoreCase) == true ||
+            failed?.Code.Contains("DeploymentActive", StringComparison.OrdinalIgnoreCase) == true;
+
+        return phase switch
+        {
+            "inventory" when ownershipBlocked => EvidenceError(
+                "REMOVAL_OWNERSHIP_BLOCKED",
+                "Removal inventory could not prove exclusive PageMaker365 ownership and a safe deletion boundary.",
+                "azure",
+                true),
+            "inventory" => EvidenceError(
+                "REMOVAL_INVENTORY_BLOCKED",
+                "Removal inventory found a blocker that must be resolved before deletion.",
+                "azure",
+                failed?.RetrySafe ?? true),
+            "execution" => EvidenceError(
+                "REMOVAL_EXECUTION_FAILED",
+                "Azure removal did not complete for the approved dedicated resource group.",
+                "azure",
+                failed?.RetrySafe ?? true),
+            _ => EvidenceError(
+                "REMOVAL_VALIDATION_FAILED",
+                "Cleanup validation could not confirm that the dedicated resource group is absent.",
+                "azure",
+                true)
+        };
     }
 
     private static InstallerEvidenceError EvidenceError(

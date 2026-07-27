@@ -2,9 +2,12 @@ namespace PageMaker365.Installer.Engine.Models;
 
 public sealed class InstallerEvidenceEvent
 {
+    public string Lifecycle { get; set; } = InstallerEvidenceLifecycle.Install;
+    public string AttemptId { get; set; } = "";
     public string EventId { get; set; } = "";
     public string EventType { get; set; } = "";
     public string InstallAttemptId { get; set; } = "";
+    public string RemovalAttemptId { get; set; } = "";
     public int Sequence { get; set; }
     public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
     public string OnboardingSessionId { get; set; } = "";
@@ -18,6 +21,7 @@ public sealed class InstallerEvidenceEvent
     public string ApiUrl { get; set; } = "";
     public string AzureResourceGroup { get; set; } = "";
     public List<InstallerEvidenceSmokeTest> SmokeTests { get; set; } = [];
+    public RemovalEvidenceOutcomeSummary? RemovalOutcomes { get; set; }
     public string Message { get; set; } = "";
 }
 
@@ -43,7 +47,10 @@ public sealed class InstallerEvidenceReceipt
     public string SessionId { get; set; } = "";
     public string EventId { get; set; } = "";
     public string EventType { get; set; } = "";
+    public string Lifecycle { get; set; } = "";
+    public string AttemptId { get; set; } = "";
     public string InstallAttemptId { get; set; } = "";
+    public string RemovalAttemptId { get; set; } = "";
     public int Sequence { get; set; }
     public string LifecycleStatus { get; set; } = "";
     public string Outcome { get; set; } = "";
@@ -72,6 +79,36 @@ public sealed class InstallerEvidenceOutboxState
     public List<PendingInstallerEvidenceEvent> PendingEvents { get; set; } = [];
 }
 
+public sealed class RemovalEvidenceOutboxState
+{
+    public string RemovalAttemptId { get; set; } = "";
+    public int NextSequence { get; set; } = 1;
+    public bool RemovalStarted { get; set; }
+    public bool InventoryCompleted { get; set; }
+    public bool ExecutionCompleted { get; set; }
+    public bool ValidationCompleted { get; set; }
+    public bool IsTerminal { get; set; }
+    public string LastEventType { get; set; } = "";
+    public List<PendingInstallerEvidenceEvent> PendingEvents { get; set; } = [];
+}
+
+public sealed class RemovalEvidenceOutcomeSummary
+{
+    public int Removed { get; set; }
+    public int Retained { get; set; }
+    public int Skipped { get; set; }
+    public int Blocked { get; set; }
+    public int Failed { get; set; }
+    public List<string> RetainedCategories { get; set; } = [];
+    public List<string> SkippedCategories { get; set; } = [];
+}
+
+public static class InstallerEvidenceLifecycle
+{
+    public const string Install = "install";
+    public const string Removal = "removal";
+}
+
 public static class InstallerEvidenceEventType
 {
     public const string PackageValidated = "package_validated";
@@ -82,4 +119,11 @@ public static class InstallerEvidenceEventType
     public const string SmokeTestsCompleted = "smoke_tests_completed";
     public const string InstallCompleted = "install_completed";
     public const string InstallFailed = "install_failed";
+    public const string RemovalStarted = "removal_started";
+    public const string RemovalInventoryCompleted = "removal_inventory_completed";
+    public const string RemovalExecutionCompleted = "removal_execution_completed";
+    public const string RemovalValidationCompleted = "removal_validation_completed";
+    public const string RemovalCompleted = "removal_completed";
+    public const string RemovalBlocked = "removal_blocked";
+    public const string RemovalFailed = "removal_failed";
 }
