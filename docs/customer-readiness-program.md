@@ -24,6 +24,9 @@ The program produces two customer deliverables:
 - `docs/customer/installer-technical-security-guide.md` is the controlled customer technical/security-guide draft.
 - `docs/customer/customer-documentation-delivery-plan.md` defines guide coverage, evidence gates, review ownership, and publication sequencing.
 - `config/installer-security-profile.json` is the machine-readable implemented security baseline enforced by CI.
+- The `Installer Customer Readiness v1` GitHub milestone and linked issues are authoritative for current ownership, external dependencies, and live acceptance state.
+
+`docs/execution-master-plan.md` and `docs/implementation-backlog.md` are historical planning inputs. Their slice status and checkboxes do not override this program, the traceability matrix, or GitHub acceptance gates.
 
 Product behavior, customer documentation, and technical claims must not be treated as complete when the traceability record shows missing or indirect evidence.
 
