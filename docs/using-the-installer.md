@@ -134,6 +134,8 @@ The current alpha provisions the Azure runtime resources but does not yet deploy
 
 Preflight blockers should stop the user from moving into deployment until the issue is fixed or an authorized operator explicitly changes the result. Warnings can allow progress, but they should remain visible in the evidence package.
 
+Azure platform readiness checks the deployment resource-provider registrations, confirms that App Service B1 is offered to the target subscription in the package region, and reads regional App Service core quota. An unregistered provider, unavailable B1 SKU, or less than one remaining core is a blocker. A passing result is not a capacity reservation: Azure can still report a transient regional allocation conflict while creating the App Service plan, which remains a retryable deployment-time failure.
+
 Common blocker categories include:
 
 - Missing PowerShell or Bicep dependencies.
