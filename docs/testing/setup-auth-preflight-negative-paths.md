@@ -50,10 +50,10 @@ Use this runbook to collect live evidence for setup-file, authentication, and pr
 
 | Scenario | Procedure | Pass condition |
 | --- | --- | --- |
-| F02 | Run on a disposable workstation image without one required module or Bicep. | Missing dependency blocks and identifies remediation. |
+| F02 | Run on a disposable workstation image without one required module or Bicep. | Missing dependency returns `Failed`, blocks Preview, and identifies remediation. |
 | F03 | Use an account intentionally lacking deployment access at the target scope. | Preflight does not represent RBAC as ready; deployment remains blocked under the final permission policy. |
-| F04 | Use a Graph session missing final required consent. | Dependent Entra/SharePoint checks do not pass. |
-| F05 | Use a package that targets a nonexistent or inaccessible SharePoint site/library. | The exact target fails without reading document content. |
+| F04 | Use a Graph session missing final required consent. | `GraphConsentScopesMissing` fails preflight; dependent SharePoint checks do not represent the target as ready. |
+| F05 | Use a package that targets a nonexistent or inaccessible SharePoint site/library. | Site and library failures are distinguished, block Preview, and do not read document content or export unrelated library names. |
 | F08 | Create the target resource group without PageMaker365 ownership tags. | Preview/install fail closed and do not adopt the resource group. |
 | F09-provider | Unregister one required provider in a disposable subscription, or use an approved test fixture that returns `NotRegistered`. | Preflight fails with the provider namespace and does not start preview. |
 | F09-sku | Use a subscription/region combination for which Azure omits B1 from the subscription SKU response. | Preflight fails with `AppServiceSkuUnavailable` and directs the operator to a newly approved region or subscription remediation. |

@@ -168,6 +168,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Testing mandatory preflight blocker policy...'
+& (Join-Path $repoRoot 'scripts\test-preflight-blocker-policy.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Preflight blocker policy tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Testing Azure platform readiness preflight contracts...'
 & (Join-Path $repoRoot 'scripts\test-azure-platform-readiness.ps1')
 if ($LASTEXITCODE -ne 0) {

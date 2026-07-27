@@ -20,12 +20,22 @@ function Test-PM365AzureContext {
         return $results
     }
 
-    Import-Module Az.Accounts -ErrorAction Stop
+    try {
+        Import-Module Az.Accounts -ErrorAction Stop
+    } catch {
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzAccountsLoadFailed' `
+            -Summary 'Az.Accounts could not be loaded.' `
+            -Details $_.Exception.Message `
+            -RetrySafe $true
+        return $results
+    }
 
     $context = Get-AzContext -ErrorAction SilentlyContinue
     if (-not $context) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'AzureNotSignedIn' `
             -Summary 'Azure sign-in is required.' `
             -Details 'Sign in to Azure before running tenant and subscription validation.' `
@@ -54,7 +64,7 @@ function Test-PM365AzureContext {
     $actualSubscriptionId = [string]$context.Subscription.Id
     if ($expectedSubscriptionId -and -not $actualSubscriptionId) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'AzureSubscriptionUnavailable' `
             -Summary 'Azure subscription context could not be read.' `
             -Details 'Run Set-AzContext with the target subscription before deployment validation.' `
@@ -76,7 +86,7 @@ function Test-PM365AzureContext {
 
     if (-not $azResources) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'AzResourcesMissing' `
             -Summary 'Az.Resources is not installed.' `
             -Details 'Resource group and deployment checks require Az.Resources.' `
@@ -84,7 +94,17 @@ function Test-PM365AzureContext {
         return $results
     }
 
-    Import-Module Az.Resources -ErrorAction Stop
+    try {
+        Import-Module Az.Resources -ErrorAction Stop
+    } catch {
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzResourcesLoadFailed' `
+            -Summary 'Az.Resources could not be loaded.' `
+            -Details $_.Exception.Message `
+            -RetrySafe $true
+        return $results
+    }
     $resourceGroupName = [string]$config.azure.resourceGroupName
     $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
     if ($resourceGroup) {
@@ -172,7 +192,7 @@ function Test-PM365AzureContext {
             }
         } catch {
             $results += New-PM365Result `
-                -Status 'Warning' `
+                -Status 'Failed' `
                 -Code 'AzureRbacCheckUnavailable' `
                 -Summary 'Azure RBAC could not be verified.' `
                 -Details $_.Exception.Message `
