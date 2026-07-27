@@ -10,7 +10,7 @@ Contract source: `config/installer-security-profile.json`
 
 This guide describes the security-relevant behavior implemented by the PageMaker365 Installer. It is intended for customer architecture, identity, security, networking, and operations reviewers.
 
-The current alpha provisions the Azure foundation and implements protected runtime secret provisioning locally, but it does not yet deploy verified production API or portal application content, implement a supported upgrade contract, or ship a production-signed installer. Runtime secret provisioning still requires live sandbox acceptance before customer publication.
+The current alpha provisions the Azure foundation and implements protected runtime secret provisioning locally, but it does not yet deploy verified production API or portal application content, implement a supported upgrade contract, or have a production certificate and clean-workstation proof for its signed distribution. Runtime secret provisioning still requires live sandbox acceptance before customer publication.
 
 ## Trust Boundaries And Data Flow
 
@@ -43,9 +43,17 @@ The signed-in Azure operator must have one of these role sets effective at the t
 
 The preflight uses `Get-AzRoleAssignment` with the target subscription and expands group membership when the installed Az.Resources version supports it. Microsoft defines `-Scope` as returning assignments effective at that scope or above. See [Get-AzRoleAssignment](https://learn.microsoft.com/en-us/powershell/module/az.resources/get-azroleassignment).
 
+Preflight fails closed when required Az/Bicep tooling is absent, Azure context or deployment RBAC cannot be verified, the configured Key Vault recovery state cannot be checked, a required delegated Graph scope is missing, or the package-configured SharePoint site or document library cannot be resolved. A failed check must pass on rerun before Preview unlocks. Warnings are reserved for advisory or nonauthoritative signals and remain in evidence; they do not silently represent a required boundary as ready.
+
+Preflight also uses read-only Azure Resource Manager operations to verify registration of the resource providers used by the Bicep deployment, confirm that App Service B1 appears in the subscription SKU inventory for the package region, and read App Service core usage and limits for that region. Unregistered providers, an unavailable B1 SKU, or less than one remaining core block deployment. Microsoft documents these interfaces in [Get-AzResourceProvider](https://learn.microsoft.com/en-us/powershell/module/az.resources/get-azresourceprovider), [App Service List SKUs](https://learn.microsoft.com/en-us/rest/api/appservice/list-skus/list-skus?view=rest-appservice-2025-05-01), and [App Service usages in a location](https://learn.microsoft.com/en-us/rest/api/appservice/get-usages-in-location/list?view=rest-appservice-2025-05-01).
+
+These checks do not create or reserve App Service capacity. Azure can still reject the plan during asynchronous regional allocation even when provider, SKU, and quota checks pass. That condition is handled as a sanitized, retryable deployment failure and must not be represented as a successful install.
+
 ### Microsoft Graph And SharePoint
 
 The installer uses OAuth 2.0 device authorization through MSAL. Microsoft describes the device-code protocol and tenant token endpoint in [OAuth 2.0 device authorization grant](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code).
+
+Canceled and expired device-code attempts are recorded as sanitized, retryable failures. The desktop clears the stale user code, retains no access token, keeps Preflight locked, and requires a new sign-in attempt. Azure browser cancellation follows the same retryable failure policy.
 
 The current installer requests only delegated read permissions:
 
@@ -57,6 +65,8 @@ The current installer requests only delegated read permissions:
 | `Sites.Read.All` | Resolves the configured SharePoint site and enumerates document libraries. | Delegated permission; tenant policy may still require admin approval. |
 
 The exact requests are four `GET` calls: `/domains`, `/me/memberOf/microsoft.graph.directoryRole`, `/sites/{hostname}:{path}`, and `/sites/{site-id}/drives`. No Graph write call is implemented, and the installer no longer requests `Application.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, or `Directory.Read.All`.
+
+SharePoint preflight reads site and drive metadata only. It does not read list items, files, or document content. A missing library response does not export the names of unrelated libraries into installer evidence.
 
 Microsoft identifies `Domain.Read.All` as least privileged for listing domains, `User.Read` as least privileged for the signed-in user's direct memberships, and `Sites.Read.All` as least privileged for resolving a site. Role-management permission supplies directory-role details that would otherwise be returned with limited properties. See [list domains](https://learn.microsoft.com/en-us/graph/api/domain-list?view=graph-rest-1.0), [list direct memberships](https://learn.microsoft.com/en-us/graph/api/user-list-memberof?view=graph-rest-1.0), [get a site](https://learn.microsoft.com/en-us/graph/api/site-get?view=graph-rest-1.0), and the [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference).
 
@@ -90,7 +100,7 @@ All non-local installer endpoints use HTTPS on TCP 443. Local development may us
 | `login.microsoftonline.com:443` | Device-code and token requests. |
 | `microsoft.com:443` | Operator device sign-in page. |
 | `graph.microsoft.com:443` | Read-only tenant, role, site, and library requests. |
-| `management.azure.com:443` | Azure discovery, What-If, deployment, inventory, validation, and removal through Az PowerShell. |
+| `management.azure.com:443` | Azure discovery, provider/SKU/quota readiness, What-If, deployment, inventory, validation, and removal through Az PowerShell. |
 | `pagemaker365.com:443`, `api.pagemaker365.com:443` | Production portal, onboarding APIs, package download, JWKS, and evidence callbacks. |
 | `staging.pagemaker365.com:443`, `api-staging.pagemaker365.com:443` | Staging equivalents used during acceptance testing. |
 | Customer `*.sharepoint.com:443` | Customer site URL and browser/runtime target. Graph-based installer discovery itself uses `graph.microsoft.com`. |
@@ -108,7 +118,7 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 - Signed-required packages use Ed25519 verification against a trusted key from the PageMaker365 JWKS endpoint.
 - Raw secret containers and secret-looking payload fields are rejected.
 
-Production code signing for the installer executable and distribution wrapper is not yet implemented; see #13.
+The pilot distribution is a deterministic versioned ZIP. The executable, PageMaker365 first-party libraries, and shipped PowerShell files support Authenticode signing. The manifest and SHA-256 files record the exact payload and ZIP integrity. Unsigned CI packages are labeled `UnsignedDevelopment` and are rejected by the customer verifier by default. Production certificate configuration and clean-workstation verification remain open under #13.
 
 ## Token And Secret Handling
 
@@ -161,7 +171,7 @@ Application Insights is deployed for the customer runtime. The installer itself 
 | Removal lifecycle callbacks | Not implemented | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
-| Production code signing and distribution | Not implemented | #13 |
+| Production code signing and distribution | Signing and verification implemented; certificate-backed release and clean-workstation proof pending | #13 |
 
 ## Verification And Review
 

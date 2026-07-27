@@ -11,7 +11,7 @@ function Test-PM365EntraPermissions {
 
     if (-not $graphAuth) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'GraphAuthenticationMissing' `
             -Summary 'Microsoft.Graph.Authentication is not installed.' `
             -Details 'Graph authentication is required before Entra permission checks can run.' `
@@ -19,11 +19,21 @@ function Test-PM365EntraPermissions {
         return $results
     }
 
-    Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+    try {
+        Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+    } catch {
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'GraphAuthenticationLoadFailed' `
+            -Summary 'Microsoft.Graph.Authentication could not be loaded.' `
+            -Details $_.Exception.Message `
+            -RetrySafe $true
+        return $results
+    }
     $tokenContext = Initialize-PM365GraphAccessToken
     if ($tokenContext -and -not $tokenContext.connectSucceeded) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'GraphAccessTokenConnectionFailed' `
             -Summary 'The installer could not initialize the app-provided Microsoft Graph token.' `
             -Details $tokenContext.error `
@@ -34,7 +44,7 @@ function Test-PM365EntraPermissions {
     $context = Get-MgContext -ErrorAction SilentlyContinue
     if (-not $context -and -not $tokenContext) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'GraphNotSignedIn' `
             -Summary 'Microsoft Graph sign-in is required for Entra permission checks.' `
             -Details 'Sign in with Microsoft Graph before validating app consent/admin readiness.' `
@@ -77,9 +87,9 @@ function Test-PM365EntraPermissions {
     $missingScopes = $requiredScopes | Where-Object { $_ -notin $currentScopes }
     if ($missingScopes.Count -gt 0) {
         $results += New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'GraphConsentScopesMissing' `
-            -Summary 'Additional Graph consent scopes may be required.' `
+            -Summary 'Required Microsoft Graph consent scopes are missing.' `
             -Details ("Missing or unconfirmed scopes: " + ($missingScopes -join ', ')) `
             -RetrySafe $true
     } else {

@@ -5,6 +5,7 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Identity.Client;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
@@ -40,6 +41,9 @@ internal static class Program
             ("OnboardingSessionService rejects expired bootstrap", OnboardingSessionServiceRejectsExpiredBootstrap),
             ("OnboardingSessionService rejects untrusted bootstrap endpoints", OnboardingSessionServiceRejectsUntrustedBootstrapEndpoints),
             ("Graph device code requests only approved read scopes", GraphDeviceCodeRequestsOnlyApprovedReadScopes),
+            ("InstallerEngine returns retryable result when Graph sign-in is canceled", InstallerEngineReturnsRetryableResultWhenGraphSignInIsCanceled),
+            ("InstallerEngine treats declined Graph device authorization as canceled", InstallerEngineTreatsDeclinedGraphDeviceAuthorizationAsCanceled),
+            ("InstallerEngine returns retryable result when Graph device code expires", InstallerEngineReturnsRetryableResultWhenGraphDeviceCodeExpires),
             ("OnboardingSessionService validates sample bootstrap contract", OnboardingSessionServiceValidatesSampleBootstrapContract),
             ("AuthenticationContextValidator accepts matching Azure context", AuthenticationContextValidatorAcceptsMatchingAzureContext),
             ("AuthenticationContextValidator rejects warning-only Azure sign-in", AuthenticationContextValidatorRejectsWarningOnlyAzureSignIn),
@@ -673,6 +677,74 @@ internal static class Program
         AssertEx.Equal(string.Join("|", expected), string.Join("|", GraphDeviceCodeAuthenticator.RequiredScopes));
         AssertEx.False(GraphDeviceCodeAuthenticator.RequiredScopes.Any(scope => scope.Contains("ReadWrite", StringComparison.OrdinalIgnoreCase)));
         return Task.CompletedTask;
+    }
+
+    private static async Task InstallerEngineReturnsRetryableResultWhenGraphSignInIsCanceled()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var engine = new InstallerEngine(
+                new StructuredLogger(new RedactionService()),
+                new ThrowingGraphAuthenticator(new OperationCanceledException("Canceled by operator.")));
+            var session = engine.CreateSession(CreateConfig(), workspaceRoot);
+
+            var result = await engine.RunGraphDeviceCodeSignInAsync(session);
+
+            AssertEx.Equal("GraphSignInCanceled", result.StepResult.Code);
+            AssertEx.Equal(InstallStatus.Failed, result.StepResult.Status);
+            AssertEx.True(result.StepResult.RetrySafe);
+            AssertEx.Equal(InstallStatus.Failed, session.Status);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task InstallerEngineReturnsRetryableResultWhenGraphDeviceCodeExpires()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var engine = new InstallerEngine(
+                new StructuredLogger(new RedactionService()),
+                new ThrowingGraphAuthenticator(new MsalClientException("expired_token", "Device code expired.")));
+            var session = engine.CreateSession(CreateConfig(), workspaceRoot);
+
+            var result = await engine.RunGraphDeviceCodeSignInAsync(session);
+
+            AssertEx.Equal("GraphSignInExpired", result.StepResult.Code);
+            AssertEx.Equal(InstallStatus.Failed, result.StepResult.Status);
+            AssertEx.True(result.StepResult.RetrySafe);
+            AssertEx.StringContains(result.StepResult.Details, "new code");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task InstallerEngineTreatsDeclinedGraphDeviceAuthorizationAsCanceled()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var engine = new InstallerEngine(
+                new StructuredLogger(new RedactionService()),
+                new ThrowingGraphAuthenticator(new MsalClientException("authorization_declined", "Authorization declined.")));
+            var session = engine.CreateSession(CreateConfig(), workspaceRoot);
+
+            var result = await engine.RunGraphDeviceCodeSignInAsync(session);
+
+            AssertEx.Equal("GraphSignInCanceled", result.StepResult.Code);
+            AssertEx.Equal(InstallStatus.Failed, result.StepResult.Status);
+            AssertEx.True(result.StepResult.RetrySafe);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
     }
 
     private static Task AuthenticationContextValidatorAcceptsMatchingAzureContext()
@@ -1784,6 +1856,16 @@ internal static class Program
         AssertEx.Equal("AzureSignInCompleted", results[0].Code);
         AssertEx.Equal("Azure Sign In", results[0].StepName);
         AssertEx.Equal("sub-001", results[0].Data["subscriptionId"]);
+
+        var nameMethod = typeof(InstallerEngine).GetMethod(
+            "NameFromCode",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        AssertEx.True(nameMethod is not null, "Result-name mapper should exist.");
+        AssertEx.Equal("Microsoft Graph Sites Module", (string)nameMethod!.Invoke(null, ["GraphSitesModuleMissing"])!);
+        AssertEx.Equal("SharePoint Library", (string)nameMethod.Invoke(null, ["SharePointLibraryAccessFailed"])!);
+        AssertEx.Equal("Azure Resource Providers", (string)nameMethod.Invoke(null, ["AzureResourceProvidersNotRegistered"])!);
+        AssertEx.Equal("App Service SKU", (string)nameMethod.Invoke(null, ["AppServiceSkuUnavailable"])!);
+        AssertEx.Equal("App Service Quota", (string)nameMethod.Invoke(null, ["AppServiceQuotaExhausted"])!);
         return Task.CompletedTask;
     }
 
@@ -2591,6 +2673,18 @@ internal static class Program
         public void Report(T value)
         {
             report(value);
+        }
+    }
+
+    private sealed class ThrowingGraphAuthenticator(Exception exception) : IGraphDeviceCodeAuthenticator
+    {
+        public Task<GraphSignInResult> SignInAsync(
+            string tenantId,
+            string clientId,
+            IProgress<GraphDeviceCodePrompt>? promptProgress = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromException<GraphSignInResult>(exception);
         }
     }
 

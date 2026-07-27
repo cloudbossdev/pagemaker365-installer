@@ -6,12 +6,13 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $storyPath = Join-Path $repoRoot 'docs/install-uninstall-user-stories.md'
 $scenarioPath = Join-Path $repoRoot 'docs/install-uninstall-test-matrix.md'
 $traceabilityPath = Join-Path $repoRoot 'docs/installer-requirements-traceability.md'
+$documentationPlanPath = Join-Path $repoRoot 'docs/customer/customer-documentation-delivery-plan.md'
 $customerDraftPaths = @(
     (Join-Path $repoRoot 'docs/customer/installer-user-guide.md'),
     (Join-Path $repoRoot 'docs/customer/installer-technical-security-guide.md')
 )
 
-foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath) + $customerDraftPaths) {
+foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath, $documentationPlanPath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
     }
@@ -77,6 +78,18 @@ foreach ($path in $customerDraftPaths) {
     if ($draftText -notmatch '(?im)^Status:\s+controlled draft; not approved for customer publication\s*$') {
         throw "Customer document must retain the controlled-draft publication warning: $path"
     }
+}
+
+$documentationPlanText = Get-Content -LiteralPath $documentationPlanPath -Raw
+foreach ($storyId in $expectedStoryIds) {
+    if ($documentationPlanText -notmatch "(?m)^\| $([regex]::Escape($storyId))\s") {
+        throw "$storyId is missing from the customer documentation story-coverage table."
+    }
+}
+
+if ($documentationPlanText -notmatch '(?i)controlled draft' -or
+    $documentationPlanText -notmatch '(?m)^## Evidence Gates\s*$') {
+    throw 'Customer documentation delivery plan must retain its controlled-draft publication and evidence gates.'
 }
 
 Write-Host "Documentation traceability checks passed: $($storyIds.Count) stories, $($scenarioIds.Count) scenarios."
