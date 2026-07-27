@@ -297,56 +297,67 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             };
         }
 
-        using var httpRequest = new HttpRequestMessage(
-            HttpMethod.Get,
-            _options.PackageEndpoint(session, readiness.PackageDownloadUrl));
-        ApplyAuthorization(httpRequest, session);
-
         var endpoint = _options.PackageEndpoint(session, readiness.PackageDownloadUrl);
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        var correlationId = GetCorrelationId(response, body);
-        if (!response.IsSuccessStatusCode)
+        const int maxAttempts = 4;
+        for (var attempt = 1; ; attempt++)
         {
-            throw CreateApiException("package download", endpoint, response.StatusCode, body, correlationId);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            ApplyAuthorization(httpRequest, session);
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var correlationId = GetCorrelationId(response, body);
+            if (!response.IsSuccessStatusCode)
+            {
+                var exception = CreateApiException("package download", endpoint, response.StatusCode, body, correlationId);
+                if (attempt < maxAttempts && IsTransientStatusCode(response.StatusCode))
+                {
+                    await Task.Delay(GetPackageRetryDelay(response, attempt), cancellationToken);
+                    continue;
+                }
+
+                throw exception;
+            }
+
+            var mediaType = response.Content.Headers.ContentType?.MediaType;
+            if (!IsJsonMediaType(mediaType))
+            {
+                throw new OnboardingApiException(
+                    $"Portal package download returned unsupported content type '{mediaType ?? "none"}'. Expected application/json.",
+                    endpoint,
+                    response.StatusCode,
+                    correlationId);
+            }
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                throw new OnboardingApiException(
+                    "Portal package download returned an empty package.",
+                    endpoint,
+                    response.StatusCode,
+                    correlationId);
+            }
+
+            await ValidateDownloadedPackageAsync(body, session, discovery, endpoint, response.StatusCode, correlationId, cancellationToken);
+
+            var outputDirectory = Path.Combine(workspaceRoot, "support-bundle", "onboarding", session.SessionId, "generated-package");
+            Directory.CreateDirectory(outputDirectory);
+            var packagePath = Path.Combine(outputDirectory, SafeFileName(GetDownloadFileName(response, session)));
+
+            await File.WriteAllTextAsync(packagePath, body, Encoding.UTF8, cancellationToken);
+
+            return new OnboardingPackageDownloadResult
+            {
+                Status = "Downloaded",
+                SessionId = session.SessionId,
+                PackagePath = packagePath,
+                PackageVersion = readiness.PackageVersion,
+                CorrelationId = correlationId,
+                Message = attempt == 1
+                    ? "Generated install package downloaded from the PageMaker365 portal."
+                    : $"Generated install package downloaded from the PageMaker365 portal after {attempt} attempts."
+            };
         }
-
-        var mediaType = response.Content.Headers.ContentType?.MediaType;
-        if (!IsJsonMediaType(mediaType))
-        {
-            throw new OnboardingApiException(
-                $"Portal package download returned unsupported content type '{mediaType ?? "none"}'. Expected application/json.",
-                endpoint,
-                response.StatusCode,
-                correlationId);
-        }
-
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            throw new OnboardingApiException(
-                "Portal package download returned an empty package.",
-                endpoint,
-                response.StatusCode,
-                correlationId);
-        }
-
-        await ValidateDownloadedPackageAsync(body, session, discovery, endpoint, response.StatusCode, correlationId, cancellationToken);
-
-        var outputDirectory = Path.Combine(workspaceRoot, "support-bundle", "onboarding", session.SessionId, "generated-package");
-        Directory.CreateDirectory(outputDirectory);
-        var packagePath = Path.Combine(outputDirectory, SafeFileName(GetDownloadFileName(response, session)));
-
-        await File.WriteAllTextAsync(packagePath, body, Encoding.UTF8, cancellationToken);
-
-        return new OnboardingPackageDownloadResult
-        {
-            Status = "Downloaded",
-            SessionId = session.SessionId,
-            PackagePath = packagePath,
-            PackageVersion = readiness.PackageVersion,
-            CorrelationId = correlationId,
-            Message = "Generated install package downloaded from the PageMaker365 portal."
-        };
     }
 
     private static bool IsDownloadablePackageReadiness(string status)
@@ -450,6 +461,22 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         var code = (int)statusCode;
         return statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
             code >= 500;
+    }
+
+    private static TimeSpan GetPackageRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        var retryAfter = response.Headers.RetryAfter?.Delta;
+        if (retryAfter is null && response.Headers.RetryAfter?.Date is not null)
+        {
+            retryAfter = response.Headers.RetryAfter.Date.Value - DateTimeOffset.UtcNow;
+        }
+
+        if (retryAfter is not null)
+        {
+            return TimeSpan.FromSeconds(Math.Clamp(retryAfter.Value.TotalSeconds, 0, 30));
+        }
+
+        return TimeSpan.FromMilliseconds(Math.Min(4000, 250 * (1 << (attempt - 1))));
     }
 
     private static bool IsEvidenceRetryable(Exception exception, CancellationToken cancellationToken)
@@ -816,10 +843,9 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         string correlationId)
     {
         var detail = ExtractApiErrorDetail(body, ref correlationId);
-        var reason = string.IsNullOrWhiteSpace(detail) ? body.Trim() : detail;
-        var message = string.IsNullOrWhiteSpace(reason)
+        var message = string.IsNullOrWhiteSpace(detail)
             ? $"Portal onboarding API {operation} returned {(int)statusCode} {statusCode}."
-            : $"Portal onboarding API {operation} returned {(int)statusCode} {statusCode}: {reason}";
+            : $"Portal onboarding API {operation} returned {(int)statusCode} {statusCode}: {detail}";
 
         return new OnboardingApiException(message, endpoint, statusCode, correlationId);
     }
@@ -842,22 +868,31 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                 correlationId = correlationProperty.GetString() ?? "";
             }
 
-            foreach (var path in new[] { "message", "error", "details", "code" })
+            foreach (var path in new[] { "message", "error.message", "error.code", "details.message", "details", "code" })
             {
                 if (TryGetJsonPath(root, path, out var property) &&
                     property.ValueKind == JsonValueKind.String &&
                     !string.IsNullOrWhiteSpace(property.GetString()))
                 {
-                    return property.GetString() ?? "";
+                    return SanitizeApiErrorDetail(property.GetString() ?? "");
                 }
             }
         }
         catch (JsonException)
         {
-            return body.Trim();
+            return "";
         }
 
-        return body.Trim();
+        return "";
+    }
+
+    private static string SanitizeApiErrorDetail(string value)
+    {
+        var sanitized = AssistantTransferPolicy.SanitizeText(value);
+        var oneLine = string.Join(
+            " ",
+            sanitized.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine[..Math.Min(512, oneLine.Length)];
     }
 
     private static string GetDownloadFileName(HttpResponseMessage response, OnboardingBootstrapSession session)

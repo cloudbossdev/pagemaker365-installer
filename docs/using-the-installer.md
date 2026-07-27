@@ -106,7 +106,9 @@ The assistant can support the workflow by:
 - Summarizing session status, blockers, and next actions.
 - Preparing support bundle context for PageMaker365 support.
 
-The assistant should use session data, known error rules, logs, and support bundle artifacts. It should not receive raw secrets, and it should not execute deployment commands without the normal installer approval path.
+The assistant receives sanitized session context without local paths. Recommended actions are resolved through a local registry; the portal cannot add actions, change their labels, or remove required approval. Install, upgrade, removal, consent, and tenant-write operations are not assistant actions.
+
+Attachments remain local by default. When the operator explicitly enables handoff, only redacted text, log, JSON, or Markdown copies with opaque filenames can be uploaded to a reviewable support-ticket draft. Screenshots and other binary attachments remain local and are not included in the portal request. A portal draft is not a submitted support ticket.
 
 ## Evidence Outputs
 

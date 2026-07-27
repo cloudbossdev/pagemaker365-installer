@@ -50,7 +50,10 @@ public sealed class SupportBundleService
         var assistantRoot = Path.Combine(outputRoot, "assistant");
         if (Directory.Exists(assistantRoot))
         {
-            CopyDirectory(assistantRoot, Path.Combine(bundleRoot, "assistant"));
+            await CopyAssistantArtifactsAsync(
+                assistantRoot,
+                Path.Combine(bundleRoot, "assistant"),
+                cancellationToken);
         }
 
         var bundlePath = Path.Combine(outputRoot, $"{session.SessionId}-support-bundle.zip");
@@ -63,18 +66,75 @@ public sealed class SupportBundleService
         return bundlePath;
     }
 
-    private static void CopyDirectory(string sourceDirectory, string targetDirectory)
+    private async Task CopyAssistantArtifactsAsync(
+        string sourceDirectory,
+        string targetDirectory,
+        CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(targetDirectory);
+        foreach (var conversationDirectory in Directory.EnumerateDirectories(sourceDirectory))
+        {
+            var targetConversation = Path.Combine(targetDirectory, Path.GetFileName(conversationDirectory));
+            Directory.CreateDirectory(targetConversation);
 
+            var transcript = Path.Combine(conversationDirectory, "assistant-conversation.redacted.json");
+            if (File.Exists(transcript))
+            {
+                await CopySanitizedTextAsync(
+                    transcript,
+                    Path.Combine(targetConversation, Path.GetFileName(transcript)),
+                    cancellationToken);
+            }
+
+            var outbox = Path.Combine(conversationDirectory, "portal-outbox");
+            if (Directory.Exists(outbox))
+            {
+                await CopySanitizedTextTreeAsync(
+                    outbox,
+                    Path.Combine(targetConversation, "portal-outbox"),
+                    cancellationToken);
+            }
+        }
+    }
+
+    private async Task CopySanitizedTextTreeAsync(
+        string sourceDirectory,
+        string targetDirectory,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(targetDirectory);
         foreach (var file in Directory.EnumerateFiles(sourceDirectory))
         {
-            File.Copy(file, Path.Combine(targetDirectory, Path.GetFileName(file)), overwrite: true);
+            if (!AssistantTransferPolicy.IsPortalAttachmentAllowed(file) &&
+                !Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            await CopySanitizedTextAsync(
+                file,
+                Path.Combine(targetDirectory, Path.GetFileName(file)),
+                cancellationToken);
         }
 
         foreach (var directory in Directory.EnumerateDirectories(sourceDirectory))
         {
-            CopyDirectory(directory, Path.Combine(targetDirectory, Path.GetFileName(directory)));
+            await CopySanitizedTextTreeAsync(
+                directory,
+                Path.Combine(targetDirectory, Path.GetFileName(directory)),
+                cancellationToken);
         }
+    }
+
+    private async Task CopySanitizedTextAsync(
+        string sourcePath,
+        string targetPath,
+        CancellationToken cancellationToken)
+    {
+        var content = await File.ReadAllTextAsync(sourcePath, cancellationToken);
+        await File.WriteAllTextAsync(
+            targetPath,
+            AssistantTransferPolicy.SanitizeText(content),
+            cancellationToken);
     }
 }

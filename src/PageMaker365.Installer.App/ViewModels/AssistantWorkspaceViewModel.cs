@@ -15,18 +15,23 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     private readonly AssistantAttachmentService _attachmentService = new();
     private readonly AssistantConversationStore _conversationStore;
     private readonly AssistantApiClient _assistantApiClient;
+    private readonly AssistantActionPolicy _assistantActionPolicy = new();
     private readonly RedactionService _redactionService;
     private readonly AssistantActionHandlers _actionHandlers;
     private readonly AssistantConversation _conversation;
     private readonly string _conversationRoot;
     private readonly string _attachmentRoot;
     private readonly string _outboxRoot;
+    private readonly long _maxAttachmentBytes;
     private string _draftMessage = "";
     private string _statusText;
     private string _recommendedActionsStatus = "Recommended actions appear after the assistant responds.";
     private string _supportTicketStatus = "No support ticket draft created.";
     private bool _includeDiagnostics = true;
-    private bool _uploadAttachmentsWithHandoff = true;
+    private bool _uploadAttachmentsWithHandoff;
+    private bool _isOperationRunning;
+    private int _activeOperationCount;
+    private string _operationStatus = "Ready";
 
     public AssistantWorkspaceViewModel(
         AssistantDiagnosticContext diagnosticContext,
@@ -38,6 +43,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         _actionHandlers = actionHandlers ?? new AssistantActionHandlers();
         _conversationStore = new AssistantConversationStore(redactionService);
         var assistantOptions = new AssistantApiOptionsService().Load(workspaceRoot);
+        _maxAttachmentBytes = assistantOptions.MaxAttachmentBytes;
         _assistantApiClient = new AssistantApiClient(assistantOptions);
         _conversation = new AssistantConversation
         {
@@ -48,12 +54,18 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         _outboxRoot = Path.Combine(_conversationRoot, "portal-outbox");
         _statusText = $"{_assistantApiClient.ConnectionLabel}. Transcript will be saved to {_conversationRoot}";
 
-        AttachFilesCommand = new RelayCommand(AttachFilesAsync);
-        PasteClipboardImageCommand = new RelayCommand(PasteClipboardImageAsync);
-        SendMessageCommand = new RelayCommand(SendMessageAsync, CanSendMessage);
-        RemovePendingAttachmentCommand = new RelayCommand(RemovePendingAttachmentAsync);
-        CreateSupportTicketDraftCommand = new RelayCommand(CreateSupportTicketDraftAsync, CanCreateSupportTicketDraft);
-        ExecuteRecommendedActionCommand = new RelayCommand(ExecuteRecommendedActionAsync);
+        AttachFilesCommand = new RelayCommand(AttachFilesAsync, CanStartOperation, OnOperationRunningChanged);
+        PasteClipboardImageCommand = new RelayCommand(PasteClipboardImageAsync, CanStartOperation, OnOperationRunningChanged);
+        SendMessageCommand = new RelayCommand(SendMessageAsync, CanSendMessage, OnOperationRunningChanged);
+        RemovePendingAttachmentCommand = new RelayCommand(RemovePendingAttachmentAsync, _ => CanStartOperation());
+        CreateSupportTicketDraftCommand = new RelayCommand(
+            CreateSupportTicketDraftAsync,
+            CanCreateSupportTicketDraft,
+            OnOperationRunningChanged);
+        ExecuteRecommendedActionCommand = new RelayCommand(
+            ExecuteRecommendedActionAsync,
+            CanExecuteRecommendedAction,
+            OnOperationRunningChanged);
 
         AddAssistantGreeting();
     }
@@ -104,6 +116,18 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         set => SetProperty(ref _supportTicketStatus, value);
     }
 
+    public bool IsOperationRunning
+    {
+        get => _isOperationRunning;
+        private set => SetProperty(ref _isOperationRunning, value);
+    }
+
+    public string OperationStatus
+    {
+        get => _operationStatus;
+        private set => SetProperty(ref _operationStatus, value);
+    }
+
     public bool UploadAttachmentsWithHandoff
     {
         get => _uploadAttachmentsWithHandoff;
@@ -121,11 +145,27 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     public async Task AddDroppedFilesAsync(IEnumerable<string> paths)
     {
-        await AddFilesAsync(paths);
+        if (!CanStartOperation())
+        {
+            StatusText = "Wait for the current assistant operation to finish before adding files.";
+            return;
+        }
+
+        OperationStatus = "Importing dropped files";
+        OnOperationRunningChanged(true);
+        try
+        {
+            await AddFilesAsync(paths);
+        }
+        finally
+        {
+            OnOperationRunningChanged(false);
+        }
     }
 
     private async Task AttachFilesAsync()
     {
+        OperationStatus = "Waiting for file selection";
         var dialog = new OpenFileDialog
         {
             Title = "Attach assistant context",
@@ -135,12 +175,14 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
         if (dialog.ShowDialog() == true)
         {
+            OperationStatus = "Importing selected files";
             await AddFilesAsync(dialog.FileNames);
         }
     }
 
     private async Task PasteClipboardImageAsync()
     {
+        OperationStatus = "Preparing clipboard image";
         if (!Clipboard.ContainsImage())
         {
             StatusText = "Clipboard does not contain an image.";
@@ -155,16 +197,20 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         }
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"pm365-clipboard-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
-        await using (var stream = File.Create(tempPath))
-        {
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(image));
-            encoder.Save(stream);
-        }
-
         try
         {
+            await using (var stream = File.Create(tempPath))
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                encoder.Save(stream);
+            }
+
             await AddFilesAsync([tempPath]);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText = $"Clipboard image could not be added: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
         }
         finally
         {
@@ -179,7 +225,10 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         {
             try
             {
-                var attachment = await _attachmentService.ImportAsync(path, _attachmentRoot);
+                var attachment = await _attachmentService.ImportAsync(
+                    path,
+                    _attachmentRoot,
+                    _maxAttachmentBytes);
                 PendingAttachments.Add(new AssistantAttachmentViewModel(attachment));
                 imported++;
             }
@@ -210,16 +259,22 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     private bool CanSendMessage()
     {
+        return CanStartOperation() && HasMessageToSend();
+    }
+
+    private bool HasMessageToSend()
+    {
         return !string.IsNullOrWhiteSpace(DraftMessage) || PendingAttachments.Count > 0;
     }
 
     private async Task SendMessageAsync()
     {
-        if (!CanSendMessage())
+        if (!HasMessageToSend())
         {
             return;
         }
 
+        OperationStatus = "Contacting the deployment assistant";
         var userMessage = new AssistantMessage
         {
             Role = "User",
@@ -240,8 +295,17 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         Messages.Add(new AssistantMessageViewModel(assistantMessage));
         SetRecommendedActions(response.RecommendedActions);
 
-        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"Saved assistant transcript: {savedPath}. Source: {response.Source}; correlation: {response.CorrelationId}.";
+        OperationStatus = "Saving the assistant transcript";
+        try
+        {
+            var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+            StatusText = $"Saved assistant transcript: {savedPath}. Source: {response.Source}; correlation: {response.CorrelationId}.";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText =
+                $"The assistant response was received, but the transcript could not be saved: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
+        }
         CreateSupportTicketDraftCommand.RaiseCanExecuteChanged();
     }
 
@@ -256,10 +320,14 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
                 DiagnosticContext = CreateApiDiagnosticContext(),
                 UserMessage = CreateApiMessage(userMessage),
                 ConversationHistory = CreateApiConversationHistory(),
-                LocalTranscriptPath = _conversationRoot
+                LocalTranscriptPath = ""
             });
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception exception) when (exception is
+            AssistantApiException or
+            HttpRequestException or
+            TaskCanceledException or
+            InvalidOperationException)
         {
             return new AssistantMessageResponse
             {
@@ -268,7 +336,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
                 Message = new AssistantMessage
                 {
                     Role = "Assistant",
-                    Content = $"The assistant API could not be reached: {exception.Message}{Environment.NewLine}{Environment.NewLine}The transcript and attachments were kept locally. If this needs escalation, create a support bundle.",
+                    Content = $"The assistant API could not be reached: {AssistantTransferPolicy.SanitizeText(exception.Message)}{Environment.NewLine}{Environment.NewLine}The transcript and attachments were kept locally. If this needs escalation, create a support bundle.",
                     CreatedAt = DateTimeOffset.UtcNow
                 }
             };
@@ -278,7 +346,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
     private void SetRecommendedActions(IEnumerable<AssistantRecommendedAction> actions)
     {
         RecommendedActions.Clear();
-        foreach (var action in actions.Where(action => action.Enabled))
+        foreach (var action in _assistantActionPolicy.Normalize(actions))
         {
             RecommendedActions.Add(new AssistantRecommendedActionViewModel(action));
         }
@@ -317,6 +385,7 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             }
         }
 
+        OperationStatus = $"Running {action.Label}";
         action.ExecutionStatus = "Running";
         AppendSystemMessage($"Recommended action started: {action.Label}");
 
@@ -326,10 +395,16 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             action.ExecutionStatus = "Complete";
             AppendSystemMessage($"Recommended action completed: {action.Label}{Environment.NewLine}{result}");
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is
+            IOException or
+            InvalidOperationException or
+            UnauthorizedAccessException or
+            HttpRequestException or
+            TaskCanceledException)
         {
             action.ExecutionStatus = "Failed";
-            AppendSystemMessage($"Recommended action failed: {action.Label}{Environment.NewLine}{exception.Message}");
+            AppendSystemMessage(
+                $"Recommended action failed: {action.Label}{Environment.NewLine}{AssistantTransferPolicy.SanitizeText(exception.Message)}");
         }
 
         await SaveTranscriptAsync();
@@ -381,17 +456,23 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     private bool CanCreateSupportTicketDraft()
     {
+        return CanStartOperation() && HasSupportTicketSourceMessage();
+    }
+
+    private bool HasSupportTicketSourceMessage()
+    {
         return _conversation.Messages.Any(message => message.Role.Equals("User", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task CreateSupportTicketDraftAsync()
     {
-        if (!CanCreateSupportTicketDraft())
+        if (!HasSupportTicketSourceMessage())
         {
             SupportTicketStatus = "Send at least one message before creating a support ticket draft.";
             return;
         }
 
+        OperationStatus = "Preparing support ticket draft";
         SupportTicketStatus = "Preparing support ticket draft...";
         var uploadedAttachments = await UploadConversationAttachmentsAsync();
         var request = new AssistantSupportTicketRequest
@@ -400,10 +481,10 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             IncludeDiagnostics = IncludeDiagnostics,
             DiagnosticContext = CreateApiDiagnosticContext(),
             Subject = CreateSupportTicketSubject(),
-            Description = CreateSupportTicketDescription(),
+            Description = AssistantTransferPolicy.SanitizeText(CreateSupportTicketDescription()),
             ConversationHistory = CreateApiConversationHistory(),
             UploadedAttachments = uploadedAttachments,
-            LocalTranscriptPath = _conversationRoot
+            LocalTranscriptPath = ""
         };
 
         try
@@ -412,14 +493,28 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             SupportTicketStatus = $"{response.Status}: {response.TicketDraftId}. Source: {response.Source}; correlation: {response.CorrelationId}.";
             StatusText = $"Support ticket draft created: {response.PortalRecordUrl}";
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or IOException)
+        catch (Exception exception) when (exception is
+            AssistantApiException or
+            HttpRequestException or
+            TaskCanceledException or
+            InvalidOperationException or
+            IOException)
         {
-            SupportTicketStatus = $"Support ticket draft failed: {exception.Message}";
+            SupportTicketStatus = $"Support ticket draft failed: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
         }
 
         RefreshMessages();
-        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"{StatusText} Transcript saved: {savedPath}";
+        OperationStatus = "Saving the support handoff transcript";
+        try
+        {
+            var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+            StatusText = $"{StatusText} Transcript saved: {savedPath}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText =
+                $"{StatusText} The transcript could not be saved: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
+        }
     }
 
     private async Task<List<AssistantUploadedAttachmentReference>> UploadConversationAttachmentsAsync()
@@ -439,7 +534,6 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             foreach (var attachment in attachments)
             {
                 attachment.UploadStatus = "LocalOnly";
-                references.Add(CreateAttachmentReference(attachment, "LocalOnly", "", ""));
             }
 
             return references;
@@ -447,6 +541,13 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
         foreach (var attachment in attachments)
         {
+            if (!attachment.PortalUploadAllowed)
+            {
+                attachment.UploadStatus = "LocalOnly";
+                attachment.UploadError = "This binary attachment is retained locally and is not approved for portal transfer.";
+                continue;
+            }
+
             try
             {
                 attachment.UploadStatus = "Uploading";
@@ -455,10 +556,13 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
                     {
                         ConversationId = _conversation.ConversationId,
                         AttachmentId = attachment.AttachmentId,
-                        FileName = attachment.FileName,
+                        FileName = AssistantTransferPolicy.CreateTransferFileName(
+                            attachment.AttachmentId,
+                            attachment.FileName),
                         ContentType = attachment.ContentType,
                         SizeBytes = attachment.SizeBytes,
                         Sha256 = attachment.Sha256,
+                        ContentTreatment = attachment.ContentTreatment,
                         DiagnosticContext = CreateApiDiagnosticContext()
                     },
                     attachment.StoredPath,
@@ -470,11 +574,15 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
                 attachment.UploadError = "";
                 references.Add(CreateAttachmentReference(attachment, response.Status, response.Source, response.CorrelationId));
             }
-            catch (Exception exception) when (exception is IOException or HttpRequestException or TaskCanceledException or InvalidOperationException)
+            catch (Exception exception) when (exception is
+                AssistantApiException or
+                IOException or
+                HttpRequestException or
+                TaskCanceledException or
+                InvalidOperationException)
             {
                 attachment.UploadStatus = "Failed";
-                attachment.UploadError = exception.Message;
-                references.Add(CreateAttachmentReference(attachment, "Failed", "Client", ""));
+                attachment.UploadError = AssistantTransferPolicy.SanitizeText(exception.Message);
             }
         }
 
@@ -491,10 +599,13 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         {
             AttachmentId = attachment.AttachmentId,
             UploadedAttachmentId = attachment.UploadedAttachmentId,
-            FileName = attachment.FileName,
+            FileName = attachment.PortalUploadAllowed
+                ? AssistantTransferPolicy.CreateTransferFileName(attachment.AttachmentId, attachment.FileName)
+                : "",
             ContentType = attachment.ContentType,
             SizeBytes = attachment.SizeBytes,
             Sha256 = attachment.Sha256,
+            ContentTreatment = attachment.ContentTreatment,
             Source = source,
             Status = status,
             CorrelationId = correlationId
@@ -506,7 +617,8 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         var customer = string.IsNullOrWhiteSpace(_conversation.DiagnosticContext.CustomerName)
             ? "Unknown customer"
             : _conversation.DiagnosticContext.CustomerName;
-        return $"PageMaker365 installer assistance - {customer} - {_conversation.DiagnosticContext.CurrentStep}";
+        return AssistantTransferPolicy.SanitizeText(
+            $"PageMaker365 installer assistance - {customer} - {_conversation.DiagnosticContext.CurrentStep}");
     }
 
     private string CreateSupportTicketDescription()
@@ -527,26 +639,26 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
             WorkflowMode = context.WorkflowMode,
             WorkflowTitle = context.WorkflowTitle,
             CurrentStep = context.CurrentStep,
-            CustomerName = _redactionService.Redact(context.CustomerName),
-            PackagePath = ShortPath(context.PackagePath),
-            AzureSubscription = _redactionService.Redact(context.AzureSubscription),
-            SharePointSite = _redactionService.Redact(context.SharePointSite),
-            OnboardingSessionId = _redactionService.Redact(context.OnboardingSessionId),
-            OnboardingStatus = _redactionService.Redact(context.OnboardingStatus),
-            OnboardingApiBaseUrl = _redactionService.Redact(context.OnboardingApiBaseUrl),
-            PortalSyncStatus = _redactionService.Redact(context.PortalSyncStatus),
-            DiscoverySummary = _redactionService.Redact(context.DiscoverySummary),
-            DiscoveryOutputPath = ShortPath(context.DiscoveryOutputPath),
-            InstallerSessionId = context.InstallerSessionId,
-            InstallerSessionStatus = context.InstallerSessionStatus,
-            FooterStatus = _redactionService.Redact(context.FooterStatus),
+            CustomerName = AssistantTransferPolicy.SanitizeText(context.CustomerName),
+            PackagePath = "",
+            AzureSubscription = AssistantTransferPolicy.SanitizeText(context.AzureSubscription),
+            SharePointSite = AssistantTransferPolicy.SanitizeText(context.SharePointSite),
+            OnboardingSessionId = AssistantTransferPolicy.SanitizeText(context.OnboardingSessionId),
+            OnboardingStatus = AssistantTransferPolicy.SanitizeText(context.OnboardingStatus),
+            OnboardingApiBaseUrl = AssistantTransferPolicy.SanitizeText(context.OnboardingApiBaseUrl),
+            PortalSyncStatus = AssistantTransferPolicy.SanitizeText(context.PortalSyncStatus),
+            DiscoverySummary = AssistantTransferPolicy.SanitizeText(context.DiscoverySummary),
+            DiscoveryOutputPath = "",
+            InstallerSessionId = AssistantTransferPolicy.SanitizeText(context.InstallerSessionId),
+            InstallerSessionStatus = AssistantTransferPolicy.SanitizeText(context.InstallerSessionStatus),
+            FooterStatus = AssistantTransferPolicy.SanitizeText(context.FooterStatus),
             Checks = context.Checks
                 .Select(check => new AssistantCheckSummary
                 {
                     Name = check.Name,
                     Code = check.Code,
                     Status = check.Status,
-                    Summary = _redactionService.Redact(check.Summary),
+                    Summary = AssistantTransferPolicy.SanitizeText(check.Summary),
                     RetrySafe = check.RetrySafe,
                     RequiresApproval = check.RequiresApproval
                 })
@@ -564,9 +676,12 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         return new AssistantMessage
         {
             Role = message.Role,
-            Content = _redactionService.Redact(message.Content),
+            Content = AssistantTransferPolicy.SanitizeText(message.Content),
             CreatedAt = message.CreatedAt,
-            Attachments = message.Attachments.Select(CreateApiAttachment).ToList()
+            Attachments = message.Attachments
+                .Where(attachment => attachment.PortalUploadAllowed)
+                .Select(CreateApiAttachment)
+                .ToList()
         };
     }
 
@@ -575,13 +690,17 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
         return new AssistantAttachment
         {
             AttachmentId = attachment.AttachmentId,
-            FileName = attachment.FileName,
+            FileName = AssistantTransferPolicy.CreateTransferFileName(
+                attachment.AttachmentId,
+                attachment.FileName),
             ContentType = attachment.ContentType,
             OriginalPath = "",
             StoredPath = "",
             SizeBytes = attachment.SizeBytes,
             Sha256 = attachment.Sha256,
             IsImage = attachment.IsImage,
+            PortalUploadAllowed = attachment.PortalUploadAllowed,
+            ContentTreatment = attachment.ContentTreatment,
             UploadStatus = attachment.UploadStatus,
             UploadedAttachmentId = attachment.UploadedAttachmentId,
             UploadCorrelationId = attachment.UploadCorrelationId,
@@ -613,8 +732,46 @@ public sealed class AssistantWorkspaceViewModel : ViewModelBase
 
     private async Task SaveTranscriptAsync()
     {
-        var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
-        StatusText = $"Assistant transcript saved: {savedPath}";
+        OperationStatus = "Saving the assistant transcript";
+        try
+        {
+            var savedPath = await _conversationStore.SaveAsync(_conversation, _conversationRoot);
+            StatusText = $"Assistant transcript saved: {savedPath}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText =
+                $"The assistant transcript could not be saved: {AssistantTransferPolicy.SanitizeText(exception.Message)}";
+        }
+    }
+
+    private bool CanStartOperation()
+    {
+        return !IsOperationRunning;
+    }
+
+    private bool CanExecuteRecommendedAction(object? parameter)
+    {
+        return CanStartOperation() &&
+            parameter is AssistantRecommendedActionViewModel action &&
+            action.Enabled;
+    }
+
+    private void OnOperationRunningChanged(bool running)
+    {
+        _activeOperationCount = Math.Max(0, _activeOperationCount + (running ? 1 : -1));
+        IsOperationRunning = _activeOperationCount > 0;
+        RaiseOperationCommandStates();
+    }
+
+    private void RaiseOperationCommandStates()
+    {
+        AttachFilesCommand.RaiseCanExecuteChanged();
+        PasteClipboardImageCommand.RaiseCanExecuteChanged();
+        SendMessageCommand.RaiseCanExecuteChanged();
+        RemovePendingAttachmentCommand.RaiseCanExecuteChanged();
+        CreateSupportTicketDraftCommand.RaiseCanExecuteChanged();
+        ExecuteRecommendedActionCommand.RaiseCanExecuteChanged();
     }
 
     private static string ShortPath(string path)

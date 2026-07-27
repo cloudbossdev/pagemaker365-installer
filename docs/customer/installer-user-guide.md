@@ -57,6 +57,8 @@ After resume, sign in again when requested. Azure and Graph tokens, protected ru
 
 Expected trust for a production package is `Verified`. Stop when the package is expired, mismatched, malformed, unsigned when signing is required, or bound to another onboarding session. Obtain a new setup file rather than editing the package.
 
+The installer automatically retries a short-lived portal rate limit or service interruption while Package remains busy. If the bounded retry window is exhausted, the step stays retryable and shows a sanitized error; do not repeatedly click the action or restart the application. Authorization, package identity, and trust failures are not automatically retried.
+
 If the portal reports missing onboarding fields, the installer may offer a read-only discovery recovery flow. Complete the requested Azure and Graph sign-ins, run discovery, synchronize the restricted readiness snapshot, and retry package generation. Discovery does not read document, mailbox, or file content.
 
 ### 2. Sign In To Both Services
@@ -189,6 +191,19 @@ The installer does not automatically delete these customer-controlled files. App
 5. Provide the installer version, customer/environment label, session ID, deployment export ID, event or correlation ID, failed step, time, and sanitized support-bundle path through the approved support channel.
 
 Support guidance cannot bypass package verification, sign-in, approval, typed confirmation, ownership checks, or any destructive control.
+
+## Assistant And Support Handoff
+
+The assistant can explain evidence, prepare an administrator message, and create a reviewable support-ticket draft. It cannot install, remove, grant consent, mutate Azure, submit a final ticket, or lower any local approval requirement.
+
+- Portal recommendations are matched to the installer's local action registry. Unknown or duplicate actions are ignored, and the local label and approval requirement remain authoritative.
+- Attachments remain local by default. Explicit handoff consent permits only a redacted text copy with an approved `.txt`, `.log`, `.json`, or `.md` type and size.
+- Screenshots, executables, archives, and other binary attachments are local-only and are not represented as remote ticket attachments.
+- The portal receives an opaque attachment name, recalculated size/hash, sanitized operator text, and selected diagnostic context. It does not receive local paths or the original filename.
+- A successful portal response creates status `Drafted`. Review the draft in the approved portal process before any separate final submission.
+- Authentication, authorization, validation, contract, and cancellation failures remain failures. They are not replaced by local mock success.
+
+Do not enable attachment handoff until the portal retention period, deletion authority, audit trail, and final ticket-submission owner have been approved for the release.
 
 ## Frequently Asked Questions
 

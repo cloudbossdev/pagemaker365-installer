@@ -186,6 +186,8 @@ Confirm no `runtime_configured`, `smoke_tests_completed`, or `install_completed`
 
 Scenarios: E08, T03-T06, and W05.
 
+Execute [assistant-support-handoff.md](assistant-support-handoff.md) against the approved staging portal before approving the assistant and support-handoff boundary.
+
 1. Review callback request captures, outbox files, session state, logs, screenshots, final evidence, support bundles, process command lines, and child-process environment observations available to the test harness.
 2. Search for the test-only secret markers, setup one-time code, bearer-token prefix/value, database password/connection value, Entra client secret, runtime session secret, and any prohibited document-content marker.
 3. Confirm runtime protected values exist in customer Key Vault and App Service contains only Key Vault references resolved by managed identity.
@@ -224,3 +226,13 @@ The run is acceptable only when:
 - product, installer engineering, runtime/API engineering, identity/security, and operations/support approvals are recorded.
 
 Link the completed run from issue #10 and `docs/installer-requirements-traceability.md`. Do not mark the customer guides approved until this run and all other publication dependencies pass.
+
+Start each campaign from [results/customer-lifecycle-result-template.md](results/customer-lifecycle-result-template.md). Commit only the sanitized result record; keep screenshots, setup material, raw logs, and protected evidence in the approved evidence system.
+
+Create the corresponding machine-readable result from `docs/testing/results/customer-lifecycle-result.template.json`. Before approval, run:
+
+```powershell
+.\scripts\validate-customer-lifecycle-result.ps1 -Path <sanitized-result.json> -RequireApproval
+```
+
+Approval requires all policy-defined live scenarios, each repeated-cycle scenario in cycles 1-3, entry gates, package identities, reconciliation checks, security checks, deviation decisions, and named approvals to validate. The canonical policy is `config/customer-lifecycle-acceptance.json`; do not reduce it in an individual campaign.

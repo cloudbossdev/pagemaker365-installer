@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -19,6 +20,9 @@ public sealed class AssistantApiClient
     public AssistantApiClient(AssistantApiOptions options, HttpClient? httpClient = null)
     {
         _options = options;
+        _ = _options.MessageEndpoint;
+        _ = _options.AttachmentEndpoint;
+        _ = _options.SupportTicketEndpoint;
         _httpClient = httpClient ?? new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
     }
@@ -31,6 +35,7 @@ public sealed class AssistantApiClient
         AssistantMessageRequest request,
         CancellationToken cancellationToken = default)
     {
+        AssistantTransferPolicy.ValidateMessageRequest(request);
         if (_options.UseMock)
         {
             return await SendToMockAsync(request, usedFallback: false, cancellationToken);
@@ -40,7 +45,7 @@ public sealed class AssistantApiClient
         {
             return await SendToPortalAsync(request, cancellationToken);
         }
-        catch (Exception) when (_options.FallbackToMockOnFailure)
+        catch (Exception exception) when (ShouldFallback(exception, cancellationToken))
         {
             return await SendToMockAsync(request, usedFallback: true, cancellationToken);
         }
@@ -52,7 +57,10 @@ public sealed class AssistantApiClient
         string outboxRoot,
         CancellationToken cancellationToken = default)
     {
-        ValidateAttachmentForUpload(request, storedPath);
+        AssistantTransferPolicy.ValidateAttachmentUpload(
+            request,
+            storedPath,
+            _options.MaxAttachmentBytes);
 
         if (_options.UseMock)
         {
@@ -63,7 +71,7 @@ public sealed class AssistantApiClient
         {
             return await UploadAttachmentToPortalAsync(request, storedPath, cancellationToken);
         }
-        catch (Exception) when (_options.FallbackToMockOnFailure)
+        catch (Exception exception) when (ShouldFallback(exception, cancellationToken))
         {
             return await UploadAttachmentToMockAsync(request, storedPath, outboxRoot, usedFallback: true, cancellationToken);
         }
@@ -74,6 +82,7 @@ public sealed class AssistantApiClient
         string outboxRoot,
         CancellationToken cancellationToken = default)
     {
+        AssistantTransferPolicy.ValidateSupportTicketRequest(request);
         if (_options.UseMock)
         {
             return await CreateSupportTicketDraftInMockAsync(request, outboxRoot, usedFallback: false, cancellationToken);
@@ -87,7 +96,7 @@ public sealed class AssistantApiClient
                 fallbackSource: "PortalApi",
                 cancellationToken);
         }
-        catch (Exception) when (_options.FallbackToMockOnFailure)
+        catch (Exception exception) when (ShouldFallback(exception, cancellationToken))
         {
             return await CreateSupportTicketDraftInMockAsync(request, outboxRoot, usedFallback: true, cancellationToken);
         }
@@ -134,7 +143,7 @@ public sealed class AssistantApiClient
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Assistant API returned {(int)response.StatusCode}: {body}");
+            throw CreateApiException("Assistant message API", _options.MessageEndpoint, response);
         }
 
         var assistantResponse = JsonSerializer.Deserialize<AssistantMessageResponse>(body, JsonOptions);
@@ -143,9 +152,12 @@ public sealed class AssistantApiClient
             throw new InvalidOperationException("Assistant API returned an empty response.");
         }
 
+        ValidateMessageResponse(request, assistantResponse);
+
         assistantResponse.Source = string.IsNullOrWhiteSpace(assistantResponse.Source)
             ? "PortalApi"
             : assistantResponse.Source;
+        assistantResponse.Message = AssistantTransferPolicy.SanitizeResponseMessage(assistantResponse.Message);
         return assistantResponse;
     }
 
@@ -173,7 +185,7 @@ public sealed class AssistantApiClient
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Assistant attachment API returned {(int)response.StatusCode}: {body}");
+            throw CreateApiException("Assistant attachment API", _options.AttachmentEndpoint, response);
         }
 
         var uploadResponse = JsonSerializer.Deserialize<AssistantAttachmentUploadResponse>(body, JsonOptions);
@@ -181,6 +193,8 @@ public sealed class AssistantApiClient
         {
             throw new InvalidOperationException("Assistant attachment API returned an empty response.");
         }
+
+        ValidateAttachmentResponse(request, uploadResponse);
 
         uploadResponse.Source = string.IsNullOrWhiteSpace(uploadResponse.Source)
             ? "PortalApi"
@@ -214,7 +228,7 @@ public sealed class AssistantApiClient
             Source = usedFallback ? "LocalMockFallback" : "LocalMock",
             UsedFallback = usedFallback,
             Status = "Uploaded",
-            Message = $"Attachment copied to local portal outbox: {outboxFilePath}"
+            Message = "Attachment copied to the local portal outbox."
         };
 
         var manifestPath = Path.Combine(attachmentRoot, $"{request.AttachmentId}.upload.json");
@@ -242,7 +256,7 @@ public sealed class AssistantApiClient
         {
             ConversationId = request.ConversationId,
             TicketDraftId = ticketDraftId,
-            PortalRecordUrl = Path.Combine(outboxRoot, "support-ticket-draft.json"),
+            PortalRecordUrl = "portal-outbox/support-ticket-draft.json",
             Source = usedFallback ? "LocalMockFallback" : "LocalMock",
             UsedFallback = usedFallback,
             Status = "Drafted",
@@ -277,7 +291,7 @@ public sealed class AssistantApiClient
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Assistant API returned {(int)response.StatusCode}: {body}");
+            throw CreateApiException("Assistant support-ticket API", endpoint, response);
         }
 
         var result = JsonSerializer.Deserialize<TResponse>(body, JsonOptions);
@@ -292,20 +306,13 @@ public sealed class AssistantApiClient
             ticketResponse.Source = fallbackSource;
         }
 
+        if (result is AssistantSupportTicketResponse supportTicketResponse &&
+            request is AssistantSupportTicketRequest supportTicketRequest)
+        {
+            ValidateSupportTicketResponse(supportTicketRequest, supportTicketResponse);
+        }
+
         return result;
-    }
-
-    private void ValidateAttachmentForUpload(AssistantAttachmentUploadRequest request, string storedPath)
-    {
-        if (!File.Exists(storedPath))
-        {
-            throw new FileNotFoundException("Assistant attachment file does not exist.", storedPath);
-        }
-
-        if (request.SizeBytes > _options.MaxAttachmentBytes)
-        {
-            throw new InvalidOperationException($"Attachment exceeds the configured upload limit of {_options.MaxAttachmentBytes} bytes.");
-        }
     }
 
     private void ApplyAuthorization(HttpRequestMessage httpRequest)
@@ -315,6 +322,109 @@ public sealed class AssistantApiClient
         {
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         }
+    }
+
+    private bool ShouldFallback(Exception exception, CancellationToken cancellationToken)
+    {
+        if (!_options.FallbackToMockOnFailure ||
+            cancellationToken.IsCancellationRequested ||
+            exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        if (exception is AssistantApiException apiException && apiException.StatusCode is not null)
+        {
+            var code = (int)apiException.StatusCode.Value;
+            return apiException.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
+                code >= 500;
+        }
+
+        return exception is HttpRequestException or TaskCanceledException or IOException;
+    }
+
+    private static AssistantApiException CreateApiException(
+        string operation,
+        Uri endpoint,
+        HttpResponseMessage response)
+    {
+        var correlationId = response.Headers.TryGetValues("x-correlation-id", out var values)
+            ? values.FirstOrDefault() ?? ""
+            : "";
+        var suffix = string.IsNullOrWhiteSpace(correlationId)
+            ? ""
+            : $" Correlation: {AssistantTransferPolicy.SanitizeText(correlationId)}.";
+        return new AssistantApiException(
+            $"{operation} returned HTTP {(int)response.StatusCode}.{suffix}",
+            endpoint,
+            response.StatusCode,
+            correlationId);
+    }
+
+    private static void ValidateMessageResponse(
+        AssistantMessageRequest request,
+        AssistantMessageResponse response)
+    {
+        if (!response.ContractVersion.Equals(AssistantTransferPolicy.ContractVersion, StringComparison.Ordinal) ||
+            !response.ConversationId.Equals(request.ConversationId, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(response.CorrelationId) ||
+            !IsSanitizedResponseValue(response.CorrelationId) ||
+            (!string.IsNullOrWhiteSpace(response.Source) &&
+                !response.Source.Equals("PortalApi", StringComparison.Ordinal)) ||
+            !response.Message.Role.Equals("Assistant", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Assistant message response does not match the submitted conversation contract.");
+        }
+    }
+
+    private static void ValidateAttachmentResponse(
+        AssistantAttachmentUploadRequest request,
+        AssistantAttachmentUploadResponse response)
+    {
+        if (!response.ContractVersion.Equals(AssistantTransferPolicy.ContractVersion, StringComparison.Ordinal) ||
+            !response.ConversationId.Equals(request.ConversationId, StringComparison.Ordinal) ||
+            !response.AttachmentId.Equals(request.AttachmentId, StringComparison.Ordinal) ||
+            !response.Status.Equals("Uploaded", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(response.UploadedAttachmentId) ||
+            !IsSanitizedResponseValue(response.UploadedAttachmentId) ||
+            string.IsNullOrWhiteSpace(response.CorrelationId) ||
+            !IsSanitizedResponseValue(response.CorrelationId) ||
+            (!string.IsNullOrWhiteSpace(response.Source) &&
+                !response.Source.Equals("PortalApi", StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException("Assistant attachment response does not match the submitted attachment contract.");
+        }
+    }
+
+    private static void ValidateSupportTicketResponse(
+        AssistantSupportTicketRequest request,
+        AssistantSupportTicketResponse response)
+    {
+        if (!response.ContractVersion.Equals(AssistantTransferPolicy.ContractVersion, StringComparison.Ordinal) ||
+            !response.ConversationId.Equals(request.ConversationId, StringComparison.Ordinal) ||
+            !response.Status.Equals("Drafted", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(response.TicketDraftId) ||
+            !IsSanitizedResponseValue(response.TicketDraftId) ||
+            string.IsNullOrWhiteSpace(response.CorrelationId) ||
+            !IsSanitizedResponseValue(response.CorrelationId) ||
+            (!string.IsNullOrWhiteSpace(response.Source) &&
+                !response.Source.Equals("PortalApi", StringComparison.Ordinal)) ||
+            string.IsNullOrWhiteSpace(response.PortalRecordUrl))
+        {
+            throw new InvalidDataException("Assistant support-ticket response does not match the submitted draft contract.");
+        }
+
+        if (Uri.TryCreate(response.PortalRecordUrl, UriKind.Absolute, out var portalRecordUri))
+        {
+            TrustedPageMaker365EndpointPolicy.ValidateBaseUrl(
+                portalRecordUri.GetLeftPart(UriPartial.Authority),
+                "Assistant support-ticket portal URL");
+        }
+    }
+
+    private static bool IsSanitizedResponseValue(string value)
+    {
+        return value.Equals(AssistantTransferPolicy.SanitizeText(value), StringComparison.Ordinal);
     }
 
     private static async Task WriteJsonAsync(string path, object value, CancellationToken cancellationToken)

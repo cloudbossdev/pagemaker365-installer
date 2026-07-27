@@ -133,6 +133,7 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 - Expired setup files and disallowed operations fail closed.
 - Portal and API origins must match the trusted PageMaker365 host policy and use HTTPS.
 - The downloaded package is bound to the active onboarding session, customer tenant, discovery ID, and deployment export ID.
+- Package download retries are limited to four attempts for HTTP 408, 429, and 5xx. Each attempt uses a fresh same-origin request; `Retry-After` is capped at 30 seconds, cancellation remains effective, and 401/403 or package validation failures do not retry.
 - SHA-256 integrity is recalculated locally.
 - Signed-required packages use Ed25519 verification against a trusted key from the PageMaker365 JWKS endpoint.
 - Raw secret containers and secret-looking payload fields are rejected.
@@ -164,6 +165,17 @@ The verifier must receive the expected official publisher and certificate thumbp
 - Parent-process secure buffers and password controls are cleared after each attempt and when the window closes. PowerShell releases child-process string references in `finally`; managed runtimes do not guarantee immediate zeroing of immutable strings before process exit.
 - Resumable state, command arguments, environment variables, callbacks, reports, and support bundles contain no runtime values. Sanitized evidence contains names, resolution status, `rawValuesIncluded: false`, and `valueStorage: "CustomerKeyVault"` only.
 - Live staging proof and a full generated-artifact scan remain required before this behavior is approved for customer publication.
+
+## Assistant And Support Handoff Security
+
+- Portal assistant endpoints must remain on the exact trusted PageMaker365 production or staging HTTPS origins. Root-relative endpoint configuration cannot redirect the bearer credential to another host.
+- Message and ticket payloads contain sanitized operator text and selected diagnostic fields. Local transcript, package, discovery, and attachment paths are empty; API error bodies are not copied into transcripts.
+- Attachment transfer is disabled by default. Explicit opt-in permits only redacted `.txt`, `.log`, `.json`, and `.md` copies. The installer recalculates size and SHA-256 and sends an opaque filename.
+- Screenshots and other binary attachments remain local-only. Failed and local-only attachments are omitted from remote ticket requests rather than represented by metadata.
+- Portal message, attachment, and ticket responses must match the submitted contract identity. Ticket status must be `Drafted`; the installer never submits a final support ticket.
+- Only transient network, timeout, HTTP 408/429, or HTTP 5xx failures may use configured local-mock fallback. Authorization, validation, contract, and cancellation failures remain failures.
+- Recommended actions are intersected with a local registry. Local labels and approval requirements override portal values; unknown and duplicate actions are discarded. No local action performs install, removal, Azure mutation, consent, or tenant writes.
+- Local assistant data remains under the customer-controlled support-bundle folder. PageMaker365 portal retention and final ticket-submission policy remain a release gate under issue #28.
 
 ## Local Storage And Retention
 
@@ -264,18 +276,20 @@ Before transfer, review the support bundle manifest and selected artifacts. The 
 - Approve portal-side evidence schema, idempotency, retention, and support-handoff policy outside this repository.
 - Confirm upgrade is excluded until issue #6 is accepted and that removal is Azure-only with no SharePoint mutation.
 - Require completed clean-workstation and lifecycle evidence from `docs/testing/customer-lifecycle-acceptance-runbook.md` before production authorization.
+- Require the sanitized lifecycle JSON to pass `scripts/validate-customer-lifecycle-result.ps1 -RequireApproval` for the exact release commit before approving publication.
 
 ## Known Release Blockers
 
 | Capability | Current state | Issue |
 | --- | --- | --- |
-| API and portal application delivery | Not implemented | #5 |
-| Supported upgrade/version policy | Installer contract implemented; portal generation/callbacks and staging proof pending | #6 |
+| API and portal application delivery | Installer contract implemented in draft PR #22; immutable producers and staging proof pending | #5 |
+| Supported upgrade/version policy | Installer contract implemented in draft PR #21; control-plane support and staging proof pending | #6 |
 | Runtime secret inventory and protected provisioning | Implemented locally; live staging proof pending | #7 |
 | Removal lifecycle callbacks | Installer implemented; portal/API acceptance and staging proof pending | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
 | Production code signing and distribution | Signing and verification implemented; certificate-backed release and clean-workstation proof pending | #13 |
+| Assistant portal retention and approved support handoff | Installer boundary implemented; live portal review pending | #28 |
 
 ## Verification And Review
 

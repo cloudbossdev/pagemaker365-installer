@@ -55,6 +55,7 @@ Use one completed copy of this record for the customer user guide and one for th
 | --- | --- |
 | All required roles approved | Yes / No |
 | All publication dependencies closed or explicitly excluded | Yes / No |
+| Lifecycle JSON passes `-RequireApproval` for the exact release | Yes / No; result/evidence link |
 | Screenshots are release-matched and sanitized | Yes / No |
 | No TBD/roadmap statement is presented as a guarantee | Yes / No |
 | Knowledge-base publication approved | Yes / No |
