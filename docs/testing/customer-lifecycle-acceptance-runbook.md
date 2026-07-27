@@ -226,3 +226,5 @@ The run is acceptable only when:
 - product, installer engineering, runtime/API engineering, identity/security, and operations/support approvals are recorded.
 
 Link the completed run from issue #10 and `docs/installer-requirements-traceability.md`. Do not mark the customer guides approved until this run and all other publication dependencies pass.
+
+Start each campaign from [results/customer-lifecycle-result-template.md](results/customer-lifecycle-result-template.md). Commit only the sanitized result record; keep screenshots, setup material, raw logs, and protected evidence in the approved evidence system.

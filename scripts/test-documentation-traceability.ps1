@@ -10,6 +10,7 @@ $removalEvidenceContractPath = Join-Path $repoRoot 'docs/removal-evidence-callba
 $documentationPlanPath = Join-Path $repoRoot 'docs/customer/customer-documentation-delivery-plan.md'
 $documentationReviewPath = Join-Path $repoRoot 'docs/customer/customer-documentation-review-record.md'
 $lifecycleRunbookPath = Join-Path $repoRoot 'docs/testing/customer-lifecycle-acceptance-runbook.md'
+$lifecycleResultTemplatePath = Join-Path $repoRoot 'docs/testing/results/customer-lifecycle-result-template.md'
 $customerDraftPaths = @(
     (Join-Path $repoRoot 'docs/customer/installer-user-guide.md'),
     (Join-Path $repoRoot 'docs/customer/installer-technical-security-guide.md')
@@ -22,7 +23,8 @@ foreach ($path in @(
     $removalEvidenceContractPath,
     $documentationPlanPath,
     $documentationReviewPath,
-    $lifecycleRunbookPath) + $customerDraftPaths) {
+    $lifecycleRunbookPath,
+    $lifecycleResultTemplatePath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
     }
@@ -166,6 +168,28 @@ $lifecycleRunbookText = Get-Content -LiteralPath $lifecycleRunbookPath -Raw
 
 if ($lifecycleRunbookText -notmatch [regex]::Escape('assistant-support-handoff.md')) {
     throw 'Customer lifecycle acceptance runbook must invoke the assistant support-handoff staging runbook.'
+}
+
+if ($lifecycleRunbookText -notmatch [regex]::Escape('results/customer-lifecycle-result-template.md')) {
+    throw 'Customer lifecycle acceptance runbook must invoke the sanitized campaign result template.'
+}
+
+$lifecycleResultTemplateText = Get-Content -LiteralPath $lifecycleResultTemplatePath -Raw
+@(
+    'Status: template; no test result or approval recorded',
+    '## Run Identity',
+    '## Entry Gates',
+    '## Package Set',
+    '## Phase Results',
+    '## Reconciliation',
+    '## Security Review',
+    '## Deviations And Stop Decisions',
+    '## Approval',
+    'Final decision: Not approved'
+) | ForEach-Object {
+    if ($lifecycleResultTemplateText -notmatch [regex]::Escape($_)) {
+        throw "Customer lifecycle result template is missing required control: $_"
+    }
 }
 
 @(
