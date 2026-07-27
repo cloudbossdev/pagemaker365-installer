@@ -121,6 +121,7 @@ Write-Host 'Checking exported commands...'
     'Get-PM365GraphDiscovery',
     'Get-PM365PartialInstallInventory',
     'Start-PM365Preflight',
+    'Test-PM365AzurePlatformReadiness',
     'Test-PM365DeploymentContract',
     'Test-PM365KeyVaultRecoveryState',
     'Invoke-PM365WhatIf',
@@ -171,6 +172,12 @@ Write-Host 'Testing mandatory preflight blocker policy...'
 & (Join-Path $repoRoot 'scripts\test-preflight-blocker-policy.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Preflight blocker policy tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing Azure platform readiness preflight contracts...'
+& (Join-Path $repoRoot 'scripts\test-azure-platform-readiness.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Azure platform readiness preflight tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Running preflight...'

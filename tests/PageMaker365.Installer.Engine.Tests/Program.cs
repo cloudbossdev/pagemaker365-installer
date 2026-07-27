@@ -1695,6 +1695,9 @@ internal static class Program
         AssertEx.True(nameMethod is not null, "Result-name mapper should exist.");
         AssertEx.Equal("Microsoft Graph Sites Module", (string)nameMethod!.Invoke(null, ["GraphSitesModuleMissing"])!);
         AssertEx.Equal("SharePoint Library", (string)nameMethod.Invoke(null, ["SharePointLibraryAccessFailed"])!);
+        AssertEx.Equal("Azure Resource Providers", (string)nameMethod.Invoke(null, ["AzureResourceProvidersNotRegistered"])!);
+        AssertEx.Equal("App Service SKU", (string)nameMethod.Invoke(null, ["AppServiceSkuUnavailable"])!);
+        AssertEx.Equal("App Service Quota", (string)nameMethod.Invoke(null, ["AppServiceQuotaExhausted"])!);
         return Task.CompletedTask;
     }
 

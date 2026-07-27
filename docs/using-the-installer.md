@@ -136,6 +136,8 @@ Failed preflight results stop the user from moving into deployment until the iss
 
 Mandatory tooling, Azure context and RBAC verification, Microsoft Graph authentication and required delegated scopes, Key Vault recovery verification, and access to the package-configured SharePoint site and document library fail closed. Advisory readiness information, such as whether the current Graph operator holds a role commonly used to grant consent after the required scopes are already present, can remain a warning.
 
+Azure platform readiness checks the deployment resource-provider registrations, confirms that App Service B1 is offered to the target subscription in the package region, and reads regional App Service core quota. An unregistered provider, unavailable B1 SKU, or less than one remaining core is a blocker. A passing result is not a capacity reservation: Azure can still report a transient regional allocation conflict while creating the App Service plan, which remains a retryable deployment-time failure.
+
 Common blocker categories include:
 
 - Missing PowerShell or Bicep dependencies.

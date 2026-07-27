@@ -71,7 +71,7 @@ Scenario status meanings:
 | F06 | Required deployment/package field is absent | Preflight blocks before What-If. | Automated |
 | F07 | Package contains raw secret containers | Package/preflight rejects it and evidence remains sanitized. | Automated |
 | F08 | Existing resource group is untagged or foreign-owned | Preview and install fail closed. | Automated |
-| F09 | Azure quota or App Service regional capacity is unavailable | Preflight blocks before deployment when Azure exposes a deterministic readiness signal. | Planned |
+| F09 | Required Azure provider, App Service B1 SKU, or core quota is unavailable | Preflight blocks on deterministic provider, SKU, and quota signals; it states that passing does not reserve regional capacity. | Automated |
 | F10 | Package reuses a soft-deleted Key Vault name | Preflight blocks and requires recovery or a newly generated package/name. | Automated |
 | F11 | Non-blocking warning exists | Warning remains visible and recorded; progression follows explicit policy. | Partial |
 | F12 | Operator corrects a blocker and reruns | Corrected checks update in place without starting a new session. | Partial |
@@ -86,7 +86,7 @@ Scenario status meanings:
 | D04 | Package or target changes after preview | Existing preview and approval are invalidated. | Planned |
 | D05 | Approval or typed resource-group confirmation is absent/incorrect | Deployment command does not run. | Partial |
 | D06 | Approved deployment is running | Visible activity persists, controls do not shift, and duplicate execution is disabled. | Partial |
-| D07 | Azure returns App Service capacity conflict | Failure is sanitized, retryable, and does not claim install success. | Partial |
+| D07 | Azure returns App Service capacity conflict after preflight passed | Failure is sanitized, retryable, and does not claim install success; the guides explain that preflight cannot reserve regional capacity. | Partial |
 | D08 | Deployment creates some resources and then fails | Artifact identifies the attempt/correlation and enables ownership-proven cleanup. | Partial |
 | D09 | Retry follows a transient partial deployment | Existing owned resources are reused or reconciled without duplication. | Planned |
 | D10 | Deployment is cancelled, times out, or the app closes | Resume reconciles live Azure state before any retry. | Partial |

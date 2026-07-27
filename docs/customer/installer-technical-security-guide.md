@@ -45,6 +45,10 @@ The preflight uses `Get-AzRoleAssignment` with the target subscription and expan
 
 Preflight fails closed when required Az/Bicep tooling is absent, Azure context or deployment RBAC cannot be verified, the configured Key Vault recovery state cannot be checked, a required delegated Graph scope is missing, or the package-configured SharePoint site or document library cannot be resolved. A failed check must pass on rerun before Preview unlocks. Warnings are reserved for advisory or nonauthoritative signals and remain in evidence; they do not silently represent a required boundary as ready.
 
+Preflight also uses read-only Azure Resource Manager operations to verify registration of the resource providers used by the Bicep deployment, confirm that App Service B1 appears in the subscription SKU inventory for the package region, and read App Service core usage and limits for that region. Unregistered providers, an unavailable B1 SKU, or less than one remaining core block deployment. Microsoft documents these interfaces in [Get-AzResourceProvider](https://learn.microsoft.com/en-us/powershell/module/az.resources/get-azresourceprovider), [App Service List SKUs](https://learn.microsoft.com/en-us/rest/api/appservice/list-skus/list-skus?view=rest-appservice-2025-05-01), and [App Service usages in a location](https://learn.microsoft.com/en-us/rest/api/appservice/get-usages-in-location/list?view=rest-appservice-2025-05-01).
+
+These checks do not create or reserve App Service capacity. Azure can still reject the plan during asynchronous regional allocation even when provider, SKU, and quota checks pass. That condition is handled as a sanitized, retryable deployment failure and must not be represented as a successful install.
+
 ### Microsoft Graph And SharePoint
 
 The installer uses OAuth 2.0 device authorization through MSAL. Microsoft describes the device-code protocol and tenant token endpoint in [OAuth 2.0 device authorization grant](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code).
@@ -94,7 +98,7 @@ All non-local installer endpoints use HTTPS on TCP 443. Local development may us
 | `login.microsoftonline.com:443` | Device-code and token requests. |
 | `microsoft.com:443` | Operator device sign-in page. |
 | `graph.microsoft.com:443` | Read-only tenant, role, site, and library requests. |
-| `management.azure.com:443` | Azure discovery, What-If, deployment, inventory, validation, and removal through Az PowerShell. |
+| `management.azure.com:443` | Azure discovery, provider/SKU/quota readiness, What-If, deployment, inventory, validation, and removal through Az PowerShell. |
 | `pagemaker365.com:443`, `api.pagemaker365.com:443` | Production portal, onboarding APIs, package download, JWKS, and evidence callbacks. |
 | `staging.pagemaker365.com:443`, `api-staging.pagemaker365.com:443` | Staging equivalents used during acceptance testing. |
 | Customer `*.sharepoint.com:443` | Customer site URL and browser/runtime target. Graph-based installer discovery itself uses `graph.microsoft.com`. |
