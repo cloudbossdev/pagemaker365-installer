@@ -87,8 +87,9 @@ foreach ($storyId in $expectedStoryIds) {
     }
 }
 
-if ($documentationPlanText -notmatch '(?m)^Working branch: `docs/customer-guides-v1`\s*$') {
-    throw 'Customer documentation delivery plan must identify its controlled working branch.'
+if ($documentationPlanText -notmatch '(?i)controlled draft' -or
+    $documentationPlanText -notmatch '(?m)^## Evidence Gates\s*$') {
+    throw 'Customer documentation delivery plan must retain its controlled-draft publication and evidence gates.'
 }
 
 Write-Host "Documentation traceability checks passed: $($storyIds.Count) stories, $($scenarioIds.Count) scenarios."

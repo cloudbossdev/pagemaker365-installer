@@ -6,8 +6,6 @@ GitHub milestone: [Installer Customer Readiness v1](https://github.com/cloudboss
 
 Tracking issues: [#11 customer user guide](https://github.com/cloudbossdev/pagemaker365-installer/issues/11) and [#12 technical/security guide](https://github.com/cloudbossdev/pagemaker365-installer/issues/12)
 
-Working branch: `docs/customer-guides-v1`
-
 ## Objective
 
 Publish two customer documents whose instructions and technical claims match the released installer, are traceable to all fifteen canonical user stories, and are supported by automated tests and live lifecycle evidence.
@@ -45,7 +43,7 @@ Every canonical story must be addressed in at least one guide. A story is not pu
 | US-09 Validate runtime | Smoke tests, warning/failure recovery, and verified URL | Deployment-bound identity checks and false-positive prevention | #5, #7, #10 |
 | US-10 Finish and synchronize | Final report, customer URL, portal status, and retryable sync | Evidence schema, idempotency, outbox, sanitization, and retention | #5, #7, #10 |
 | US-11 Recover | Cancellation, interruption, resume, retry, and safe cleanup entry | Reconciliation, idempotency, correlation, and destructive-boundary controls | #4, #5, #7, #9, #10 |
-| US-12 Troubleshoot | Actionable messages, support bundle, and escalation | Sanitized artifacts, correlation identifiers, redaction, and support boundaries | #10 |
+| US-12 Troubleshoot | Actionable messages, support bundle, and escalation | Sanitized artifacts, correlation identifiers, redaction, attachment transfer, and support boundaries | #10, #28 |
 | US-13 Inventory removal | Inventory, preview, retained items, blockers, and approval | Immutable ownership proof and ambiguity handling | #9, #10 |
 | US-14 Execute removal | Confirmation, progress, verification, retained Key Vault, and no SharePoint cleanup | Resource-group deletion, revalidation, no purge, callbacks, and evidence | #9, #10 |
 | US-15 Reinstall | Obtain a new setup file/package and repeat the guided install | New export/attempt/Key Vault identity and repeat-cycle evidence | #9, #10 |
@@ -86,9 +84,10 @@ Unknown or incomplete behavior must be labeled as a release blocker in the contr
 | 4 | Deploy and identify the real runtime | #5 accepted; API and portal artifacts pass deployment-bound validation |
 | 5 | Define the supported upgrade contract | #6 accepted or explicitly excluded from v1 with approved customer wording |
 | 6 | Harden removal reporting | #9 accepted; removal callbacks and retry outbox are verified |
-| 7 | Run lifecycle acceptance | #10 accepted on a clean workstation, including repeated install/remove/reinstall |
-| 8 | Sign and verify the release candidate | #13 accepted; the distribution is signed and passes release verification |
-| 9 | Finalize customer documents | #11 and #12 reference the signed release candidate and pass operator, engineering, security, and operations review |
+| 7 | Harden assistant and support handoff | #28 accepted; portal retention, attachment transfer, local actions, and draft ownership are verified |
+| 8 | Run lifecycle acceptance | #10 accepted on a clean workstation, including repeated install/remove/reinstall |
+| 9 | Sign and verify the release candidate | #13 accepted; the distribution is signed and passes release verification |
+| 10 | Finalize customer documents | #11 and #12 reference the signed release candidate and pass operator, engineering, security, and operations review |
 
 Work may be drafted in parallel, but publication approval follows this dependency order.
 
@@ -118,7 +117,7 @@ An individual may hold more than one role, but each decision must be recorded in
 
 ## Immediate Actions
 
-1. Merge the delivery-plan and CI controls while keeping both guide files as controlled drafts until #4 through #10 and #13 are accepted.
+1. Merge the delivery-plan and CI controls while keeping both guide files as controlled drafts until #4 through #10, #13, and #28 are accepted.
 2. Integrate issue #7 before issue #5 so runtime deployment consumes the approved Key Vault-backed configuration contract; do not add actual secret values to packages, logs, evidence, or tests.
 3. Update the controlled drafts through each implementation pull request, replacing blocker language only with traceable verified behavior.
 4. During #10, complete a clean-operator walkthrough using the user guide alone and record the screenshot states needed for publication.
