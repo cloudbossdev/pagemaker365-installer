@@ -16,28 +16,39 @@ public sealed class AssistantApiOptions
 
     public Uri MessageEndpoint
     {
-        get
-        {
-            var baseUri = new Uri(PortalApiBaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-            return new Uri(baseUri, MessageEndpointPath.TrimStart('/'));
-        }
+        get => ResolveEndpoint(MessageEndpointPath, "assistant message endpoint");
     }
 
     public Uri AttachmentEndpoint
     {
-        get
-        {
-            var baseUri = new Uri(PortalApiBaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-            return new Uri(baseUri, AttachmentEndpointPath.TrimStart('/'));
-        }
+        get => ResolveEndpoint(AttachmentEndpointPath, "assistant attachment endpoint");
     }
 
     public Uri SupportTicketEndpoint
     {
-        get
+        get => ResolveEndpoint(SupportTicketEndpointPath, "assistant support-ticket endpoint");
+    }
+
+    private Uri ResolveEndpoint(string path, string label)
+    {
+        var baseUri = PageMaker365.Installer.Engine.Services.TrustedPageMaker365EndpointPolicy.ValidateBaseUrl(
+            PortalApiBaseUrl,
+            "Assistant API base URL");
+        if (string.IsNullOrWhiteSpace(path) ||
+            !path.StartsWith("/", StringComparison.Ordinal) ||
+            Uri.TryCreate(path, UriKind.Absolute, out _))
         {
-            var baseUri = new Uri(PortalApiBaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-            return new Uri(baseUri, SupportTicketEndpointPath.TrimStart('/'));
+            throw new InvalidDataException($"The {label} must be a root-relative path.");
         }
+
+        var endpoint = new Uri(baseUri, path);
+        if (!endpoint.Scheme.Equals(baseUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !endpoint.Host.Equals(baseUri.Host, StringComparison.OrdinalIgnoreCase) ||
+            endpoint.Port != baseUri.Port)
+        {
+            throw new InvalidDataException($"The {label} must use the configured trusted PageMaker365 origin.");
+        }
+
+        return endpoint;
     }
 }

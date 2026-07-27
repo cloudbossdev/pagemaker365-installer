@@ -165,6 +165,17 @@ The verifier must receive the expected official publisher and certificate thumbp
 - Resumable state, command arguments, environment variables, callbacks, reports, and support bundles contain no runtime values. Sanitized evidence contains names, resolution status, `rawValuesIncluded: false`, and `valueStorage: "CustomerKeyVault"` only.
 - Live staging proof and a full generated-artifact scan remain required before this behavior is approved for customer publication.
 
+## Assistant And Support Handoff Security
+
+- Portal assistant endpoints must remain on the exact trusted PageMaker365 production or staging HTTPS origins. Root-relative endpoint configuration cannot redirect the bearer credential to another host.
+- Message and ticket payloads contain sanitized operator text and selected diagnostic fields. Local transcript, package, discovery, and attachment paths are empty; API error bodies are not copied into transcripts.
+- Attachment transfer is disabled by default. Explicit opt-in permits only redacted `.txt`, `.log`, `.json`, and `.md` copies. The installer recalculates size and SHA-256 and sends an opaque filename.
+- Screenshots and other binary attachments remain local-only. Failed and local-only attachments are omitted from remote ticket requests rather than represented by metadata.
+- Portal message, attachment, and ticket responses must match the submitted contract identity. Ticket status must be `Drafted`; the installer never submits a final support ticket.
+- Only transient network, timeout, HTTP 408/429, or HTTP 5xx failures may use configured local-mock fallback. Authorization, validation, contract, and cancellation failures remain failures.
+- Recommended actions are intersected with a local registry. Local labels and approval requirements override portal values; unknown and duplicate actions are discarded. No local action performs install, removal, Azure mutation, consent, or tenant writes.
+- Local assistant data remains under the customer-controlled support-bundle folder. PageMaker365 portal retention and final ticket-submission policy remain a release gate under issue #28.
+
 ## Local Storage And Retention
 
 | Location | Contents | Current retention behavior |
@@ -258,6 +269,7 @@ Before transfer, review the support bundle manifest and selected artifacts. The 
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |
 | Customer user and technical guide approval | Draft only | #11, #12 |
 | Production code signing and distribution | Signing and verification implemented; certificate-backed release and clean-workstation proof pending | #13 |
+| Assistant portal retention and approved support handoff | Installer boundary implemented; live portal review pending | #28 |
 
 ## Verification And Review
 

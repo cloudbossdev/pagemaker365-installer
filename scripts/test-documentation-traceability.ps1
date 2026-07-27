@@ -118,6 +118,7 @@ $userGuideText = Get-Content -LiteralPath $customerDraftPaths[0] -Raw
     '## Reinstall After Removal',
     '## Evidence And Local Data',
     '## Request Support',
+    '## Assistant And Support Handoff',
     '## Publication Gates'
 ) | ForEach-Object {
     if ($userGuideText -notmatch "(?m)^$([regex]::Escape($_))\s*$") {
@@ -136,6 +137,7 @@ $technicalGuideText = Get-Content -LiteralPath $customerDraftPaths[1] -Raw
     '## Token And Secret Handling',
     '## Local Storage And Retention',
     '## Evidence, Logging, And Portal Sync',
+    '## Assistant And Support Handoff Security',
     '## Removal And Recovery Boundaries',
     '## Troubleshooting And Correlation',
     '## Customer Security Review Checklist',
@@ -160,6 +162,10 @@ $lifecycleRunbookText = Get-Content -LiteralPath $lifecycleRunbookPath -Raw
     if ($lifecycleRunbookText -notmatch "(?m)^$([regex]::Escape($_))\s*$") {
         throw "Customer lifecycle acceptance runbook is missing required section: $_"
     }
+}
+
+if ($lifecycleRunbookText -notmatch [regex]::Escape('assistant-support-handoff.md')) {
+    throw 'Customer lifecycle acceptance runbook must invoke the assistant support-handoff staging runbook.'
 }
 
 @(

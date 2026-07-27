@@ -186,6 +186,8 @@ Confirm no `runtime_configured`, `smoke_tests_completed`, or `install_completed`
 
 Scenarios: E08, T03-T06, and W05.
 
+Execute [assistant-support-handoff.md](assistant-support-handoff.md) against the approved staging portal before approving the assistant and support-handoff boundary.
+
 1. Review callback request captures, outbox files, session state, logs, screenshots, final evidence, support bundles, process command lines, and child-process environment observations available to the test harness.
 2. Search for the test-only secret markers, setup one-time code, bearer-token prefix/value, database password/connection value, Entra client secret, runtime session secret, and any prohibited document-content marker.
 3. Confirm runtime protected values exist in customer Key Vault and App Service contains only Key Vault references resolved by managed identity.

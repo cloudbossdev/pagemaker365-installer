@@ -17,6 +17,8 @@ internal static class Program
         var tests = new (string Name, Func<Task> Run)[]
         {
             ("RelayCommand reports asynchronous operation state", RelayCommandReportsAsynchronousOperationState),
+            ("Assistant handoff defaults attachments to local only", AssistantHandoffDefaultsAttachmentsToLocalOnly),
+            ("Assistant workspace applies local action and payload policy", AssistantWorkspaceAppliesLocalActionAndPayloadPolicy),
             ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Runtime secret contract exposes only operator inputs", RuntimeSecretContractExposesOnlyOperatorInputs),
@@ -91,6 +93,65 @@ internal static class Program
         release.SetResult();
         await execution;
         AssertEx.False(isRunning, "The operation indicator should stop when the command completes.");
+    }
+
+    private static Task AssistantHandoffDefaultsAttachmentsToLocalOnly()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = new AssistantWorkspaceViewModel(
+            new AssistantDiagnosticContext(),
+            scope.RootDirectory,
+            new RedactionService());
+
+        AssertEx.False(
+            viewModel.UploadAttachmentsWithHandoff,
+            "Attachment transfer must require an explicit operator opt-in.");
+        return Task.CompletedTask;
+    }
+
+    private static Task AssistantWorkspaceAppliesLocalActionAndPayloadPolicy()
+    {
+        using var scope = TestScope.Create();
+        var diagnosticContext = new AssistantDiagnosticContext
+        {
+            WorkflowMode = "Setup",
+            CurrentStep = "Preflight",
+            PackagePath = @"C:\customer\package.json",
+            DiscoveryOutputPath = @"C:\customer\discovery.json",
+            FooterStatus = @"Review C:\customer\diagnostic.log"
+        };
+        var viewModel = new AssistantWorkspaceViewModel(
+            diagnosticContext,
+            scope.RootDirectory,
+            new RedactionService());
+        var type = typeof(AssistantWorkspaceViewModel);
+        var setActions = type.GetMethod("SetRecommendedActions", BindingFlags.Instance | BindingFlags.NonPublic);
+        setActions?.Invoke(viewModel,
+        [
+            new List<AssistantRecommendedAction>
+            {
+                new()
+                {
+                    ActionId = "rerun-preflight",
+                    Label = "Unsafe server label",
+                    RequiresApproval = false,
+                    Enabled = true
+                },
+                new() { ActionId = "delete-resource-group", Enabled = true }
+            }
+        ]);
+
+        AssertEx.Equal(1, viewModel.RecommendedActions.Count);
+        AssertEx.Equal("Rerun preflight", viewModel.RecommendedActions[0].Label);
+        AssertEx.True(viewModel.RecommendedActions[0].RequiresApproval, "Local approval policy must override the server response.");
+
+        var createContext = type.GetMethod("CreateApiDiagnosticContext", BindingFlags.Instance | BindingFlags.NonPublic);
+        var apiContext = createContext?.Invoke(viewModel, null) as AssistantDiagnosticContext;
+        AssertEx.True(apiContext is not null, "API diagnostic context should be created.");
+        AssertEx.Equal("", apiContext!.PackagePath);
+        AssertEx.Equal("", apiContext.DiscoveryOutputPath);
+        AssertEx.StringContains(apiContext.FooterStatus, "[local path omitted]");
+        return Task.CompletedTask;
     }
 
     private static async Task PackageStepLocksSignInUntilPackageIsValidated()

@@ -55,13 +55,17 @@ public sealed class AssistantConversationStore
         return new AssistantAttachment
         {
             AttachmentId = attachment.AttachmentId,
-            FileName = attachment.FileName,
+            FileName = attachment.PortalUploadAllowed
+                ? AssistantTransferPolicy.CreateTransferFileName(attachment.AttachmentId, attachment.FileName)
+                : "[local-only binary omitted]",
             ContentType = attachment.ContentType,
             OriginalPath = string.IsNullOrWhiteSpace(attachment.OriginalPath) ? "" : "[local path omitted]",
-            StoredPath = string.IsNullOrWhiteSpace(attachment.StoredPath) ? "" : Path.GetFileName(attachment.StoredPath),
+            StoredPath = "",
             SizeBytes = attachment.SizeBytes,
             Sha256 = attachment.Sha256,
             IsImage = attachment.IsImage,
+            PortalUploadAllowed = attachment.PortalUploadAllowed,
+            ContentTreatment = attachment.ContentTreatment,
             UploadStatus = attachment.UploadStatus,
             UploadedAttachmentId = attachment.UploadedAttachmentId,
             UploadCorrelationId = attachment.UploadCorrelationId,

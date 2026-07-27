@@ -27,6 +27,8 @@ public sealed class AssistantAttachment
     public long SizeBytes { get; set; }
     public string Sha256 { get; set; } = "";
     public bool IsImage { get; set; }
+    public bool PortalUploadAllowed { get; set; }
+    public string ContentTreatment { get; set; } = "LocalOnlyBinary";
     public string UploadStatus { get; set; } = "Local";
     public string UploadedAttachmentId { get; set; } = "";
     public string UploadCorrelationId { get; set; } = "";

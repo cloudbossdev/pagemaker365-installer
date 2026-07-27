@@ -21,6 +21,7 @@ public sealed class AssistantAttachmentService
     public async Task<AssistantAttachment> ImportAsync(
         string sourcePath,
         string attachmentRoot,
+        long maxAttachmentBytes = 10 * 1024 * 1024,
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(sourcePath))
@@ -34,13 +35,29 @@ public sealed class AssistantAttachmentService
             throw new InvalidOperationException($"Unsupported assistant attachment type: {extension}");
         }
 
+        var sourceInfo = new FileInfo(sourcePath);
+        if (sourceInfo.Length > maxAttachmentBytes)
+        {
+            throw new InvalidOperationException($"Attachment exceeds the configured local limit of {maxAttachmentBytes} bytes.");
+        }
+
         Directory.CreateDirectory(attachmentRoot);
         var fileName = CreateStoredFileName(sourcePath);
         var storedPath = Path.Combine(attachmentRoot, fileName);
 
-        await using (var source = File.OpenRead(sourcePath))
-        await using (var target = File.Create(storedPath))
+        var portalUploadAllowed = AssistantTransferPolicy.IsPortalAttachmentAllowed(sourcePath);
+        if (portalUploadAllowed)
         {
+            var content = await File.ReadAllTextAsync(sourcePath, cancellationToken);
+            await File.WriteAllTextAsync(
+                storedPath,
+                AssistantTransferPolicy.SanitizeText(content),
+                cancellationToken);
+        }
+        else
+        {
+            await using var source = File.OpenRead(sourcePath);
+            await using var target = File.Create(storedPath);
             await source.CopyToAsync(target, cancellationToken);
         }
 
@@ -53,7 +70,9 @@ public sealed class AssistantAttachmentService
             StoredPath = storedPath,
             SizeBytes = info.Length,
             Sha256 = await ComputeHashAsync(storedPath, cancellationToken),
-            IsImage = IsImageExtension(extension)
+            IsImage = IsImageExtension(extension),
+            PortalUploadAllowed = portalUploadAllowed,
+            ContentTreatment = AssistantTransferPolicy.ContentTreatment(sourcePath)
         };
     }
 
