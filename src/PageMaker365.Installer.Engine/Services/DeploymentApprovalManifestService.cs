@@ -23,6 +23,7 @@ public sealed class DeploymentApprovalManifestService
 
         var previewHash = HashFileIfPresent(request.PreviewEvidencePath);
         var previewEvidenceFound = !string.IsNullOrWhiteSpace(previewHash);
+        var previewArtifactHash = HashFileIfPresent(request.PreviewArtifactPath);
         var summary = CreateSummary(approvalId, config, request);
         var manifest = new DeploymentApprovalManifest
         {
@@ -44,6 +45,10 @@ public sealed class DeploymentApprovalManifestService
             },
             PackageSummary = new DeploymentApprovalPackageSummary
             {
+                Operation = config.Deployment.Operation,
+                SourceRuntimeVersion = config.Deployment.SourceRuntimeVersion,
+                TargetRuntimeVersion = config.Deployment.TargetRuntimeVersion,
+                SourceDeploymentExportId = config.Deployment.SourceDeploymentExportId,
                 PackagePath = request.PackagePath,
                 DeploymentExportId = request.PackageExportId,
                 PackageTrustStatus = request.PackageTrustStatus,
@@ -58,6 +63,9 @@ public sealed class DeploymentApprovalManifestService
                 Path = request.PreviewEvidencePath,
                 Hash = previewHash,
                 EvidenceFileFound = previewEvidenceFound,
+                ArtifactPath = request.PreviewArtifactPath,
+                ArtifactHash = previewArtifactHash,
+                ArtifactFileFound = !string.IsNullOrWhiteSpace(previewArtifactHash),
                 ResultCount = request.PreviewResultCount,
                 WarningCount = request.PreviewWarningCount,
                 FailureCount = request.PreviewFailureCount
@@ -160,6 +168,7 @@ public sealed class DeploymentApprovalManifestRequest
     public string PreviewStatus { get; set; } = "";
     public string PreviewSummary { get; set; } = "";
     public string PreviewEvidencePath { get; set; } = "";
+    public string PreviewArtifactPath { get; set; } = "";
     public int PreviewResultCount { get; set; }
     public int PreviewWarningCount { get; set; }
     public int PreviewFailureCount { get; set; }

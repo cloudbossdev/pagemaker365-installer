@@ -367,6 +367,16 @@
                                 <Separator Margin="0,0,0,16" />
                                 <TextBlock Text="Installation package ready" Foreground="#42D8A0" FontWeight="Bold" />
                                 <TextBlock Text="{Binding CustomerName}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" Margin="0,6,0,12" />
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="{Binding PackageOperationLabel}"
+                                               Foreground="{Binding PackageOperationBrush}"
+                                               FontSize="18"
+                                               FontWeight="Bold" />
+                                    <TextBlock Text="{Binding PackageVersionSummary}"
+                                               Foreground="{StaticResource PmMuted}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,0" />
+                                </StackPanel>
                                 <UniformGrid x:Name="PackageReadyTargetGrid" Columns="2">
                                     <StackPanel x:Name="PackageReadyAzurePanel" Margin="0,0,9,0">
                                         <TextBlock Text="Azure target" Foreground="{StaticResource PmMuted}" />
@@ -654,6 +664,9 @@
                                     <TextBlock Text="Package trust" Foreground="{StaticResource PmMuted}" />
                                     <TextBlock Text="{Binding PackageTrustStatus}" Foreground="{Binding PackageTrustStatusBrush}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,4" />
                                     <TextBlock Text="{Binding PackageTrustSummary}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                    <TextBlock Text="Operation" Foreground="{StaticResource PmMuted}" />
+                                    <TextBlock Text="{Binding PackageOperationLabel}" Foreground="{Binding PackageOperationBrush}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,4" />
+                                    <TextBlock Text="{Binding PackageVersionSummary}" TextWrapping="Wrap" Margin="0,0,0,12" />
                                     <TextBlock Text="Export ID" Foreground="{StaticResource PmMuted}" />
                                     <TextBlock Text="{Binding PackageExportId}" TextWrapping="Wrap" Margin="0,4,0,12" />
                                     <TextBlock Text="Package path" Foreground="{StaticResource PmMuted}" />
@@ -878,7 +891,7 @@
                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="18" Margin="0,0,0,16">
                             <StackPanel>
                                 <TextBlock Text="Readiness Check" FontSize="22" FontWeight="Bold" />
-                                <TextBlock Text="Preflight does not deploy resources. It reports blockers and warnings so they can be fixed before install."
+                                <TextBlock Text="{Binding PreflightOperationDescription}"
                                            Foreground="{StaticResource PmMuted}"
                                            TextWrapping="Wrap"
                                            Margin="0,6,0,16" />
@@ -951,7 +964,7 @@
                 <StackPanel Visibility="{Binding IsPreviewStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Deployment Preview" FontSize="34" FontWeight="Bold" />
-                        <TextBlock Text="This step will run Azure what-if and show the resources that would be created or changed before install."
+                        <TextBlock Text="{Binding PreviewOperationDescription}"
                                    Foreground="{StaticResource PmMuted}"
                                    FontSize="16"
                                    TextWrapping="Wrap"
@@ -1115,8 +1128,8 @@
 
                 <StackPanel Visibility="{Binding IsInstallStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                        <TextBlock Text="Install" FontSize="34" FontWeight="Bold" />
-                        <TextBlock Text="Deploy approved PageMaker365 runtime resources into the customer Azure environment."
+                        <TextBlock Text="{Binding DeploymentActionTitle}" FontSize="34" FontWeight="Bold" />
+                        <TextBlock Text="{Binding DeploymentActionDescription}"
                                    Foreground="{StaticResource PmMuted}"
                                    FontSize="16"
                                    TextWrapping="Wrap"
@@ -1200,7 +1213,7 @@
                             <StackPanel>
                                 <DockPanel LastChildFill="True">
                                     <Button DockPanel.Dock="Right"
-                                            Content="Run Install"
+                                            Content="{Binding RunDeploymentButtonLabel}"
                                             Command="{Binding RunInstallCommand}"
                                             MinWidth="150"
                                             Margin="18,0,0,0" />
@@ -1222,7 +1235,7 @@
                                     </Border>
                                     <Border x:Name="InstallStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="4,0,4,0">
                                         <StackPanel>
-                                            <TextBlock Text="Install Status" Foreground="{StaticResource PmMuted}" />
+                                            <TextBlock Text="{Binding DeploymentStatusLabel}" Foreground="{StaticResource PmMuted}" />
                                             <TextBlock Text="{Binding DeploymentStatus}" Foreground="{Binding DeploymentStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
                                         </StackPanel>
                                     </Border>
@@ -1265,7 +1278,7 @@
                                            Foreground="{StaticResource PmCyan}"
                                            FontWeight="SemiBold"
                                            Margin="16,0,0,0" />
-                                <TextBlock Text="Provisioning Azure and runtime configuration"
+                                <TextBlock Text="{Binding DeploymentRunningTitle}"
                                            FontSize="17"
                                            FontWeight="Bold" />
                             </DockPanel>
@@ -1277,7 +1290,7 @@
                                          BorderThickness="0"
                                          Margin="0,12,0,0" />
                             <TextBlock Grid.Row="2"
-                                       Text="Azure is creating the approved resources, provisioning protected values, and resolving Key Vault references. This can take several minutes; keep the installer open."
+                                       Text="{Binding DeploymentRunningDescription}"
                                        Foreground="{StaticResource PmMuted}"
                                        TextWrapping="Wrap"
                                        Margin="0,10,0,0" />
@@ -1400,7 +1413,7 @@
                                 <UniformGrid x:Name="ValidationStatusGrid" Columns="3" Margin="0,18,0,0">
                                     <Border x:Name="ValidationInstallStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,8,0">
                                         <StackPanel>
-                                            <TextBlock Text="Install Status" Foreground="{StaticResource PmMuted}" />
+                                            <TextBlock Text="{Binding DeploymentStatusLabel}" Foreground="{StaticResource PmMuted}" />
                                             <TextBlock Text="{Binding DeploymentStatus}" Foreground="{Binding DeploymentStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
                                         </StackPanel>
                                     </Border>
@@ -1517,7 +1530,7 @@
                 <StackPanel Visibility="{Binding IsFinishStep, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="Finish" FontSize="34" FontWeight="Bold" />
                      <StackPanel Visibility="{Binding IsSetupMode, Converter={StaticResource BoolToVisibilityConverter}}">
-                         <TextBlock Text="Generate the final install report, support bundle, and deployment evidence for PageMaker365 records."
+                         <TextBlock Text="{Binding FinalEvidenceDescription}"
                                     Foreground="{StaticResource PmMuted}"
                                     FontSize="16"
                                     TextWrapping="Wrap"
@@ -1548,7 +1561,7 @@
                                      </Border>
                                      <Border x:Name="FinalInstallStatusCard" Background="#0B1224" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="4,0,4,0">
                                          <StackPanel>
-                                             <TextBlock Text="Install" Foreground="{StaticResource PmMuted}" />
+                                             <TextBlock Text="{Binding DeploymentActionTitle}" Foreground="{StaticResource PmMuted}" />
                                              <TextBlock Text="{Binding DeploymentStatus}" Foreground="{Binding DeploymentStatusBrush}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
                                          </StackPanel>
                                      </Border>

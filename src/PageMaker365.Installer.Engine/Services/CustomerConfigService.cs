@@ -10,6 +10,7 @@ namespace PageMaker365.Installer.Engine.Services;
 
 public sealed class CustomerConfigService
 {
+    private static readonly UpgradeContractService UpgradeContractService = new();
     private static readonly HashSet<string> RequiredRuntimeAppSettings = new(StringComparer.Ordinal)
     {
         "DATABASE_URL",
@@ -101,6 +102,7 @@ public sealed class CustomerConfigService
         }
 
         ValidateRequiredPackageProperties(packageJson, result);
+        ValidateDeploymentIntent(config, packageJson, result);
         ValidateRuntimeSecretContract(config, result);
         ValidatePackageTrust(config, packageJson, result, trustOptions ?? PackageTrustOptions.FromEnvironment());
 
@@ -307,6 +309,30 @@ public sealed class CustomerConfigService
         RequireJsonPath(root, "features.billingIntegration", result);
     }
 
+    private static void ValidateDeploymentIntent(
+        CustomerInstallConfig config,
+        string packageJson,
+        ConfigValidationResult result)
+    {
+        var deploymentSectionPresent = !string.IsNullOrWhiteSpace(config.Deployment.Operation);
+        if (!string.IsNullOrWhiteSpace(packageJson))
+        {
+            using var document = JsonDocument.Parse(packageJson);
+            deploymentSectionPresent = TryGetProperty(document.RootElement, "deployment", out var deployment) &&
+                deployment.ValueKind == JsonValueKind.Object;
+        }
+
+        var requireDeploymentIntent = config.ControlPlane.TrustMode.Equals(
+            "SignedRequired",
+            StringComparison.OrdinalIgnoreCase);
+        var upgradeValidation = UpgradeContractService.ValidatePackageIntent(
+            config,
+            deploymentSectionPresent,
+            requireDeploymentIntent);
+        result.Errors.AddRange(upgradeValidation.Errors);
+        result.Warnings.AddRange(upgradeValidation.Warnings);
+    }
+
     private static void RequireJsonPath(JsonElement root, string path, ConfigValidationResult result)
     {
         if (!TryGetJsonPath(root, path, out var value) ||
@@ -340,6 +366,9 @@ public sealed class CustomerConfigService
         RequireOrWarn(controlPlane.Signature, "controlPlane.signature", signedRequired, result);
         RequireOrWarn(controlPlane.SignatureAlgorithm, "controlPlane.signatureAlgorithm", signedRequired, result);
 
+        var jsonForHash = string.IsNullOrWhiteSpace(packageJson) ? ToJson(config) : packageJson;
+        result.ComputedPackageHash = ComputePackageHash(jsonForHash);
+
         if (string.IsNullOrWhiteSpace(controlPlane.PackageHash))
         {
             result.PackageTrustStatus = signedRequired ? "Missing signature" : "Legacy package";
@@ -361,8 +390,6 @@ public sealed class CustomerConfigService
             result.Errors.Add($"Unsupported package canonicalization '{controlPlane.Canonicalization}'. Only json-c14n-v1 is currently supported.");
         }
 
-        var jsonForHash = string.IsNullOrWhiteSpace(packageJson) ? ToJson(config) : packageJson;
-        result.ComputedPackageHash = ComputePackageHash(jsonForHash);
         var normalizedDeclaredHash = NormalizePackageHash(controlPlane.PackageHash);
         if (!normalizedDeclaredHash.Equals(result.ComputedPackageHash, StringComparison.OrdinalIgnoreCase))
         {

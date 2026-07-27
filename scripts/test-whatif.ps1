@@ -131,14 +131,8 @@ try {
             [System.Management.Automation.ActionPreference] $ErrorAction
         )
 
-        [pscustomobject]@{
-            ResourceGroupName = $Name
-            Location = 'eastus'
-            Tags = @{
-                product = 'PageMaker365'
-                managedBy = 'PageMaker365'
-            }
-        }
+        # The sample declares a clean install, so compatibility requires an absent target group.
+        return $null
     }
 
     function Get-AzSubscriptionDeploymentWhatIfResult {

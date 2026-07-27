@@ -14,7 +14,7 @@ Release version: not assigned
 
 This guide describes the security-relevant behavior implemented by the PageMaker365 Installer. It is intended for customer architecture, identity, security, networking, and operations reviewers.
 
-The current alpha provisions the Azure foundation and implements protected runtime secret provisioning locally, but it does not yet deploy verified production API or portal application content, implement a supported upgrade contract, or have a production certificate and clean-workstation proof for its signed distribution. Runtime secret provisioning still requires live sandbox acceptance before customer publication.
+The current alpha provisions the Azure foundation and implements protected runtime-secret, upgrade, and removal contracts locally. It does not yet deploy verified production API or portal application content, complete portal/staging acceptance for those lifecycle contracts, or have a production certificate and clean-workstation proof for its signed distribution. Those live acceptance gaps remain release blockers.
 
 ## Trust Boundaries And Data Flow
 
@@ -189,13 +189,31 @@ Customers must apply their own endpoint retention policy to the local workspace 
 
 ## Evidence, Logging, And Portal Sync
 
-Installer lifecycle events contain stable `eventId`, `eventType`, `installAttemptId`, monotonic `sequence`, session and deployment identifiers, outcome, status, package hash, installer version, and a sanitized message/error. Requests use `Idempotency-Key`.
+Installer lifecycle events contain stable `eventId`, `eventType`, `installAttemptId`, monotonic `sequence`, session and deployment identifiers, outcome, status, package hash, installer version, and a sanitized message/error. Requests use an exact attempt/sequence/event `Idempotency-Key`. Upgrade events use a distinct ordered state machine and require an exact `Accepted` contract 0.3 receipt; HTTP success alone does not dequeue an event.
 
 The installer does not send secrets, tokens, one-time codes, raw files, document content, mailbox content, user files, broad tenant exports, or unsanitized logs. Failed evidence delivery remains queued in the local outbox and does not convert a successful Azure operation into an install failure.
 
 Application Insights is deployed for the customer runtime. The installer itself does not currently send a separate application-telemetry stream to Application Insights.
 
-### Lifecycle Event Families
+## Upgrade Boundaries
+
+- Signed packages declare `install` or `upgrade`, target runtime version, minimum installer version, and fixed preservation policies.
+- Upgrade packages additionally declare the exact source runtime version and source deployment export.
+- Patch and immediately adjacent minor transitions within one major version are supported; downgrade, skipped-minor, major, and malformed transitions fail before mutation.
+- Preflight and the mutation boundary compare package identity with Azure `appName`, `installationId`, `runtimeVersion`, and `deploymentExportId` tags.
+- Azure What-If and explicit approval remain mandatory for upgrades. Mutation is
+  bound to hashes of the canonical package, preview receipt, and What-If artifact.
+- Resource names are immutable, SharePoint customer content is preserved, and secret values remain in customer Key Vault.
+- Recovery is forward-fix only. Exact target-state recovery requires authorization
+  persisted by the original saved session before mutation and bound to its package
+  hash and target export. Fresh sessions and changed identities fail closed.
+- Upgrade evidence enforces event order, terminal state, redaction, monotonic
+  sequence, exact idempotency identity, and exact portal receipt identity.
+- The installer does not automatically downgrade or treat an older package as rollback authorization.
+- A clean-install package may reconcile an existing group only when all package ownership, installation, target version/export, and resource-name identity tags match exactly; otherwise it fails closed.
+
+Implementation: `UpgradeContractService`, `Test-PM365UpgradeContract`, package schema deployment intent, and versioned Azure tags. Portal generation/callback integration and live staging evidence remain open under #6.
+## Lifecycle Event Families
 
 Install events use one stable install attempt and monotonic sequence:
 

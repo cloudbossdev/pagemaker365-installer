@@ -30,6 +30,7 @@ $unexpectedDocs = @(
             'portal-install-package-handoff.md',
             'removal-evidence-callback-contract.md',
             'removal-policy.md',
+            'upgrade-contract.md',
             'runtime-secret-contract.md',
             'using-the-installer.md',
             'installer-distribution-verification.md'

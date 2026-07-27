@@ -26,6 +26,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private readonly SupportBundleService _supportBundleService;
     private readonly FinalEvidenceService _finalEvidenceService = new();
     private readonly DeploymentApprovalManifestService _deploymentApprovalManifestService = new();
+    private readonly DeploymentExecutionBindingService _deploymentExecutionBindingService = new();
+    private readonly UpgradeEvidenceLifecycleService _upgradeEvidenceLifecycleService = new();
     private readonly TenantDiscoveryService _tenantDiscoveryService;
     private readonly RemovalEvidenceLifecycleService _removalEvidenceLifecycleService = new();
     private readonly InstallerStateStore _stateStore;
@@ -98,9 +100,15 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _packageComputedHash = "Not checked";
     private string _previewStatus = "Not run";
     private string _previewStatusBrush = "#8290AA";
-    private string _previewSummary = "Run deployment preview to see Azure what-if results before install.";
+    private string _previewSummary = "Run deployment preview to see Azure What-If results before deployment.";
     private string _previewOutputPath = "Not saved";
     private string _previewArtifactPath = "Not created";
+    private string _previewPackageHash = "";
+    private string _previewEvidenceHash = "";
+    private string _previewArtifactHash = "";
+    private bool _upgradeForwardFixAuthorized;
+    private string _upgradeForwardFixPackageHash = "";
+    private string _upgradeForwardFixDeploymentExportId = "";
     private string _deploymentStatus = "Waiting for preview";
     private string _deploymentStatusBrush = "#8290AA";
     private string _deploymentSummary = "Complete deployment preview before running install.";
@@ -110,9 +118,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _deploymentApprovalManifestId = "";
     private string _deploymentApprovalManifestPath = "Not created";
     private string _deploymentApprovalSummary = "No deployment approval manifest created.";
-    private string _validationStatus = "Waiting for install";
+    private string _validationStatus = "Waiting for deployment";
     private string _validationStatusBrush = "#8290AA";
-    private string _validationSummary = "Complete install before running validation.";
+    private string _validationSummary = "Complete deployment before running validation.";
     private string _validationOutputPath = "Not saved";
     private string _finishStatus = "Waiting for validation";
     private string _finishStatusBrush = "#8290AA";
@@ -537,6 +545,71 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         set => SetProperty(ref _packageComputedHash, string.IsNullOrWhiteSpace(value) ? "Not checked" : value);
     }
 
+    public string PackageOperationLabel
+    {
+        get
+        {
+            var operation = _config?.Deployment.Operation;
+            return operation?.Trim().ToLowerInvariant() switch
+            {
+                UpgradeContractService.UpgradeOperation => "Upgrade package",
+                UpgradeContractService.InstallOperation => "Clean install package",
+                _ => "Legacy install package"
+            };
+        }
+    }
+
+    public string PackageOperationBrush => _config?.Deployment.Operation?.Trim().ToLowerInvariant() switch
+    {
+        UpgradeContractService.UpgradeOperation => "#19D8E9",
+        UpgradeContractService.InstallOperation => "#42D8A0",
+        _ => "#FFB84D"
+    };
+
+    public string PackageVersionSummary
+    {
+        get
+        {
+            var deployment = _config?.Deployment;
+            if (deployment is null || string.IsNullOrWhiteSpace(deployment.TargetRuntimeVersion))
+            {
+                return "No runtime version contract is declared.";
+            }
+
+            return deployment.Operation.Equals(UpgradeContractService.UpgradeOperation, StringComparison.OrdinalIgnoreCase)
+                ? $"Runtime {deployment.SourceRuntimeVersion} to {deployment.TargetRuntimeVersion}"
+                : $"Target runtime {deployment.TargetRuntimeVersion}";
+        }
+    }
+
+    public string DeploymentActionTitle => IsUpgradePackage() ? "Upgrade" : "Install";
+
+    public string DeploymentActionDescription => IsUpgradePackage()
+        ? $"Apply the approved PageMaker365 runtime upgrade from {_config?.Deployment.SourceRuntimeVersion} to {_config?.Deployment.TargetRuntimeVersion}."
+        : "Deploy approved PageMaker365 runtime resources into the customer Azure environment.";
+
+    public string PreviewOperationDescription => IsUpgradePackage()
+        ? "This step runs Azure What-If and shows the exact resource changes before the approved upgrade."
+        : "This step runs Azure What-If and shows the resources that would be created or changed before installation.";
+
+    public string PreflightOperationDescription => IsUpgradePackage()
+        ? "Preflight does not change resources. It reports blockers and warnings so they can be fixed before upgrade."
+        : "Preflight does not change resources. It reports blockers and warnings so they can be fixed before installation.";
+
+    public string RunDeploymentButtonLabel => IsUpgradePackage() ? "Run Upgrade" : "Run Install";
+
+    public string DeploymentStatusLabel => IsUpgradePackage() ? "Upgrade Status" : "Install Status";
+
+    public string DeploymentRunningTitle => IsUpgradePackage() ? "Applying approved upgrade" : "Provisioning Azure resources";
+
+    public string DeploymentRunningDescription => IsUpgradePackage()
+        ? "Azure is updating the approved resources. This can take several minutes; keep the installer open."
+        : "Azure is creating or updating the approved resources. This can take several minutes; keep the installer open.";
+
+    public string FinalEvidenceDescription => IsUpgradePackage()
+        ? "Generate the final upgrade report, support bundle, and deployment evidence for PageMaker365 records."
+        : "Generate the final install report, support bundle, and deployment evidence for PageMaker365 records.";
+
     public string PreviewStatus
     {
         get => _previewStatus;
@@ -688,14 +761,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     public string DeploymentConfirmationTarget => _config?.Azure.ResourceGroupName ?? "target resource group";
 
-    public string DeploymentConfirmationPrompt => $"Type {DeploymentConfirmationTarget} to enable install.";
+    public string DeploymentConfirmationPrompt => $"Type {DeploymentConfirmationTarget} to enable {DeploymentActionTitle.ToLowerInvariant()}.";
 
     public string DeploymentTargetSummary => _config is null
         ? "No deployment target loaded."
         : $"{_config.Customer.TenantName} | {_config.Azure.SubscriptionId} | {_config.Azure.ResourceGroupName}";
 
     public string DeploymentTargetDetails => _config is null
-        ? "Load the customer package and complete deployment preview before installing."
+        ? "Load the customer package and complete deployment preview before deployment."
         : $"SharePoint site: {_config.SharePoint.SiteUrl}";
 
     public string RemovalInventoryStatus
@@ -815,8 +888,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         : $"{_config.Customer.TenantName} | {_config.SharePoint.SiteUrl}";
 
     public string ValidationTargetDetails => _config is null
-        ? "Complete install before running validation."
-        : $"Install evidence: {DeploymentOutputPath}";
+        ? "Complete deployment before running validation."
+        : $"{DeploymentActionTitle} evidence: {DeploymentOutputPath}";
 
     public string FinishStatus
     {
@@ -1213,6 +1286,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         _config = null;
+        NotifyDeploymentIntentChanged();
         _session = null;
         ConfigureRuntimeSecretInputs(null);
         _bootstrapSourcePath = "";
@@ -2004,7 +2078,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        StartNewInstallerEvidenceAttempt();
+        StartNewInstallerEvidenceAttempt(config);
         await QueueInstallerEvidenceAsync(
             InstallerEvidenceEventType.PackageValidated,
             "provisioning",
@@ -2020,7 +2094,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
-        StartNewInstallerEvidenceAttempt();
+        StartNewInstallerEvidenceAttempt(config);
         await QueueInstallerEvidenceAsync(
             InstallerEvidenceEventType.PackageValidationFailed,
             "needs_attention",
@@ -2069,6 +2143,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private void LoadConfig(CustomerInstallConfig config, string path, ConfigValidationResult? validation = null)
     {
+        ResetUpgradeRecoveryAuthorization();
         _config = config;
         ConfigureRuntimeSecretInputs(config);
         OnPropertyChanged(nameof(DeployedSiteUrl));
@@ -2084,6 +2159,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         CustomerName = config.Customer.TenantName;
         AzureSubscription = $"{config.Azure.SubscriptionId} / {config.Azure.ResourceGroupName}";
         SharePointSite = config.SharePoint.SiteUrl;
+        NotifyDeploymentIntentChanged();
         if (_bootstrapSession is not null)
         {
             PackageReadinessStatus = "Package changed; check readiness";
@@ -2219,6 +2295,27 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PackageExportId = "Not available";
         PackageDeclaredHash = "Not available";
         PackageComputedHash = "Not checked";
+    }
+
+    private void NotifyDeploymentIntentChanged()
+    {
+        OnPropertyChanged(nameof(PackageOperationLabel));
+        OnPropertyChanged(nameof(PackageOperationBrush));
+        OnPropertyChanged(nameof(PackageVersionSummary));
+        OnPropertyChanged(nameof(DeploymentActionTitle));
+        OnPropertyChanged(nameof(DeploymentActionDescription));
+        OnPropertyChanged(nameof(PreviewOperationDescription));
+        OnPropertyChanged(nameof(PreflightOperationDescription));
+        OnPropertyChanged(nameof(RunDeploymentButtonLabel));
+        OnPropertyChanged(nameof(DeploymentStatusLabel));
+        OnPropertyChanged(nameof(DeploymentRunningTitle));
+        OnPropertyChanged(nameof(DeploymentRunningDescription));
+        OnPropertyChanged(nameof(FinalEvidenceDescription));
+        OnPropertyChanged(nameof(ValidationTargetDetails));
+        if (IsSetupMode && Steps.Count >= 6)
+        {
+            Steps[5].Name = DeploymentActionTitle;
+        }
     }
 
     private static string BrushForPackageTrust(string status)
@@ -2489,7 +2586,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _session.Results.Add(packageTrustResult);
             CheckResults.Add(new CheckResultViewModel(packageTrustResult));
 
-            await _engine.RunPowerShellPreflightAsync(_session, GetWorkspaceRoot(), PackagePath, _graphAccessToken, progress);
+            await _engine.RunPowerShellPreflightAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                _graphAccessToken,
+                progress,
+                allowUpgradeTargetStateResume: CanUseUpgradeForwardFix());
 
             SessionStatus = _session.Status.ToString();
             CanContinue = _session.Status is InstallStatus.Passed or InstallStatus.Warning;
@@ -3117,7 +3220,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
     private void ResetSessionData()
     {
+        ResetUpgradeRecoveryAuthorization();
         _config = null;
+        NotifyDeploymentIntentChanged();
         ConfigureRuntimeSecretInputs(null);
         NotifyPackageAcquisitionStateChanged();
         OnPropertyChanged(nameof(DeployedSiteUrl));
@@ -3349,11 +3454,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastPreviewStatus = state.LastPreviewStatus;
         _lastDeploymentStatus = state.LastDeploymentStatus;
         _lastValidationStatus = state.LastValidationStatus;
+        RestoreUpgradeEvidenceState();
         PreviewStatus = SavedOrDefault(state.PreviewStatus, PreviewStatus);
         PreviewStatusBrush = SavedOrDefault(state.PreviewStatusBrush, PreviewStatusBrush);
         PreviewSummary = SavedOrDefault(state.PreviewSummary, PreviewSummary);
         PreviewOutputPath = SavedOrDefault(state.PreviewOutputPath, PreviewOutputPath);
         PreviewArtifactPath = SavedOrDefault(state.PreviewArtifactPath, PreviewArtifactPath);
+        _previewPackageHash = state.PreviewPackageHash;
+        _previewEvidenceHash = state.PreviewEvidenceHash;
+        _previewArtifactHash = state.PreviewArtifactHash;
+        _upgradeForwardFixAuthorized = state.UpgradeForwardFixAuthorized;
+        _upgradeForwardFixPackageHash = state.UpgradeForwardFixPackageHash;
+        _upgradeForwardFixDeploymentExportId = state.UpgradeForwardFixDeploymentExportId;
         DeploymentStatus = SavedOrDefault(state.DeploymentStatus, DeploymentStatus);
         DeploymentStatusBrush = SavedOrDefault(state.DeploymentStatusBrush, DeploymentStatusBrush);
         DeploymentSummary = SavedOrDefault(state.DeploymentSummary, DeploymentSummary);
@@ -3534,6 +3646,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             PreviewSummary = PreviewSummary,
             PreviewOutputPath = PreviewOutputPath,
             PreviewArtifactPath = PreviewArtifactPath,
+            PreviewPackageHash = _previewPackageHash,
+            PreviewEvidenceHash = _previewEvidenceHash,
+            PreviewArtifactHash = _previewArtifactHash,
+            UpgradeForwardFixAuthorized = _upgradeForwardFixAuthorized,
+            UpgradeForwardFixPackageHash = _upgradeForwardFixPackageHash,
+            UpgradeForwardFixDeploymentExportId = _upgradeForwardFixDeploymentExportId,
             DeploymentStatus = DeploymentStatus,
             DeploymentStatusBrush = DeploymentStatusBrush,
             DeploymentSummary = DeploymentSummary,
@@ -4286,6 +4404,18 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        if (!TryValidateCurrentPackageIdentity(out var currentPackageHash, out var packageError))
+        {
+            ClearPreviewReview();
+            ClearDeploymentReview();
+            FooterStatus = packageError;
+            AiTitle = "Package changed after validation";
+            AiSummary = "Reload the customer package, complete preflight, and run a new deployment preview before approving Azure changes.";
+            return;
+        }
+
+        var allowUpgradeTargetStateResume = CanUseUpgradeForwardFix(currentPackageHash);
+
         PreviewResults.Clear();
         PreviewStatus = "Running";
         PreviewStatusBrush = "#19D8E9";
@@ -4312,7 +4442,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         try
         {
-            await _engine.RunWhatIfAsync(_session, GetWorkspaceRoot(), PackagePath, previewArtifactOutputPath, progress);
+            await _engine.RunWhatIfAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                previewArtifactOutputPath,
+                progress,
+                allowUpgradeTargetStateResume: allowUpgradeTargetStateResume);
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or JsonException or HttpRequestException)
         {
@@ -4353,6 +4489,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         PreviewOutputPath = await SavePreviewEvidenceAsync(previewResults, previewStatus, PreviewArtifactPath);
+        _previewPackageHash = currentPackageHash;
+        _previewEvidenceHash = DeploymentExecutionBindingService.HashFile(PreviewOutputPath);
+        _previewArtifactHash = DeploymentExecutionBindingService.HashFile(PreviewArtifactPath);
         FooterStatus = previewStatus == InstallStatus.Failed
             ? "Deployment preview failed. Review the preview details and retry."
             : "Deployment preview completed. Continue to install after reviewing the results.";
@@ -4390,6 +4529,8 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             previewStatus = previewStatus.ToString(),
             previewedAt = DateTimeOffset.UtcNow,
             azureWhatIfArtifactPath = previewArtifactPath,
+            packageHash = PackageComputedHash,
+            azureWhatIfArtifactHash = DeploymentExecutionBindingService.HashFile(previewArtifactPath),
             results = previewResults.Select(result => new
             {
                 result.StepName,
@@ -4445,9 +4586,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private void ClearPreviewReview()
     {
         _lastPreviewStatus = InstallStatus.NotStarted;
+        _previewPackageHash = "";
+        _previewEvidenceHash = "";
+        _previewArtifactHash = "";
         PreviewStatus = "Not run";
         PreviewStatusBrush = "#8290AA";
-        PreviewSummary = "Run deployment preview to see Azure what-if results before install.";
+        PreviewSummary = IsUpgradePackage()
+            ? "Run deployment preview to see the Azure What-If changes before upgrade."
+            : "Run deployment preview to see the Azure What-If changes before installation.";
         PreviewOutputPath = "Not saved";
         PreviewArtifactPath = "Not created";
         PreviewResults.Clear();
@@ -4478,12 +4624,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 out _);
     }
 
-    private void StartNewInstallerEvidenceAttempt()
+    private void StartNewInstallerEvidenceAttempt(CustomerInstallConfig? config = null)
     {
-        _installerEvidenceOutbox.InstallAttemptId = $"ia_{Guid.NewGuid():N}";
+        var prefix = IsUpgradePackage(config) ? "ua" : "ia";
+        _installerEvidenceOutbox.InstallAttemptId = $"{prefix}_{Guid.NewGuid():N}";
         _installerEvidenceOutbox.NextSequence = 1;
         _installerEvidenceOutbox.InstallStarted = false;
         _installerEvidenceOutbox.IsTerminal = false;
+        _installerEvidenceOutbox.LastEventType = "";
     }
 
     private async Task EnsureFreshInstallEvidenceAttemptAsync()
@@ -4497,7 +4645,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _installerEvidenceOutbox.InstallStarted ||
             _installerEvidenceOutbox.IsTerminal)
         {
-            StartNewInstallerEvidenceAttempt();
+            StartNewInstallerEvidenceAttempt(_config);
             await QueueInstallerEvidenceAsync(
                 InstallerEvidenceEventType.PackageValidated,
                 "provisioning",
@@ -4523,19 +4671,21 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         if (string.IsNullOrWhiteSpace(_installerEvidenceOutbox.InstallAttemptId))
         {
-            StartNewInstallerEvidenceAttempt();
+            StartNewInstallerEvidenceAttempt(config);
         }
 
-        var sequence = _installerEvidenceOutbox.NextSequence++;
+        eventType = MapDeploymentEvidenceEventType(eventType, config);
+        var isUpgrade = IsUpgradePackage(config);
         var eventId = $"evt_{Guid.NewGuid():N}";
         var payload = new InstallerEvidenceEvent
         {
-            Lifecycle = InstallerEvidenceLifecycle.Install,
+            Lifecycle = isUpgrade ? InstallerEvidenceLifecycle.Upgrade : InstallerEvidenceLifecycle.Install,
             AttemptId = _installerEvidenceOutbox.InstallAttemptId,
             EventId = eventId,
             EventType = eventType,
             InstallAttemptId = _installerEvidenceOutbox.InstallAttemptId,
-            Sequence = sequence,
+            UpgradeAttemptId = isUpgrade ? _installerEvidenceOutbox.InstallAttemptId : "",
+            Sequence = _installerEvidenceOutbox.NextSequence,
             OccurredAt = DateTimeOffset.UtcNow,
             OnboardingSessionId = _bootstrapSession!.SessionId,
             DeploymentExportId = config.ControlPlane.DeploymentExportId,
@@ -4547,9 +4697,22 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             RuntimeUrl = config.App.RuntimeBaseUrl,
             ApiUrl = config.App.ApiBaseUrl,
             AzureResourceGroup = config.Azure.ResourceGroupName,
+            Operation = isUpgrade ? UpgradeContractService.UpgradeOperation : UpgradeContractService.InstallOperation,
+            SourceRuntimeVersion = config.Deployment.SourceRuntimeVersion,
+            TargetRuntimeVersion = config.Deployment.TargetRuntimeVersion,
             SmokeTests = smokeTests?.ToList() ?? [],
             Message = message
         };
+
+        if (isUpgrade)
+        {
+            _upgradeEvidenceLifecycleService.Prepare(_installerEvidenceOutbox, payload);
+        }
+        else
+        {
+            _installerEvidenceOutbox.NextSequence++;
+        }
+
         _installerEvidenceOutbox.PendingEvents.Add(new PendingInstallerEvidenceEvent
         {
             IdempotencyKey = $"{payload.InstallAttemptId}:{payload.Sequence}:{payload.EventId}",
@@ -4557,12 +4720,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         });
         RetryEvidenceSyncCommand.RaiseCanExecuteChanged();
 
-        if (eventType.Equals(InstallerEvidenceEventType.InstallStarted, StringComparison.Ordinal))
+        if (!isUpgrade && eventType == InstallerEvidenceEventType.InstallStarted)
         {
             _installerEvidenceOutbox.InstallStarted = true;
         }
 
-        if (eventType is InstallerEvidenceEventType.PackageValidationFailed or
+        if (!isUpgrade && eventType is InstallerEvidenceEventType.PackageValidationFailed or
             InstallerEvidenceEventType.InstallFailed or
             InstallerEvidenceEventType.InstallCompleted)
         {
@@ -4584,6 +4747,121 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             SaveWizardState(markCompleted: true);
         }
+    }
+
+    private bool IsUpgradePackage(CustomerInstallConfig? config = null)
+    {
+        return (config ?? _config)?.Deployment.Operation.Equals(
+            UpgradeContractService.UpgradeOperation,
+            StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private bool TryValidateCurrentPackageIdentity(out string currentHash, out string error)
+    {
+        currentHash = DeploymentExecutionBindingService.HashPackage(PackagePath);
+        if (string.IsNullOrWhiteSpace(currentHash))
+        {
+            error = "The customer package could not be revalidated. Reload it before continuing.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(PackageComputedHash) ||
+            PackageComputedHash.Equals("Not checked", StringComparison.OrdinalIgnoreCase) ||
+            !currentHash.Equals(PackageComputedHash, StringComparison.OrdinalIgnoreCase))
+        {
+            error = "The customer package changed after validation. Reload it, rerun preflight, and generate a new deployment preview.";
+            return false;
+        }
+
+        error = "";
+        return true;
+    }
+
+    private bool CanUseUpgradeForwardFix(string? currentPackageHash = null)
+    {
+        var packageHash = string.IsNullOrWhiteSpace(currentPackageHash)
+            ? PackageComputedHash
+            : currentPackageHash;
+        return IsUpgradePackage() &&
+            _upgradeForwardFixAuthorized &&
+            !string.IsNullOrWhiteSpace(packageHash) &&
+            packageHash.Equals(_upgradeForwardFixPackageHash, StringComparison.OrdinalIgnoreCase) &&
+            _config is not null &&
+            _config.ControlPlane.DeploymentExportId.Equals(
+                _upgradeForwardFixDeploymentExportId,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void AuthorizeUpgradeForwardFix(string packageHash)
+    {
+        if (!IsUpgradePackage() || _config is null)
+        {
+            return;
+        }
+
+        _upgradeForwardFixAuthorized = true;
+        _upgradeForwardFixPackageHash = packageHash;
+        _upgradeForwardFixDeploymentExportId = _config.ControlPlane.DeploymentExportId;
+    }
+
+    private void ResetUpgradeRecoveryAuthorization()
+    {
+        _upgradeForwardFixAuthorized = false;
+        _upgradeForwardFixPackageHash = "";
+        _upgradeForwardFixDeploymentExportId = "";
+    }
+
+    private void RestoreUpgradeEvidenceState()
+    {
+        if (!IsUpgradePackage() ||
+            !_installerEvidenceOutbox.InstallAttemptId.StartsWith("ua_", StringComparison.Ordinal) ||
+            !string.IsNullOrWhiteSpace(_installerEvidenceOutbox.LastEventType))
+        {
+            return;
+        }
+
+        var lastPendingEvent = _installerEvidenceOutbox.PendingEvents
+            .Where(item => item.Payload.EventType.StartsWith("upgrade_", StringComparison.Ordinal))
+            .OrderBy(item => item.Payload.Sequence)
+            .LastOrDefault();
+        if (lastPendingEvent is not null)
+        {
+            _installerEvidenceOutbox.LastEventType = lastPendingEvent.Payload.EventType;
+            return;
+        }
+
+        _installerEvidenceOutbox.LastEventType = _installerEvidenceOutbox.IsTerminal
+            ? _lastValidationStatus is InstallStatus.Passed or InstallStatus.Warning
+                ? InstallerEvidenceEventType.UpgradeCompleted
+                : InstallerEvidenceEventType.UpgradeFailed
+            : _lastValidationStatus is InstallStatus.Passed or InstallStatus.Warning
+                ? InstallerEvidenceEventType.UpgradeValidationCompleted
+                : _lastDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning
+                    ? InstallerEvidenceEventType.UpgradeDeploymentCompleted
+                    : _installerEvidenceOutbox.InstallStarted
+                        ? InstallerEvidenceEventType.UpgradeStarted
+                        : InstallerEvidenceEventType.UpgradePackageValidated;
+    }
+
+    private string MapDeploymentEvidenceEventType(string eventType, CustomerInstallConfig config)
+    {
+        if (!IsUpgradePackage(config))
+        {
+            return eventType;
+        }
+
+        return eventType switch
+        {
+            InstallerEvidenceEventType.PackageValidated => InstallerEvidenceEventType.UpgradePackageValidated,
+            InstallerEvidenceEventType.PackageValidationFailed => InstallerEvidenceEventType.UpgradePackageValidationFailed,
+            InstallerEvidenceEventType.InstallStarted => InstallerEvidenceEventType.UpgradeStarted,
+            InstallerEvidenceEventType.AzureDeploymentCompleted => InstallerEvidenceEventType.UpgradeDeploymentCompleted,
+            InstallerEvidenceEventType.RuntimeConfigured => InstallerEvidenceEventType.UpgradeRuntimeConfigured,
+            InstallerEvidenceEventType.SmokeTestsCompleted => InstallerEvidenceEventType.UpgradeValidationCompleted,
+            InstallerEvidenceEventType.InstallCompleted => InstallerEvidenceEventType.UpgradeCompleted,
+            InstallerEvidenceEventType.InstallFailed => InstallerEvidenceEventType.UpgradeFailed,
+            _ => eventType
+        };
     }
 
     private async Task FlushInstallerEvidenceOutboxAsync()
@@ -4890,23 +5168,52 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     {
         if (_config is null)
         {
-            FooterStatus = "Load a customer package before running install.";
+            FooterStatus = "Load a customer package before running deployment.";
             return;
         }
 
+        var actionTitle = DeploymentActionTitle;
+        var actionLower = actionTitle.ToLowerInvariant();
+
         if (_lastPreviewStatus is not (InstallStatus.Passed or InstallStatus.Warning))
         {
-            FooterStatus = "Run deployment preview successfully before installing.";
+            FooterStatus = $"Run deployment preview successfully before {actionLower}.";
             return;
         }
 
         if (!CanRunInstall())
         {
             FooterStatus = RuntimeSecretInputs.Any(input => !input.IsReady)
-                ? "Complete every protected runtime value before running install. Values remain in memory only for this attempt."
-                : "Review the preview, approve the install, and type the target resource group before running install.";
+                ? $"Complete every protected runtime value before running {actionLower}. Values remain in memory only for this attempt."
+                : $"Review the preview, approve the {actionLower}, and type the target resource group before continuing.";
             return;
         }
+
+        var executionBinding = _deploymentExecutionBindingService.Validate(new DeploymentExecutionBindingRequest
+        {
+            PackagePath = PackagePath,
+            ExpectedPackageHash = _previewPackageHash,
+            PreviewEvidencePath = PreviewOutputPath,
+            ExpectedPreviewEvidenceHash = _previewEvidenceHash,
+            PreviewArtifactPath = PreviewArtifactPath,
+            ExpectedPreviewArtifactHash = _previewArtifactHash
+        });
+        if (!executionBinding.IsValid ||
+            !executionBinding.PackageHash.Equals(PackageComputedHash, StringComparison.OrdinalIgnoreCase))
+        {
+            DeploymentApprovalConfirmed = false;
+            DeploymentConfirmationText = "";
+            ClearPreviewReview();
+            ClearDeploymentReview();
+            FooterStatus = executionBinding.Errors.Count > 0
+                ? string.Join(" ", executionBinding.Errors)
+                : "The customer package no longer matches its validated identity. Reload it and rerun deployment preview.";
+            AiTitle = "Deployment approval expired";
+            AiSummary = "The package or preview evidence changed after review. Reload the package and generate a new Azure What-If preview before deployment.";
+            return;
+        }
+
+        var allowUpgradeTargetStateResume = CanUseUpgradeForwardFix(executionBinding.PackageHash);
 
         DeploymentResults.Clear();
         ClearValidationReview();
@@ -4922,7 +5229,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = "Running approved PageMaker365 deployment.";
         _session = _engine.CreateSession(_config, GetWorkspaceRoot());
         SessionId = _session.SessionId;
-        SessionStatus = "Install running";
+        SessionStatus = $"{actionTitle} running";
         SetCurrentStep(6);
         SetStepStatus(6, "Running", "#19D8E9");
 
@@ -4940,6 +5247,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         try
         {
             await WriteDeploymentApprovalManifestAsync();
+            AuthorizeUpgradeForwardFix(executionBinding.PackageHash);
             SaveWizardState();
             await EnsureFreshInstallEvidenceAttemptAsync();
             await QueueInstallerEvidenceAsync(
@@ -4947,7 +5255,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "provisioning",
                 "passed",
                 "Installer started provisioning the approved customer environment.");
-            await _engine.RunDeploymentAsync(_session, GetWorkspaceRoot(), PackagePath, deploymentArtifactOutputPath, progress);
+            await _engine.RunDeploymentAsync(
+                _session,
+                GetWorkspaceRoot(),
+                PackagePath,
+                deploymentArtifactOutputPath,
+                progress,
+                allowUpgradeTargetStateResume: allowUpgradeTargetStateResume);
             azureDeploymentStatus = GetDeploymentStatus(deploymentResults);
             if (azureDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning)
             {
@@ -4986,7 +5300,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                         InstallerEvidenceEventType.RuntimeConfigured,
                         "provisioning",
                         runtimeConfigurationStatus == InstallStatus.Warning ? "warning" : "passed",
-                        "Customer-owned runtime secrets were provisioned and App Service Key Vault references resolved.");
+                    "Customer-owned runtime secrets were provisioned and App Service Key Vault references resolved.");
                 }
             }
         }
@@ -5020,11 +5334,11 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentStatusBrush = BrushForStatus(deploymentStatus);
         DeploymentSummary = deploymentStatus switch
         {
-            InstallStatus.Passed => "Azure deployment and protected runtime configuration completed. Continue to validation.",
-            InstallStatus.Warning => "Install completed with warnings. Review deployment and runtime configuration details before validation.",
-            InstallStatus.Skipped => "Install was skipped. Review approval and rerun when ready.",
-            InstallStatus.Failed => "Install failed. Resolve the blocker before continuing.",
-            _ => "Install did not return a final status."
+            InstallStatus.Passed => $"{actionTitle} and protected runtime configuration completed. Continue to validation.",
+            InstallStatus.Warning => $"{actionTitle} completed with warnings. Review deployment and runtime configuration details before validation.",
+            InstallStatus.Skipped => $"{actionTitle} was skipped. Review approval and rerun when ready.",
+            InstallStatus.Failed => $"{actionTitle} failed. Resolve the blocker before continuing.",
+            _ => $"{actionTitle} did not return a final status."
         };
         SessionStatus = _session.Status.ToString();
         var deploymentStepStatus = deploymentStatus switch
@@ -5064,14 +5378,14 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         OnPropertyChanged(nameof(ValidationTargetDetails));
         FooterStatus = deploymentStatus switch
         {
-            InstallStatus.Passed => "Install completed. Continue to validation.",
-            InstallStatus.Warning => "Install completed with warnings. Review install evidence, then continue to validation.",
-            InstallStatus.Skipped => "Install was skipped. Confirm approval and retry when ready.",
-            _ => "Install failed. Review deployment results and support evidence."
+            InstallStatus.Passed => $"{actionTitle} completed. Continue to validation.",
+            InstallStatus.Warning => $"{actionTitle} completed with warnings. Review deployment evidence, then continue to validation.",
+            InstallStatus.Skipped => $"{actionTitle} was skipped. Confirm approval and retry when ready.",
+            _ => $"{actionTitle} failed. Review deployment results and support evidence."
         };
-        AiTitle = deploymentStatus == InstallStatus.Failed ? "Install blocker detected" : "Install evidence ready";
+        AiTitle = deploymentStatus == InstallStatus.Failed ? $"{actionTitle} blocker detected" : $"{actionTitle} evidence ready";
         AiSummary = deploymentStatus == InstallStatus.Failed
-            ? "Azure deployment reported a blocking issue. Review the install result details, fix the prerequisite, then rerun install."
+            ? $"Azure deployment reported a blocking issue. Review the result details, fix the prerequisite, then rerun {actionLower}."
             : "Deployment evidence was saved. Run validation next to confirm API health, SharePoint access, and telemetry.";
 
         RunInstallCommand.RaiseCanExecuteChanged();
@@ -5106,6 +5420,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 PreviewStatus = _lastPreviewStatus.ToString(),
                 PreviewSummary = PreviewSummary,
                 PreviewEvidencePath = GetApprovalPreviewEvidencePath(),
+                PreviewArtifactPath = PreviewArtifactPath,
                 PreviewResultCount = PreviewResults.Count,
                 PreviewWarningCount = PreviewResults.Count(result => ParseInstallStatus(result.StatusLabel) == InstallStatus.Warning),
                 PreviewFailureCount = PreviewResults.Count(result => ParseInstallStatus(result.StatusLabel) == InstallStatus.Failed),
@@ -5272,13 +5587,13 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         {
             DeploymentStatus = "Ready for approval";
             DeploymentStatusBrush = "#FFB84D";
-            DeploymentSummary = "Review the deployment preview evidence, approve the install, then type the target resource group.";
+            DeploymentSummary = $"Review the deployment preview evidence, approve the {DeploymentActionTitle.ToLowerInvariant()}, then type the target resource group.";
         }
         else
         {
             DeploymentStatus = "Waiting for preview";
             DeploymentStatusBrush = "#8290AA";
-            DeploymentSummary = "Complete deployment preview before running install.";
+            DeploymentSummary = $"Complete deployment preview before running {DeploymentActionTitle.ToLowerInvariant()}.";
         }
 
         DeploymentOutputPath = "Not saved";
@@ -5300,6 +5615,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _lastDeploymentStatus is InstallStatus.Passed or InstallStatus.Warning &&
             _isGraphSignedIn &&
             !string.IsNullOrWhiteSpace(_graphAccessToken) &&
+            (!IsUpgradePackage() || !_installerEvidenceOutbox.IsTerminal) &&
             !_isPowerShellActionRunning;
     }
 
@@ -5313,7 +5629,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
 
         if (_lastDeploymentStatus is not (InstallStatus.Passed or InstallStatus.Warning))
         {
-            FooterStatus = "Complete install before running validation.";
+            FooterStatus = "Complete deployment before running validation.";
             return;
         }
 
@@ -5376,6 +5692,23 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _session.Results.Add(failed);
         }
 
+        var runtimeIdentityVerified = validationResults.Any(result =>
+            result.Code == "AppHealthReady" && result.Status == InstallStatus.Passed) &&
+            validationResults.Any(result =>
+                result.Code == "PortalAppReady" && result.Status == InstallStatus.Passed);
+        if (!runtimeIdentityVerified && !validationResults.Any(result => result.Status == InstallStatus.Failed))
+        {
+            var identityFailure = InstallerStepResult.Failed(
+                "Runtime Identity",
+                "RuntimeIdentityNotVerified",
+                "The deployed PageMaker365 runtime identity was not verified.",
+                "Both API and portal identity checks must pass before deployment completion can be reported.",
+                retrySafe: true);
+            validationResults.Add(identityFailure);
+            ValidationResults.Add(new ValidationResultViewModel(identityFailure));
+            _session.Results.Add(identityFailure);
+        }
+
         var validationStatus = GetPhaseStatus(validationResults);
         _lastValidationStatus = validationStatus;
         ValidationStatus = validationStatus.ToString();
@@ -5420,13 +5753,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
         else
         {
-            await QueueInstallerEvidenceAsync(
-                InstallerEvidenceEventType.SmokeTestsCompleted,
-                "failed",
-                "failed",
-                "Required runtime smoke tests did not pass.",
-                CreateMilestoneError("smoke", validationResults),
-                smokeTests);
+            if (!IsUpgradePackage())
+            {
+                await QueueInstallerEvidenceAsync(
+                    InstallerEvidenceEventType.SmokeTestsCompleted,
+                    "failed",
+                    "failed",
+                    "Required runtime smoke tests did not pass.",
+                    CreateMilestoneError("smoke", validationResults),
+                    smokeTests);
+            }
             await QueueInstallerEvidenceAsync(
                 InstallerEvidenceEventType.InstallFailed,
                 "failed",
@@ -5551,9 +5887,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
         else
         {
-            ValidationStatus = "Waiting for install";
+            ValidationStatus = "Waiting for deployment";
             ValidationStatusBrush = "#8290AA";
-            ValidationSummary = "Complete install before running validation.";
+            ValidationSummary = "Complete deployment before running validation.";
         }
 
         ValidationOutputPath = "Not saved";
@@ -5570,7 +5906,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             _config is not null &&
             File.Exists(PackagePath) &&
             _currentStepNumber >= 8 &&
-            _lastValidationStatus is InstallStatus.Passed or InstallStatus.Warning;
+            _lastValidationStatus is InstallStatus.Passed or InstallStatus.Warning &&
+            !FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase) &&
+            (!IsUpgradePackage() || !_installerEvidenceOutbox.IsTerminal);
     }
 
     private async Task CreateFinalEvidenceAsync()
@@ -5587,10 +5925,17 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return;
         }
 
+        if (FinishStatus.Equals("Complete", StringComparison.OrdinalIgnoreCase) ||
+            (IsUpgradePackage() && _installerEvidenceOutbox.IsTerminal))
+        {
+            FooterStatus = "Final deployment evidence has already been created for this attempt.";
+            return;
+        }
+
         FinishStatus = "Generating";
         FinishStatusBrush = "#19D8E9";
         FinishSummary = "Creating final report, manifest, and evidence zip.";
-        FooterStatus = "Generating final install evidence package.";
+        FooterStatus = $"Generating final {DeploymentActionTitle.ToLowerInvariant()} evidence package.";
         SetCurrentStep(8);
         SetStepStatus(8, "Running", "#19D8E9");
 
@@ -5633,10 +5978,10 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             CreateSmokeTestSummary(ValidationResults.Select(ToStepResult).ToList()));
         FinishStatus = "Complete";
         FinishStatusBrush = "#42D8A0";
-        FinishSummary = "Final install evidence package is ready for PageMaker365 records and customer handoff.";
+        FinishSummary = $"Final {DeploymentActionTitle.ToLowerInvariant()} evidence package is ready for PageMaker365 records and customer handoff.";
         SetStepStatus(8, "Complete", "#42D8A0");
         FooterStatus = $"Final evidence package created: {FinalBundlePath}";
-        AiTitle = "Install workflow complete";
+        AiTitle = $"{DeploymentActionTitle} workflow complete";
         AiSummary = "The final report, manifest, and evidence package are ready. Retain the package in customer records and complete the handoff steps.";
 
         CreateFinalEvidenceCommand.RaiseCanExecuteChanged();

@@ -70,6 +70,18 @@ public sealed class DeploymentApprovalTargetSummary
 
 public sealed class DeploymentApprovalPackageSummary
 {
+    [JsonPropertyName("operation")]
+    public string Operation { get; set; } = "";
+
+    [JsonPropertyName("sourceRuntimeVersion")]
+    public string SourceRuntimeVersion { get; set; } = "";
+
+    [JsonPropertyName("targetRuntimeVersion")]
+    public string TargetRuntimeVersion { get; set; } = "";
+
+    [JsonPropertyName("sourceDeploymentExportId")]
+    public string SourceDeploymentExportId { get; set; } = "";
+
     [JsonPropertyName("packagePath")]
     public string PackagePath { get; set; } = "";
 
@@ -108,6 +120,15 @@ public sealed class DeploymentApprovalPreviewEvidenceSummary
 
     [JsonPropertyName("evidenceFileFound")]
     public bool EvidenceFileFound { get; set; }
+
+    [JsonPropertyName("artifactPath")]
+    public string ArtifactPath { get; set; } = "";
+
+    [JsonPropertyName("artifactHash")]
+    public string ArtifactHash { get; set; } = "";
+
+    [JsonPropertyName("artifactFileFound")]
+    public bool ArtifactFileFound { get; set; }
 
     [JsonPropertyName("resultCount")]
     public int ResultCount { get; set; }

@@ -32,6 +32,11 @@ internal static class Program
             ("SubmitEvidenceAsync sends hardened callback contract", SubmitEvidenceAsyncSendsHardenedCallbackContract),
             ("SubmitEvidenceAsync retries transient failure with stable identity", SubmitEvidenceAsyncRetriesTransientFailureWithStableIdentity),
             ("SubmitEvidenceAsync does not retry unauthorized response", SubmitEvidenceAsyncDoesNotRetryUnauthorizedResponse),
+            ("SubmitEvidenceAsync sends upgrade lifecycle identity", SubmitEvidenceAsyncSendsUpgradeLifecycleIdentity),
+            ("SubmitEvidenceAsync rejects mismatched upgrade receipt", SubmitEvidenceAsyncRejectsMismatchedUpgradeReceipt),
+            ("SubmitEvidenceAsync rejects non-accepted upgrade receipt", SubmitEvidenceAsyncRejectsNonAcceptedUpgradeReceipt),
+            ("SubmitEvidenceAsync rejects mismatched upgrade idempotency identity", SubmitEvidenceAsyncRejectsMismatchedUpgradeIdempotencyIdentity),
+            ("SubmitEvidenceAsync rejects secret-like upgrade error", SubmitEvidenceAsyncRejectsSecretLikeUpgradeError),
             ("SubmitEvidenceAsync sends hardened removal callback contract", SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract),
             ("SubmitEvidenceAsync rejects secret-looking removal error", SubmitEvidenceAsyncRejectsSecretLookingRemovalError),
             ("SubmitEvidenceAsync rejects noncanonical accepted receipt", SubmitEvidenceAsyncRejectsNoncanonicalAcceptedReceipt),
@@ -98,6 +103,11 @@ internal static class Program
             ("CustomerConfigService rejects unexpected runtime secret setting", CustomerConfigServiceRejectsUnexpectedRuntimeSecretSetting),
             ("CustomerConfigService rejects oversized runtime secret minimum", CustomerConfigServiceRejectsOversizedRuntimeSecretMinimum),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
+            ("UpgradeContractService accepts patch and adjacent minor upgrades", UpgradeContractServiceAcceptsSupportedTransitions),
+            ("UpgradeContractService rejects unsafe version transitions", UpgradeContractServiceRejectsUnsafeTransitions),
+            ("UpgradeContractService version matches PowerShell module", UpgradeContractServiceVersionMatchesPowerShellModule),
+            ("Upgrade evidence lifecycle enforces ordered terminal flow", UpgradeEvidenceLifecycleEnforcesOrderedTerminalFlow),
+            ("CustomerConfigService requires deployment intent for signed packages", CustomerConfigServiceRequiresDeploymentIntentForSignedPackages),
             ("Assistant API rejects untrusted portal origin", AssistantApiRejectsUntrustedPortalOrigin),
             ("Assistant message sends trusted sanitized contract", AssistantMessageSendsTrustedSanitizedContract),
             ("Assistant message rejects prohibited payload before transport", AssistantMessageRejectsProhibitedPayloadBeforeTransport),
@@ -119,6 +129,7 @@ internal static class Program
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
             ("DeploymentApprovalManifestService writes hash without raw confirmation", DeploymentApprovalManifestServiceWritesHashWithoutRawConfirmation),
             ("FinalEvidenceService copies approval and Azure artifacts", FinalEvidenceServiceCopiesApprovalAndAzureArtifacts),
+            ("Deployment execution binding rejects changed package and preview", DeploymentExecutionBindingRejectsChangedInputs),
             ("InstallerEngine parses JSON result from mixed PowerShell output", InstallerEngineParsesJsonResultFromMixedPowerShellOutput),
             ("InstallerEngine passes Graph token and deployment artifact to validation", InstallerEnginePassesGraphTokenToValidationProcess),
             ("PowerShellProcessRunner returns failed result on timeout", PowerShellProcessRunnerReturnsFailedResultOnTimeout),
@@ -268,6 +279,146 @@ internal static class Program
 
         AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
         AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncSendsUpgradeLifecycleIdentity()
+    {
+        var evidence = CreateInstallerEvidence();
+        evidence.Lifecycle = InstallerEvidenceLifecycle.Upgrade;
+        evidence.AttemptId = "ua_upgrade_001";
+        evidence.InstallAttemptId = evidence.AttemptId;
+        evidence.UpgradeAttemptId = evidence.AttemptId;
+        evidence.EventType = InstallerEvidenceEventType.UpgradeStarted;
+        evidence.Operation = UpgradeContractService.UpgradeOperation;
+        evidence.SourceRuntimeVersion = "1.4.2";
+        evidence.TargetRuntimeVersion = "1.5.0";
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "lifecycle": "upgrade",
+              "attemptId": "{{evidence.AttemptId}}",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "upgradeAttemptId": "{{evidence.UpgradeAttemptId}}",
+              "sequence": 1,
+              "lifecycleStatus": "provisioning",
+              "outcome": "passed",
+              "correlationId": "corr-upgrade-evidence-001"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+        var idempotencyKey = $"{evidence.AttemptId}:1:{evidence.EventId}";
+
+        await client.SubmitEvidenceAsync(CreateSession(), evidence, idempotencyKey);
+
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]);
+        AssertJsonString(body, "lifecycle", InstallerEvidenceLifecycle.Upgrade);
+        AssertJsonString(body, "attemptId", evidence.AttemptId);
+        AssertJsonString(body, "upgradeAttemptId", evidence.UpgradeAttemptId);
+        AssertJsonString(body, "operation", UpgradeContractService.UpgradeOperation);
+        AssertJsonString(body, "sourceRuntimeVersion", "1.4.2");
+        AssertJsonString(body, "targetRuntimeVersion", "1.5.0");
+        AssertEx.Contains(handler.HeaderValues("Idempotency-Key"), idempotencyKey);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedUpgradeReceipt()
+    {
+        var evidence = CreateUpgradeEvidence(InstallerEvidenceEventType.UpgradeStarted, "provisioning", "passed");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Accepted",
+              "sessionId": "onb_test_001",
+              "lifecycle": "upgrade",
+              "attemptId": "{{evidence.AttemptId}}",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "upgradeAttemptId": "{{evidence.UpgradeAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "provisioning",
+              "outcome": "warning",
+              "correlationId": "corr-upgrade-mismatch"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.AttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.StringContains(exception.Message, "did not match");
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsNonAcceptedUpgradeReceipt()
+    {
+        var evidence = CreateUpgradeEvidence(InstallerEvidenceEventType.UpgradeStarted, "provisioning", "passed");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse($$"""
+            {
+              "contractVersion": "0.3",
+              "status": "Rejected",
+              "sessionId": "onb_test_001",
+              "lifecycle": "upgrade",
+              "attemptId": "{{evidence.AttemptId}}",
+              "eventId": "{{evidence.EventId}}",
+              "eventType": "{{evidence.EventType}}",
+              "installAttemptId": "{{evidence.InstallAttemptId}}",
+              "upgradeAttemptId": "{{evidence.UpgradeAttemptId}}",
+              "sequence": {{evidence.Sequence}},
+              "lifecycleStatus": "provisioning",
+              "outcome": "passed",
+              "correlationId": "corr-upgrade-rejected"
+            }
+            """));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.AttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.StringContains(exception.Message, "did not match");
+        AssertEx.Equal(1, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsMismatchedUpgradeIdempotencyIdentity()
+    {
+        var evidence = CreateUpgradeEvidence(InstallerEvidenceEventType.UpgradeStarted, "provisioning", "passed");
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(CreateSession(), evidence, "ua_wrong:1:evt_wrong"));
+
+        AssertEx.StringContains(exception.Message, "idempotency identity");
+        AssertEx.Equal(0, handler.Requests.Count);
+    }
+
+    private static async Task SubmitEvidenceAsyncRejectsSecretLikeUpgradeError()
+    {
+        var evidence = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeFailed,
+            "failed",
+            "failed",
+            withError: true);
+        evidence.Error!.Message = "Authorization: Bearer secret-token-value";
+        var handler = new RecordingHttpMessageHandler(_ => JsonResponse("{}"));
+        var client = CreatePortalClient(handler);
+
+        var exception = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            client.SubmitEvidenceAsync(
+                CreateSession(),
+                evidence,
+                $"{evidence.AttemptId}:{evidence.Sequence}:{evidence.EventId}"));
+
+        AssertEx.StringContains(exception.Message, "prohibited secret-like content");
+        AssertEx.Equal(0, handler.Requests.Count);
     }
 
     private static async Task SubmitEvidenceAsyncSendsHardenedRemovalCallbackContract()
@@ -1903,6 +2054,135 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static Task UpgradeContractServiceAcceptsSupportedTransitions()
+    {
+        var service = new UpgradeContractService();
+        var config = CreateConfig();
+        config.Deployment.Operation = UpgradeContractService.UpgradeOperation;
+        config.Deployment.SourceRuntimeVersion = "1.4.2";
+        config.Deployment.TargetRuntimeVersion = "1.4.3";
+        config.Deployment.SourceDeploymentExportId = "export-source-001";
+
+        var patch = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.True(patch.IsValid, string.Join(" ", patch.Errors));
+        AssertEx.True(patch.IsUpgrade);
+
+        config.Deployment.TargetRuntimeVersion = "1.5.0";
+        var adjacentMinor = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.True(adjacentMinor.IsValid, string.Join(" ", adjacentMinor.Errors));
+        return Task.CompletedTask;
+    }
+
+    private static Task UpgradeContractServiceRejectsUnsafeTransitions()
+    {
+        var service = new UpgradeContractService();
+        var config = CreateConfig();
+        config.Deployment.Operation = UpgradeContractService.UpgradeOperation;
+        config.Deployment.SourceRuntimeVersion = "1.4.2";
+        config.Deployment.SourceDeploymentExportId = "export-source-001";
+
+        config.Deployment.TargetRuntimeVersion = "1.4.1";
+        var downgrade = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(downgrade.IsValid);
+        AssertEx.StringContains(string.Join(" ", downgrade.Errors), "greater than");
+
+        config.Deployment.TargetRuntimeVersion = "1.6.0";
+        var skippedMinor = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(skippedMinor.IsValid);
+        AssertEx.StringContains(string.Join(" ", skippedMinor.Errors), "skip a minor");
+
+        config.Deployment.TargetRuntimeVersion = "2.0.0";
+        var major = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(major.IsValid);
+        AssertEx.StringContains(string.Join(" ", major.Errors), "Major-version");
+
+        config.Deployment.TargetRuntimeVersion = "1.5.0";
+        config.Deployment.MinimumInstallerVersion = "9.0.0";
+        var installerTooOld = service.ValidatePackageIntent(config, deploymentSectionPresent: true, requireDeploymentIntent: true);
+        AssertEx.False(installerTooOld.IsValid);
+        AssertEx.StringContains(string.Join(" ", installerTooOld.Errors), "requires installer");
+        return Task.CompletedTask;
+    }
+
+    private static Task UpgradeContractServiceVersionMatchesPowerShellModule()
+    {
+        var manifestPath = Path.Combine(
+            FindRepositoryRoot(),
+            "modules",
+            "PageMaker365.Install",
+            "PageMaker365.Install.psd1");
+        var manifest = File.ReadAllText(manifestPath);
+
+        AssertEx.StringContains(
+            manifest,
+            $"ModuleVersion = '{UpgradeContractService.CurrentInstallerVersion}'");
+        return Task.CompletedTask;
+    }
+
+    private static async Task UpgradeEvidenceLifecycleEnforcesOrderedTerminalFlow()
+    {
+        var service = new UpgradeEvidenceLifecycleService();
+        var state = new InstallerEvidenceOutboxState
+        {
+            InstallAttemptId = "ua_lifecycle_001"
+        };
+
+        var outOfOrder = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeStarted,
+            "provisioning",
+            "passed");
+        var outOfOrderException = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            Task.Run(() => service.Prepare(state, outOfOrder)));
+        AssertEx.StringContains(outOfOrderException.Message, "out of order");
+        AssertEx.Equal(1, state.NextSequence);
+
+        var packageValidated = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradePackageValidated,
+            "provisioning",
+            "passed");
+        service.Prepare(state, packageValidated);
+        AssertEx.Equal(1, packageValidated.Sequence);
+
+        var started = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeStarted,
+            "provisioning",
+            "passed");
+        service.Prepare(state, started);
+        AssertEx.Equal(2, started.Sequence);
+
+        var failed = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeFailed,
+            "failed",
+            "failed",
+            withError: true);
+        service.Prepare(state, failed);
+        AssertEx.True(state.IsTerminal);
+        AssertEx.Equal(3, failed.Sequence);
+
+        var postTerminal = CreateUpgradeEvidence(
+            InstallerEvidenceEventType.UpgradeCompleted,
+            "completed",
+            "passed");
+        var terminalException = await AssertEx.ThrowsAsync<InvalidDataException>(() =>
+            Task.Run(() => service.Prepare(state, postTerminal)));
+        AssertEx.StringContains(terminalException.Message, "terminal");
+        AssertEx.Equal(4, state.NextSequence);
+    }
+
+    private static Task CustomerConfigServiceRequiresDeploymentIntentForSignedPackages()
+    {
+        var config = CreateConfig();
+        config.Deployment = new DeploymentIntentInfo();
+        config.ControlPlane.TrustMode = "SignedRequired";
+        var json = CustomerConfigService.ToJson(config);
+
+        var result = new CustomerConfigService().Validate(config, json);
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "deployment.operation is required");
+        return Task.CompletedTask;
+    }
+
     private static async Task AssistantApiRejectsUntrustedPortalOrigin()
     {
         var options = CreateAssistantOptions();
@@ -2594,6 +2874,44 @@ internal static class Program
         }
     }
 
+    private static async Task DeploymentExecutionBindingRejectsChangedInputs()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var packagePath = Path.Combine(workspaceRoot, "customer.install.json");
+            var previewEvidencePath = Path.Combine(workspaceRoot, "deployment-preview.json");
+            var previewArtifactPath = Path.Combine(workspaceRoot, "azure-whatif.json");
+            await File.WriteAllTextAsync(packagePath, """{"customer":"one","controlPlane":{"packageHash":"ignored"}}""");
+            await File.WriteAllTextAsync(previewEvidencePath, """{"status":"Passed"}""");
+            await File.WriteAllTextAsync(previewArtifactPath, """{"artifactType":"PageMaker365.AzureWhatIf"}""");
+
+            var request = new DeploymentExecutionBindingRequest
+            {
+                PackagePath = packagePath,
+                ExpectedPackageHash = DeploymentExecutionBindingService.HashPackage(packagePath),
+                PreviewEvidencePath = previewEvidencePath,
+                ExpectedPreviewEvidenceHash = DeploymentExecutionBindingService.HashFile(previewEvidencePath),
+                PreviewArtifactPath = previewArtifactPath,
+                ExpectedPreviewArtifactHash = DeploymentExecutionBindingService.HashFile(previewArtifactPath)
+            };
+            var service = new DeploymentExecutionBindingService();
+            var valid = service.Validate(request);
+            AssertEx.True(valid.IsValid, string.Join(" ", valid.Errors));
+
+            await File.WriteAllTextAsync(packagePath, """{"customer":"two","controlPlane":{"packageHash":"ignored"}}""");
+            await File.WriteAllTextAsync(previewArtifactPath, """{"artifactType":"Changed"}""");
+            var changed = service.Validate(request);
+            AssertEx.False(changed.IsValid);
+            AssertEx.StringContains(string.Join(" ", changed.Errors), "customer package changed");
+            AssertEx.StringContains(string.Join(" ", changed.Errors), "Azure What-If artifact changed");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
     private static async Task FinalEvidenceServiceCopiesApprovalAndAzureArtifacts()
     {
         var workspaceRoot = CreateTempDirectory();
@@ -3190,6 +3508,43 @@ internal static class Program
         };
     }
 
+    private static InstallerEvidenceEvent CreateUpgradeEvidence(
+        string eventType,
+        string lifecycleStatus,
+        string outcome,
+        bool withError = false)
+    {
+        return new InstallerEvidenceEvent
+        {
+            Lifecycle = InstallerEvidenceLifecycle.Upgrade,
+            AttemptId = "ua_lifecycle_001",
+            EventId = $"evt_{Guid.NewGuid():N}",
+            EventType = eventType,
+            InstallAttemptId = "ua_lifecycle_001",
+            UpgradeAttemptId = "ua_lifecycle_001",
+            Sequence = 1,
+            OnboardingSessionId = "onb_test_001",
+            DeploymentExportId = "export-target-001",
+            LifecycleStatus = lifecycleStatus,
+            Outcome = outcome,
+            Error = withError
+                ? new InstallerEvidenceError
+                {
+                    Code = "UPGRADE_FAILED",
+                    Message = "Upgrade validation failed.",
+                    Category = "upgrade",
+                    Retryable = true
+                }
+                : null,
+            InstallerVersion = "test-version",
+            PackageHash = "sha256:test-hash",
+            Operation = UpgradeContractService.UpgradeOperation,
+            SourceRuntimeVersion = "1.4.2",
+            TargetRuntimeVersion = "1.5.0",
+            Message = "Upgrade lifecycle event."
+        };
+    }
+
     private static InstallerEvidenceEvent CreateRemovalEvidencePayload(string eventType)
     {
         var blocked = eventType.Equals(InstallerEvidenceEventType.RemovalBlocked, StringComparison.Ordinal);
@@ -3273,6 +3628,7 @@ internal static class Program
             ContractVersion = "0.3",
             Customer =
             {
+                InstallationId = "inst-example-001",
                 TenantName = "Example Customer",
                 TenantId = "tenant-001",
                 PrimaryContact = "owner@example.test"
@@ -3302,6 +3658,15 @@ internal static class Program
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
+            },
+            Deployment =
+            {
+                Operation = UpgradeContractService.InstallOperation,
+                TargetRuntimeVersion = "0.1.0",
+                MinimumInstallerVersion = UpgradeContractService.CurrentInstallerVersion,
+                FailureRecovery = "ForwardFix",
+                ResourceNamePolicy = "Immutable",
+                SharePointDataPolicy = "Preserve"
             },
             ControlPlane =
             {

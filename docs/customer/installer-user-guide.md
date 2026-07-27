@@ -135,6 +135,12 @@ For a transient App Service capacity conflict, retain the evidence and retry onl
 5. If ownership is ambiguous or cleanup is required, switch to the removal workflow and use the original customer package. Do not delete individual resources by guesswork.
 6. Create a support bundle before external escalation when the installer cannot establish a safe next action.
 
+## Upgrade Contract Under Acceptance
+
+The installer-side upgrade contract is implemented on the issue #6 branch but is not yet a supported customer workflow. Signed upgrade packages identify source and target runtime versions; unsupported, stale, mismatched, or changed package/preview identities stop before mutation. Azure What-If and explicit approval remain required, customer SharePoint content and Key Vault values are preserved, and partial target-state recovery is restricted to the original package-bound saved session.
+
+Do not use this section as upgrade authorization. Customer instructions will be added only after the control plane generates the signed contract, the portal accepts exact lifecycle receipts, and patch/minor, preservation, interruption, and outbox behavior pass staging acceptance.
+
 ## Remove PageMaker365 Azure Resources
 
 Removal is Azure-only. It does not delete or modify SharePoint content, lists, libraries, pages, or documents.

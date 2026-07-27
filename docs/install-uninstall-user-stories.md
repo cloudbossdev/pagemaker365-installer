@@ -110,7 +110,10 @@ Acceptance criteria:
 - Configuration migration, health validation, failure recovery, and rollback boundaries are defined.
 - Unsupported or skipped version transitions fail before mutation.
 
-This story is planned under [#6](https://github.com/cloudbossdev/pagemaker365-installer/issues/6); current install behavior must not be described as a verified upgrade contract.
+The installer enforces the package and Azure source/target contract documented in
+`upgrade-contract.md`. Portal package generation, upgrade lifecycle acceptance, and
+live patch/minor recovery proof remain required under
+[#6](https://github.com/cloudbossdev/pagemaker365-installer/issues/6).
 
 ## US-09 Validate The Deployed Runtime
 

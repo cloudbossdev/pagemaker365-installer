@@ -6,7 +6,9 @@ function Invoke-PM365WhatIf {
 
         [string] $TemplateFile = (Get-PM365DefaultTemplateFile),
 
-        [string] $OutputPath = ''
+        [string] $OutputPath = '',
+
+        [switch] $AllowUpgradeTargetStateResume
     )
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
@@ -258,6 +260,11 @@ function Invoke-PM365WhatIf {
             -RetrySafe $true `
             -Data (New-PM365WhatIfResultData -Risk $risk -ArtifactPath $artifactPath)
         return
+    }
+
+    $upgradeContract = Test-PM365UpgradeContract -ConfigPath $ConfigPath -AllowTargetStateResume:$AllowUpgradeTargetStateResume
+    if ($upgradeContract.status -eq 'Failed') {
+        return $upgradeContract
     }
 
     $resourceGroupName = [string]$config.azure.resourceGroupName

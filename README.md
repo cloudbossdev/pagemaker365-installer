@@ -104,6 +104,7 @@ Start here before wiring the production payload:
 - `docs/testing/customer-lifecycle-acceptance-runbook.md`
 - `docs/deployment-contract.md`
 - `docs/onboarding-discovery-contract.md`
+- `docs/upgrade-contract.md`
 - `docs/removal-evidence-callback-contract.md`
 - `docs/using-the-installer.md`
 - `docs/implementation-backlog.md`

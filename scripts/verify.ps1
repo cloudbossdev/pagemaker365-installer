@@ -141,7 +141,8 @@ Write-Host 'Checking exported commands...'
     'Invoke-PM365Deployment',
     'Set-PM365RuntimeConfiguration',
     'Remove-PM365PartialInstall',
-    'Test-PM365SmokeTests'
+    'Test-PM365SmokeTests',
+    'Test-PM365UpgradeContract'
 ) | ForEach-Object {
     Get-Command $_ -Module PageMaker365.Install -ErrorAction Stop | Out-Null
 }
@@ -204,6 +205,12 @@ Write-Host 'Testing Azure platform readiness preflight contracts...'
 & (Join-Path $repoRoot 'scripts\test-azure-platform-readiness.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Azure platform readiness preflight tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing install and upgrade compatibility contracts...'
+& (Join-Path $repoRoot 'scripts\test-upgrade-contract.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Upgrade contract tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Running preflight...'

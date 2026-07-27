@@ -42,12 +42,18 @@ Required launch sections:
 - `sharePoint`
 - `app`
 - `entra`
+- `deployment`
 - `controlPlane`
 - `secrets`
 - `features`
 - `smokeTests`
 
 The installer currently accepts the older alpha package shape, but preflight warns when launch contract fields are missing. Explicit package hash mismatches and raw secret containers are blocking failures.
+
+The `deployment` section declares whether the immutable package is a clean install
+or an upgrade and binds supported source/target runtime versions. Signed packages
+must include it. See `upgrade-contract.md` for compatibility, recovery, evidence,
+and customer-data rules.
 
 ## Package Export Trust Metadata
 

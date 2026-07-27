@@ -117,6 +117,7 @@ public sealed class MockOnboardingApiClient : IOnboardingApiClient
             Lifecycle = evidence.Lifecycle,
             AttemptId = evidence.AttemptId,
             InstallAttemptId = evidence.InstallAttemptId,
+            UpgradeAttemptId = evidence.UpgradeAttemptId,
             RemovalAttemptId = evidence.RemovalAttemptId,
             Sequence = evidence.Sequence,
             LifecycleStatus = evidence.LifecycleStatus,

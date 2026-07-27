@@ -2,7 +2,9 @@ function Start-PM365Preflight {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string] $ConfigPath
+        [string] $ConfigPath,
+
+        [switch] $AllowUpgradeTargetStateResume
     )
 
     $results = @()
@@ -10,6 +12,7 @@ function Start-PM365Preflight {
     $results += Test-PM365DeploymentContract -ConfigPath $ConfigPath
     $results += Test-PM365AzureContext -ConfigPath $ConfigPath
     $results += Test-PM365AzurePlatformReadiness -ConfigPath $ConfigPath
+    $results += Test-PM365UpgradeContract -ConfigPath $ConfigPath -AllowTargetStateResume:$AllowUpgradeTargetStateResume
     $results += Test-PM365KeyVaultRecoveryState -ConfigPath $ConfigPath
     $results += Test-PM365EntraPermissions -ConfigPath $ConfigPath
     $results += Test-PM365SharePointAccess -ConfigPath $ConfigPath

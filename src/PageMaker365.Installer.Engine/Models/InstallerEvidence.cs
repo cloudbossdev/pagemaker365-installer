@@ -7,6 +7,7 @@ public sealed class InstallerEvidenceEvent
     public string EventId { get; set; } = "";
     public string EventType { get; set; } = "";
     public string InstallAttemptId { get; set; } = "";
+    public string UpgradeAttemptId { get; set; } = "";
     public string RemovalAttemptId { get; set; } = "";
     public int Sequence { get; set; }
     public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
@@ -20,6 +21,9 @@ public sealed class InstallerEvidenceEvent
     public string RuntimeUrl { get; set; } = "";
     public string ApiUrl { get; set; } = "";
     public string AzureResourceGroup { get; set; } = "";
+    public string Operation { get; set; } = "";
+    public string SourceRuntimeVersion { get; set; } = "";
+    public string TargetRuntimeVersion { get; set; } = "";
     public List<InstallerEvidenceSmokeTest> SmokeTests { get; set; } = [];
     public RemovalEvidenceOutcomeSummary? RemovalOutcomes { get; set; }
     public string Message { get; set; } = "";
@@ -45,11 +49,12 @@ public sealed class InstallerEvidenceReceipt
     public string ContractVersion { get; set; } = "";
     public string Status { get; set; } = "";
     public string SessionId { get; set; } = "";
-    public string EventId { get; set; } = "";
-    public string EventType { get; set; } = "";
     public string Lifecycle { get; set; } = "";
     public string AttemptId { get; set; } = "";
+    public string EventId { get; set; } = "";
+    public string EventType { get; set; } = "";
     public string InstallAttemptId { get; set; } = "";
+    public string UpgradeAttemptId { get; set; } = "";
     public string RemovalAttemptId { get; set; } = "";
     public int Sequence { get; set; }
     public string LifecycleStatus { get; set; } = "";
@@ -76,6 +81,7 @@ public sealed class InstallerEvidenceOutboxState
     public int NextSequence { get; set; } = 1;
     public bool InstallStarted { get; set; }
     public bool IsTerminal { get; set; }
+    public string LastEventType { get; set; } = "";
     public List<PendingInstallerEvidenceEvent> PendingEvents { get; set; } = [];
 }
 
@@ -106,6 +112,7 @@ public sealed class RemovalEvidenceOutcomeSummary
 public static class InstallerEvidenceLifecycle
 {
     public const string Install = "install";
+    public const string Upgrade = "upgrade";
     public const string Removal = "removal";
 }
 
@@ -119,6 +126,14 @@ public static class InstallerEvidenceEventType
     public const string SmokeTestsCompleted = "smoke_tests_completed";
     public const string InstallCompleted = "install_completed";
     public const string InstallFailed = "install_failed";
+    public const string UpgradePackageValidated = "upgrade_package_validated";
+    public const string UpgradePackageValidationFailed = "upgrade_package_validation_failed";
+    public const string UpgradeStarted = "upgrade_started";
+    public const string UpgradeDeploymentCompleted = "upgrade_deployment_completed";
+    public const string UpgradeRuntimeConfigured = "upgrade_runtime_configured";
+    public const string UpgradeValidationCompleted = "upgrade_validation_completed";
+    public const string UpgradeCompleted = "upgrade_completed";
+    public const string UpgradeFailed = "upgrade_failed";
     public const string RemovalStarted = "removal_started";
     public const string RemovalInventoryCompleted = "removal_inventory_completed";
     public const string RemovalExecutionCompleted = "removal_execution_completed";
