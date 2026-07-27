@@ -42,6 +42,9 @@ internal static class Program
             ("Removal evidence lifecycle rejects inconsistent event semantics", RemovalEvidenceLifecycleRejectsInconsistentEventSemantics),
             ("Removal evidence lifecycle preserves prior attempt outbox", RemovalEvidenceLifecyclePreservesPriorAttemptOutbox),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
+            ("DownloadPackageAsync retries transient rate limits", DownloadPackageAsyncRetriesTransientRateLimits),
+            ("DownloadPackageAsync cancels transient retry wait", DownloadPackageAsyncCancelsTransientRetryWait),
+            ("DownloadPackageAsync does not retry unauthorized response", DownloadPackageAsyncDoesNotRetryUnauthorizedResponse),
             ("DownloadPackageAsync verifies signed package with advertised JWKS", DownloadPackageAsyncVerifiesSignedPackageWithAdvertisedJwks),
             ("DownloadPackageAsync redownloads previously downloaded portal package", DownloadPackageAsyncRedownloadsPreviouslyDownloadedPortalPackage),
             ("PackageTrustKeyResolver rejects untrusted JWKS host", PackageTrustKeyResolverRejectsUntrustedJwksHost),
@@ -69,6 +72,8 @@ internal static class Program
             ("GetOnboardingStatusAsync rejects status session mismatch", GetOnboardingStatusAsyncRejectsStatusSessionMismatch),
             ("GetOnboardingStatusAsync validates sample status contract", GetOnboardingStatusAsyncValidatesSampleStatusContract),
             ("ConnectAsync surfaces portal API error details", ConnectAsyncSurfacesPortalApiErrorDetails),
+            ("ConnectAsync sanitizes nested portal API error", ConnectAsyncSanitizesNestedPortalApiError),
+            ("ConnectAsync omits unrecognized raw error body", ConnectAsyncOmitsUnrecognizedRawErrorBody),
             ("DownloadPackageAsync rejects non-json package response", DownloadPackageAsyncRejectsNonJsonPackageResponse),
             ("DownloadPackageAsync rejects invalid generated package", DownloadPackageAsyncRejectsInvalidGeneratedPackage),
             ("DownloadPackageAsync rejects generated package missing required contract sections", DownloadPackageAsyncRejectsGeneratedPackageMissingRequiredContractSections),
@@ -599,6 +604,120 @@ internal static class Program
             AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
             AssertEx.Equal(packageJson, await File.ReadAllTextAsync(result.PackagePath));
             AssertEx.StringContains(result.PackagePath, Path.Combine("support-bundle", "onboarding", "onb_test_001", "generated-package"));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncRetriesTransientRateLimits()
+    {
+        var packageJson = CustomerConfigService.ToJson(CreateConfig());
+        var attempts = 0;
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            attempts++;
+            if (attempts < 3)
+            {
+                var rateLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent("rate limited", Encoding.UTF8, "text/plain")
+                };
+                rateLimited.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+                rateLimited.Headers.Add("X-Correlation-ID", $"corr-rate-limit-{attempts}");
+                return rateLimited;
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(packageJson, Encoding.UTF8, "application/json")
+            };
+            response.Headers.Add("X-Correlation-ID", "corr-rate-limit-success");
+            return response;
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var result = await client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot);
+
+            AssertEx.Equal("Downloaded", result.Status);
+            AssertEx.Equal("corr-rate-limit-success", result.CorrelationId);
+            AssertEx.StringContains(result.Message, "after 3 attempts");
+            AssertEx.Equal(3, handler.Requests.Count);
+            foreach (var request in handler.Requests)
+            {
+                AssertEx.Equal(HttpMethod.Get, request.Method);
+                AssertEx.Equal("https://localhost:5443/custom/download", request.RequestUri?.ToString());
+                AssertEx.True(
+                    request.Headers.TryGetValue("X-PM365-Onboarding-Session", out var sessions) &&
+                    sessions.Contains("onb_test_001"),
+                    "Retried package request did not preserve the onboarding session header.");
+                AssertEx.True(
+                    request.Headers.TryGetValue("X-PM365-Onboarding-Code", out var codes) &&
+                    codes.Contains("TEST-CODE-001"),
+                    "Retried package request did not preserve the onboarding code header.");
+            }
+            AssertEx.True(File.Exists(result.PackagePath), result.PackagePath);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncDoesNotRetryUnauthorizedResponse()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("unauthorized", Encoding.UTF8, "text/plain")
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+
+        try
+        {
+            var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() =>
+                client.DownloadPackageAsync(CreateSession(), CreateReadyReadiness(), workspaceRoot));
+
+            AssertEx.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+            AssertEx.Equal(1, handler.Requests.Count);
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot));
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task DownloadPackageAsyncCancelsTransientRetryWait()
+    {
+        var handler = new RecordingHttpMessageHandler(_ =>
+        {
+            var rateLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("rate limited", Encoding.UTF8, "text/plain")
+            };
+            rateLimited.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(30));
+            return rateLimited;
+        });
+        var client = CreatePortalClient(handler);
+        var workspaceRoot = CreateTempDirectory();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        try
+        {
+            await AssertEx.ThrowsAsync<OperationCanceledException>(() =>
+                client.DownloadPackageAsync(
+                    CreateSession(),
+                    CreateReadyReadiness(),
+                    workspaceRoot,
+                    cancellationToken: cancellation.Token));
+
+            AssertEx.Equal(1, handler.Requests.Count);
+            AssertEx.False(GeneratedPackageDirectoryExists(workspaceRoot));
         }
         finally
         {
@@ -1253,6 +1372,56 @@ internal static class Program
         AssertEx.StringContains(exception.Message, "Expired onboarding code");
     }
 
+    private static async Task ConnectAsyncSanitizesNestedPortalApiError()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+        {
+            Content = new StringContent(
+                """
+                {
+                  "error": {
+                    "code": "rate_limited",
+                    "message": "Review C:\\Users\\operator\\portal.log Authorization: Bearer secret-token-value"
+                  },
+                  "debug": { "secret": "must-not-surface" },
+                  "correlationId": "corr-nested-429"
+                }
+                """,
+                Encoding.UTF8,
+                "application/json")
+        });
+        var client = CreatePortalClient(handler, fallbackToMock: false);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.Equal(HttpStatusCode.TooManyRequests, exception.StatusCode.GetValueOrDefault());
+        AssertEx.Equal("corr-nested-429", exception.CorrelationId);
+        AssertEx.StringContains(exception.Message, "[local path omitted]");
+        AssertEx.StringContains(exception.Message, "[REDACTED]");
+        AssertEx.False(exception.Message.Contains("C:\\Users", StringComparison.Ordinal));
+        AssertEx.False(exception.Message.Contains("secret-token-value", StringComparison.Ordinal));
+        AssertEx.False(exception.Message.Contains("must-not-surface", StringComparison.Ordinal));
+    }
+
+    private static async Task ConnectAsyncOmitsUnrecognizedRawErrorBody()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadGateway)
+        {
+            Content = new StringContent(
+                "<html>proxy debug C:\\Users\\operator\\trace.log secret-value</html>",
+                Encoding.UTF8,
+                "text/html")
+        });
+        var client = CreatePortalClient(handler, fallbackToMock: false);
+
+        var exception = await AssertEx.ThrowsAsync<OnboardingApiException>(() => client.ConnectAsync(CreateSession()));
+
+        AssertEx.Equal(HttpStatusCode.BadGateway, exception.StatusCode.GetValueOrDefault());
+        AssertEx.Equal("Portal onboarding API connect returned 502 BadGateway.", exception.Message);
+        AssertEx.False(exception.Message.Contains("proxy debug", StringComparison.Ordinal));
+        AssertEx.False(exception.Message.Contains("secret-value", StringComparison.Ordinal));
+    }
+
     private static async Task DownloadPackageAsyncRejectsNonJsonPackageResponse()
     {
         var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
@@ -1477,52 +1646,52 @@ internal static class Program
         var sessionValidation = sessionService.Validate(session);
         AssertEx.True(sessionValidation.IsValid, string.Join(" ", sessionValidation.Errors));
 
-        var baseUri = new Uri(session.ApiBaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-        var packageEndpoint = new Uri(baseUri, $"api/onboarding/installer/{Uri.EscapeDataString(session.SessionId)}/install-package");
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        using var request = new HttpRequestMessage(HttpMethod.Get, packageEndpoint);
-        request.Headers.Add("X-PM365-Onboarding-Session", session.SessionId);
-        request.Headers.Add("X-PM365-Onboarding-Code", session.OneTimeCode);
-
         var apiKeyVariable = Environment.GetEnvironmentVariable("PM365_LIVE_ONBOARDING_API_KEY_ENV") ?? "PM365_ONBOARDING_API_KEY";
-        var apiKey = Environment.GetEnvironmentVariable(apiKeyVariable);
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        using var response = await httpClient.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Live portal package download failed with HTTP {(int)response.StatusCode}.");
-        }
-
-        AssertEx.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
-        using var document = JsonDocument.Parse(body);
-        foreach (var section in new[]
-        {
-            "contractVersion",
-            "customer",
-            "azure",
-            "sharePoint",
-            "app",
-            "entra",
-            "controlPlane",
-            "secrets",
-            "features",
-            "smokeTests"
-        })
-        {
-            AssertEx.True(document.RootElement.TryGetProperty(section, out _), $"Downloaded package missing top-level section '{section}'.");
-        }
-
         var workspaceRoot = CreateTempDirectory();
         try
         {
-            var packagePath = Path.Combine(workspaceRoot, "downloaded.customer.install.json");
-            await File.WriteAllTextAsync(packagePath, body);
-            var config = await new CustomerConfigService().LoadAsync(packagePath);
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new OnboardingApiClient(
+                new OnboardingApiOptions
+                {
+                    Mode = "Portal",
+                    ApiBaseUrl = session.ApiBaseUrl,
+                    ApiKeyEnvironmentVariable = apiKeyVariable,
+                    TimeoutSeconds = 30,
+                    FallbackToMockOnFailure = false
+                },
+                httpClient);
+            var download = await client.DownloadPackageAsync(
+                session,
+                new OnboardingPackageReadiness
+                {
+                    Status = "Ready",
+                    PackageVersion = "live"
+                },
+                workspaceRoot);
+
+            AssertEx.Equal("Downloaded", download.Status);
+            AssertEx.True(File.Exists(download.PackagePath), "Live package was not saved by the production client.");
+            var body = await File.ReadAllTextAsync(download.PackagePath);
+            using var document = JsonDocument.Parse(body);
+            foreach (var section in new[]
+            {
+                "contractVersion",
+                "customer",
+                "azure",
+                "sharePoint",
+                "app",
+                "entra",
+                "controlPlane",
+                "secrets",
+                "features",
+                "smokeTests"
+            })
+            {
+                AssertEx.True(document.RootElement.TryGetProperty(section, out _), $"Downloaded package missing top-level section '{section}'.");
+            }
+
+            var config = await new CustomerConfigService().LoadAsync(download.PackagePath);
 
             AssertEx.Equal(session.SessionId, config.ControlPlane.OnboardingSessionId);
             AssertEx.False(string.IsNullOrWhiteSpace(config.ControlPlane.DeploymentExportId), "Downloaded package missing deployment export ID.");
