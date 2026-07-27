@@ -55,7 +55,7 @@ Scenario status meanings:
 | P09 | Package response is not supported JSON or fails schema/contract validation | Body is not activated or saved as a usable generated package. | Automated |
 | P10 | Portal reports missing onboarding fields and permits discovery | Only missing install-readiness metadata is collected and synchronized. | Automated |
 | P11 | Discovery is not authorized by bootstrap policy | Discovery controls remain unavailable and no tenant query runs. | Automated |
-| P12 | Portal is unavailable during connect, readiness, or download | Error and correlation context remain visible; operator can retry without restarting. | Partial |
+| P12 | Portal is unavailable during connect, readiness, or download | Transient package download responses receive bounded automatic retry; exhausted or non-retryable failures remain visible and manually retryable without restart. | Automated client; live portal retry pending |
 | P13 | Previously downloaded package is requested again for the active session | Package is downloaded and fully revalidated rather than trusted from stale UI state. | Automated |
 
 ## Authentication Scenarios

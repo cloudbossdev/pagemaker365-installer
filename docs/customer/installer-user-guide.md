@@ -57,6 +57,8 @@ After resume, sign in again when requested. Azure and Graph tokens, protected ru
 
 Expected trust for a production package is `Verified`. Stop when the package is expired, mismatched, malformed, unsigned when signing is required, or bound to another onboarding session. Obtain a new setup file rather than editing the package.
 
+The installer automatically retries a short-lived portal rate limit or service interruption while Package remains busy. If the bounded retry window is exhausted, the step stays retryable and shows a sanitized error; do not repeatedly click the action or restart the application. Authorization, package identity, and trust failures are not automatically retried.
+
 If the portal reports missing onboarding fields, the installer may offer a read-only discovery recovery flow. Complete the requested Azure and Graph sign-ins, run discovery, synchronize the restricted readiness snapshot, and retry package generation. Discovery does not read document, mailbox, or file content.
 
 ### 2. Sign In To Both Services

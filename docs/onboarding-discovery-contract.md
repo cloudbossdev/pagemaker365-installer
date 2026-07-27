@@ -327,6 +327,8 @@ Generated packages are downloaded from `packageReadiness.packageDownloadUrl` whe
 
 Package download responses must use a JSON media type such as `application/json` or `application/*+json`. The installer validates the downloaded body against the local customer install package model before saving it as a usable package. A downloaded package is not marked `Downloaded` unless local validation succeeds.
 
+The production client makes at most four package GET attempts for HTTP 408, 429, or 5xx responses. Every attempt uses a new request with the same trusted endpoint and active session authorization. `Retry-After` is honored with a maximum 30-second delay; otherwise bounded exponential delays are used. Cancellation stops the wait. HTTP 401/403, invalid content, schema/provenance/hash/signature failures, and other non-transient responses are not retried and never fall back to a local success.
+
 Generated packages should include control-plane trust metadata before the portal returns them to the installer:
 
 - `controlPlane.deploymentExportId`

@@ -133,6 +133,7 @@ Production and staging PageMaker365 hosts are exact allowlist entries in code. P
 - Expired setup files and disallowed operations fail closed.
 - Portal and API origins must match the trusted PageMaker365 host policy and use HTTPS.
 - The downloaded package is bound to the active onboarding session, customer tenant, discovery ID, and deployment export ID.
+- Package download retries are limited to four attempts for HTTP 408, 429, and 5xx. Each attempt uses a fresh same-origin request; `Retry-After` is capped at 30 seconds, cancellation remains effective, and 401/403 or package validation failures do not retry.
 - SHA-256 integrity is recalculated locally.
 - Signed-required packages use Ed25519 verification against a trusted key from the PageMaker365 JWKS endpoint.
 - Raw secret containers and secret-looking payload fields are rejected.
