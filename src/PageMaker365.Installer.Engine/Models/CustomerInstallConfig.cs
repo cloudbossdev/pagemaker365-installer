@@ -134,6 +134,7 @@ public sealed class SecretContractInfo
     public string KeyVaultName { get; set; } = "";
     public List<string> RequiredSecretNames { get; set; } = [];
     public List<SecretPromptInfo> PromptForSecrets { get; set; } = [];
+    public List<RuntimeSecretInfo> RuntimeSecrets { get; set; } = [];
 }
 
 public sealed class SecretPromptInfo
@@ -142,6 +143,35 @@ public sealed class SecretPromptInfo
     public string Label { get; set; } = "";
     public bool Required { get; set; }
     public bool GeneratedByInstaller { get; set; }
+}
+
+public sealed class RuntimeSecretInfo
+{
+    public string KeyVaultSecretName { get; set; } = "";
+    public string AppSettingName { get; set; } = "";
+    public string Label { get; set; } = "";
+    public string Purpose { get; set; } = "";
+    public string Source { get; set; } = "";
+    public string Owner { get; set; } = "";
+    public string TargetApp { get; set; } = "";
+    public bool Required { get; set; }
+    public int MinimumLength { get; set; } = 1;
+}
+
+public static class RuntimeSecretSource
+{
+    public const string Operator = "operator";
+    public const string InstallerGenerated = "installerGenerated";
+}
+
+public static class RuntimeSecretOwner
+{
+    public const string Customer = "customer";
+}
+
+public static class RuntimeSecretTarget
+{
+    public const string Api = "api";
 }
 
 public sealed class SmokeTestInfo

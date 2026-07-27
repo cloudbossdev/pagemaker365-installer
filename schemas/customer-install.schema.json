@@ -4,11 +4,12 @@
   "title": "PageMaker365 Customer Install Package",
   "type": "object",
   "additionalProperties": true,
-  "required": ["customer", "azure", "sharePoint", "app", "features"],
+  "required": ["contractVersion", "customer", "azure", "sharePoint", "app", "secrets", "features"],
   "properties": {
     "contractVersion": {
       "type": "string",
-      "description": "Installer package contract version, for example 0.2."
+      "const": "0.3",
+      "description": "Installer package contract version with protected runtime secret metadata."
     },
     "customer": {
       "type": "object",
@@ -189,8 +190,9 @@
     },
     "secrets": {
       "type": "object",
+      "required": ["keyVaultName", "runtimeSecrets"],
       "properties": {
-        "keyVaultName": { "type": "string" },
+        "keyVaultName": { "type": "string", "minLength": 1 },
         "requiredSecretNames": {
           "type": "array",
           "items": { "type": "string" }
@@ -205,6 +207,55 @@
               "label": { "type": "string" },
               "required": { "type": "boolean" },
               "generatedByInstaller": { "type": "boolean" }
+            }
+          }
+        },
+        "runtimeSecrets": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "keyVaultSecretName",
+              "appSettingName",
+              "label",
+              "purpose",
+              "source",
+              "owner",
+              "targetApp",
+              "required",
+              "minimumLength"
+            ],
+            "properties": {
+              "keyVaultSecretName": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9-]{1,127}$"
+              },
+              "appSettingName": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              },
+              "label": { "type": "string", "minLength": 1 },
+              "purpose": { "type": "string", "minLength": 1 },
+              "source": {
+                "type": "string",
+                "enum": ["operator", "installerGenerated"]
+              },
+              "owner": {
+                "type": "string",
+                "enum": ["customer"]
+              },
+              "targetApp": {
+                "type": "string",
+                "enum": ["api"]
+              },
+              "required": { "const": true },
+              "minimumLength": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4096
+              }
             }
           }
         }

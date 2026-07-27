@@ -11,6 +11,13 @@ namespace PageMaker365.Installer.Engine.Services;
 public sealed class CustomerConfigService
 {
     private static readonly UpgradeContractService UpgradeContractService = new();
+    private static readonly HashSet<string> RequiredRuntimeAppSettings = new(StringComparer.Ordinal)
+    {
+        "DATABASE_URL",
+        "API_ENTRA_CLIENT_SECRET",
+        "API_SESSION_SECRET"
+    };
+
     private static readonly HashSet<string> BlockedSecretProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "values",
@@ -69,7 +76,11 @@ public sealed class CustomerConfigService
 
         if (string.IsNullOrWhiteSpace(config.ContractVersion))
         {
-            result.Warnings.Add("Deployment contract version is not set.");
+            result.Errors.Add("contractVersion 0.3 is required for protected runtime configuration. Generate a new customer package.");
+        }
+        else if (!config.ContractVersion.Equals("0.3", StringComparison.Ordinal))
+        {
+            result.Errors.Add("contractVersion 0.3 is required for protected runtime configuration. Generate a new customer package.");
         }
 
         if (!string.IsNullOrWhiteSpace(config.SharePoint.SiteUrl) &&
@@ -92,6 +103,7 @@ public sealed class CustomerConfigService
 
         ValidateRequiredPackageProperties(packageJson, result);
         ValidateDeploymentIntent(config, packageJson, result);
+        ValidateRuntimeSecretContract(config, result);
         ValidatePackageTrust(config, packageJson, result, trustOptions ?? PackageTrustOptions.FromEnvironment());
 
         if (provenanceContext is not null)
@@ -100,6 +112,133 @@ public sealed class CustomerConfigService
         }
 
         return result;
+    }
+
+    private static void ValidateRuntimeSecretContract(CustomerInstallConfig config, ConfigValidationResult result)
+    {
+        if (string.IsNullOrWhiteSpace(config.Secrets.KeyVaultName))
+        {
+            result.Errors.Add("secrets.keyVaultName is required.");
+        }
+        else if (!string.IsNullOrWhiteSpace(config.Azure.ResourceNames.KeyVaultName) &&
+            !config.Secrets.KeyVaultName.Equals(config.Azure.ResourceNames.KeyVaultName, StringComparison.OrdinalIgnoreCase))
+        {
+            result.Errors.Add("secrets.keyVaultName must match azure.resourceNames.keyVaultName.");
+        }
+
+        if (config.Secrets.RuntimeSecrets.Count == 0)
+        {
+            result.Errors.Add(
+                "secrets.runtimeSecrets is required and must declare DATABASE_URL, API_ENTRA_CLIENT_SECRET, and API_SESSION_SECRET metadata. Generate a new package from the PageMaker365 portal.");
+            return;
+        }
+
+        var duplicateAppSettings = config.Secrets.RuntimeSecrets
+            .Where(item => !string.IsNullOrWhiteSpace(item.AppSettingName))
+            .GroupBy(item => item.AppSettingName, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (duplicateAppSettings.Length > 0)
+        {
+            result.Errors.Add("secrets.runtimeSecrets contains duplicate app settings: " + string.Join(", ", duplicateAppSettings) + ".");
+        }
+
+        var duplicateVaultNames = config.Secrets.RuntimeSecrets
+            .Where(item => !string.IsNullOrWhiteSpace(item.KeyVaultSecretName))
+            .GroupBy(item => item.KeyVaultSecretName, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (duplicateVaultNames.Length > 0)
+        {
+            result.Errors.Add("secrets.runtimeSecrets contains duplicate Key Vault secret names: " + string.Join(", ", duplicateVaultNames) + ".");
+        }
+
+        foreach (var secret in config.Secrets.RuntimeSecrets)
+        {
+            var path = string.IsNullOrWhiteSpace(secret.AppSettingName)
+                ? "secrets.runtimeSecrets"
+                : $"secrets.runtimeSecrets[{secret.AppSettingName}]";
+            if (string.IsNullOrWhiteSpace(secret.KeyVaultSecretName) ||
+                !secret.KeyVaultSecretName.All(character => char.IsAsciiLetterOrDigit(character) || character == '-'))
+            {
+                result.Errors.Add($"{path}.keyVaultSecretName must contain only letters, numbers, and hyphens.");
+            }
+
+            if (string.IsNullOrWhiteSpace(secret.AppSettingName) ||
+                !secret.AppSettingName.All(character => char.IsAsciiLetterOrDigit(character) || character == '_') ||
+                !secret.AppSettingName.Equals(secret.AppSettingName.ToUpperInvariant(), StringComparison.Ordinal))
+            {
+                result.Errors.Add($"{path}.appSettingName must be an uppercase runtime setting name.");
+            }
+
+            if (string.IsNullOrWhiteSpace(secret.Label) || string.IsNullOrWhiteSpace(secret.Purpose))
+            {
+                result.Errors.Add($"{path} must include a customer-facing label and purpose.");
+            }
+
+            if (secret.Source is not RuntimeSecretSource.Operator and not RuntimeSecretSource.InstallerGenerated)
+            {
+                result.Errors.Add($"{path}.source must be operator or installerGenerated.");
+            }
+
+            if (secret.Owner != RuntimeSecretOwner.Customer)
+            {
+                result.Errors.Add($"{path}.owner must be customer for customer-tenant runtime secrets.");
+            }
+
+            if (secret.TargetApp != RuntimeSecretTarget.Api)
+            {
+                result.Errors.Add($"{path}.targetApp must be api for the v1 runtime contract.");
+            }
+
+            if (!secret.Required || secret.MinimumLength is < 1 or > RuntimeSecretMaterial.MaximumLength)
+            {
+                result.Errors.Add(
+                    $"{path} must be required and declare minimumLength between 1 and {RuntimeSecretMaterial.MaximumLength} characters.");
+            }
+        }
+
+        var declaredSettings = config.Secrets.RuntimeSecrets
+            .Select(item => item.AppSettingName)
+            .ToHashSet(StringComparer.Ordinal);
+        var missingSettings = RequiredRuntimeAppSettings.Where(item => !declaredSettings.Contains(item)).ToArray();
+        if (missingSettings.Length > 0)
+        {
+            result.Errors.Add("secrets.runtimeSecrets is missing required runtime settings: " + string.Join(", ", missingSettings) + ".");
+        }
+
+        var unexpectedSettings = declaredSettings.Where(item => !RequiredRuntimeAppSettings.Contains(item)).ToArray();
+        if (unexpectedSettings.Length > 0)
+        {
+            result.Errors.Add(
+                "secrets.runtimeSecrets contains unsupported runtime settings: " +
+                string.Join(", ", unexpectedSettings) + ".");
+        }
+
+        if (config.Secrets.RuntimeSecrets.Count != RequiredRuntimeAppSettings.Count)
+        {
+            result.Errors.Add("secrets.runtimeSecrets must contain exactly the three supported runtime settings.");
+        }
+
+        var database = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "DATABASE_URL");
+        var entra = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "API_ENTRA_CLIENT_SECRET");
+        var session = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "API_SESSION_SECRET");
+        if (database?.Source != RuntimeSecretSource.Operator || database.MinimumLength < 12)
+        {
+            result.Errors.Add("DATABASE_URL must use source operator with minimumLength of at least 12 characters until a customer database provisioning contract is implemented.");
+        }
+
+        if (entra?.Source != RuntimeSecretSource.Operator || entra.MinimumLength < 16)
+        {
+            result.Errors.Add("API_ENTRA_CLIENT_SECRET must use source operator with minimumLength of at least 16 characters; the installer must not invent an Entra application credential.");
+        }
+
+        if (session?.Source != RuntimeSecretSource.InstallerGenerated || session.MinimumLength < 32)
+        {
+            result.Errors.Add("API_SESSION_SECRET must use source installerGenerated with minimumLength of at least 32 characters.");
+        }
     }
 
     public static string ToJson(CustomerInstallConfig config) => JsonSerializer.Serialize(config, JsonOptions);

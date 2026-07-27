@@ -57,7 +57,7 @@ The installer is not yet a production deployment tool. The remaining work is mai
 - Real sandbox what-if/deploy has not been proven.
 - Smoke tests consume deployment outputs and fail closed on mismatched runtime identity, but the API and portal application code still need to implement the required deployed health/content contract.
 - Entra app registration, admin consent, and `Sites.Selected` setup are not implemented end to end.
-- Secure secret input, Key Vault writes, and Key Vault reference app settings are not implemented.
+- Protected runtime secret input, ARM-based Key Vault writes, and managed-identity App Service references are implemented locally on issue #7; fresh portal package generation and live sandbox validation remain.
 - Assistant API lacks contract and safety tests.
 - Recommended assistant actions should be hardened against unsafe server-provided action definitions.
 - Azure-only removal is wired for dedicated PageMaker365 resource groups; Entra, Graph, shared-resource, and commercial offboarding remain outside the v1 removal scope.
@@ -312,6 +312,8 @@ Owner pattern: one UI/view-model worker, one PowerShell/engine worker, coordinat
 
 #### Slice 4.1 - Secret Prompt Model And UI
 
+Status: implemented locally; live package and operator acceptance pending.
+
 Scope:
 
 - Define required/generated/supplied secret prompts from package.
@@ -327,6 +329,8 @@ Acceptance criteria:
 Needs customer: final required secret list from runtime app.
 
 #### Slice 4.2 - Key Vault Secret Write And App Settings
+
+Status: implemented locally; live Azure RBAC, Key Vault reference, and runtime startup validation pending.
 
 Scope:
 
@@ -529,6 +533,25 @@ Acceptance criteria:
 
 Needs customer: sandbox cleanup permission.
 
+#### Slice 7.4 - Removal Lifecycle Evidence
+
+Scope:
+
+- [x] Define removal-only event types, ordering, status, outcomes, and terminal rules.
+- [x] Add a distinct removal attempt identity and persisted retry outbox.
+- [x] Report sanitized removed, retained, skipped, blocked, and failed counts.
+- [x] Keep portal delivery failures independent from Azure removal results.
+- [ ] Implement the v0.3 contract and state machine in the portal API/UI.
+- [ ] Prove duplicate, conflict, stale, offline/retry, terminal, and lifecycle coexistence against staging.
+
+Acceptance criteria:
+
+- Install and removal attempts cannot share event ordering or terminal state.
+- Exact retries preserve event ID, attempt ID, sequence, payload, and idempotency key.
+- Portal sync failure remains queued and never changes the local Azure result.
+
+Needs customer: staging API deployment and a setup session authorizing `RemovalStatusSync`.
+
 ### Phase 8 - Packaging, Signing, And Release
 
 Goal: ship a customer-ready installer distribution.
@@ -537,28 +560,29 @@ Owner pattern: one packaging worker, one CI worker, coordinator verifies locally
 
 #### Slice 8.1 - Distribution Format Decision
 
-Recommended decision: start with a signed ZIP or setup bootstrapper for alpha/customer pilots, then evaluate MSI/MSIX after install behavior stabilizes.
+Decision: use a versioned ZIP for alpha/customer pilots, then evaluate MSI/MSIX after install, upgrade, and removal behavior stabilizes. Authenticode protects first-party payload files; SHA-256 release evidence protects the archive and exact inventory.
 
 Scope:
 
-- Decide signed ZIP, MSI, MSIX, or setup bootstrapper.
-- Decide whether samples ship in customer package.
-- Decide signing scope.
+- [x] Select the versioned ZIP pilot format.
+- [x] Keep only approved synthetic samples in the customer package.
+- [x] Sign the executable, PageMaker365 first-party libraries, and shipped PowerShell files.
+- [x] Document the distribution and rollback contract.
 
 Acceptance criteria:
 
 - Distribution format is documented.
 - Package contents are deterministic and intentional.
 
-Needs customer: distribution/signing decision.
+Needs customer: no for format; production certificate and publisher approval remain in slice 8.3.
 
 #### Slice 8.2 - App Metadata And Icon
 
 Scope:
 
-- Configure executable icon.
-- Add product, company, file version, informational version, and copyright metadata.
-- Add release notes template.
+- [x] Configure executable icon.
+- [x] Add product, company, file version, informational version, and copyright metadata.
+- [x] Add release notes template.
 
 Acceptance criteria:
 
@@ -571,10 +595,12 @@ Needs customer: no, unless final icon/copyright wording changes.
 
 Scope:
 
-- Sign relevant binaries/package.
-- Verify signatures.
-- Produce checksum/manifest.
-- Publish retained artifact or release package.
+- [x] Implement signing for relevant binaries and scripts.
+- [x] Implement signature, publisher, and certificate verification.
+- [x] Produce deterministic ZIP, checksum, and manifest evidence.
+- [x] Retain development package evidence in pull-request CI.
+- [ ] Configure the production certificate secret and publish a signed release.
+- [ ] Complete clean Windows 11 verification.
 
 Acceptance criteria:
 

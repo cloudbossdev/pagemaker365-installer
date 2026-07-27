@@ -24,6 +24,7 @@ function Get-PM365PartialInstallInventoryData {
     $resourceGroup = Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue
     $resources = @()
     $deployments = @()
+    $expectedKeyVaultName = [string]$Config.azure.resourceNames.keyVaultName
     $groupProduct = ''
     $groupManagedBy = ''
     if ($resourceGroup) {
@@ -75,6 +76,21 @@ function Get-PM365PartialInstallInventoryData {
         }
     }
 
+    $keyVaultFound = @(
+        $resources |
+            Where-Object {
+                [string]$_.resourceType -ieq 'Microsoft.KeyVault/vaults' -and
+                [string]$_.name -ieq $expectedKeyVaultName
+            }
+    ).Count -eq 1
+    $keyVaultDisposition = if (-not $resourceGroup) {
+        'UnverifiedResourceGroupAbsent'
+    } elseif ($keyVaultFound) {
+        'RetainSoftDeletedRecoverable'
+    } else {
+        'NotPresent'
+    }
+
     [pscustomobject][ordered]@{
         artifactType = 'PageMaker365.PartialInstallCleanupInventory'
         schemaVersion = '0.1'
@@ -99,8 +115,9 @@ function Get-PM365PartialInstallInventoryData {
         safeToRemove = $null -ne $resourceGroup -and $blockers.Count -eq 0
         cleanupAction = 'DeleteDedicatedResourceGroup'
         keyVault = [pscustomobject][ordered]@{
-            name = [string]$Config.azure.resourceNames.keyVaultName
-            disposition = 'RetainSoftDeletedRecoverable'
+            name = $expectedKeyVaultName
+            found = $keyVaultFound
+            disposition = $keyVaultDisposition
             purgeAllowed = $false
         }
     }

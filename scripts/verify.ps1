@@ -70,6 +70,7 @@ Write-Host 'Checking PowerShell syntax...'
 $scriptRoots = @(
     (Join-Path $repoRoot 'modules')
     (Join-Path $repoRoot 'scripts')
+    (Join-Path $repoRoot 'distribution')
 )
 $scriptRoots |
     ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Include *.ps1,*.psm1 } |
@@ -81,6 +82,12 @@ $scriptRoots |
             throw "PowerShell parse error in $($_.FullName): $($errors[0].Message)"
         }
     }
+
+Write-Host 'Testing detached release-manifest signature contract...'
+& (Join-Path $repoRoot 'scripts\test-release-manifest-signature.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Release-manifest signature tests failed with exit code $LASTEXITCODE."
+}
 
 Write-Host 'Restoring solution...'
 dotnet restore (Join-Path $repoRoot 'PageMaker365.Installer.sln')
@@ -121,10 +128,12 @@ Write-Host 'Checking exported commands...'
     'Get-PM365GraphDiscovery',
     'Get-PM365PartialInstallInventory',
     'Start-PM365Preflight',
+    'Test-PM365AzurePlatformReadiness',
     'Test-PM365DeploymentContract',
     'Test-PM365KeyVaultRecoveryState',
     'Invoke-PM365WhatIf',
     'Invoke-PM365Deployment',
+    'Set-PM365RuntimeConfiguration',
     'Remove-PM365PartialInstall',
     'Test-PM365SmokeTests',
     'Test-PM365UpgradeContract'
@@ -142,6 +151,12 @@ Write-Host 'Testing discovery command contracts...'
 & (Join-Path $repoRoot 'scripts\test-discovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery command contract tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing authentication cancellation contracts...'
+& (Join-Path $repoRoot 'scripts\test-authentication-cancellation.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Authentication cancellation tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Testing what-if fallback contracts...'
@@ -166,6 +181,24 @@ Write-Host 'Testing Key Vault recovery preflight contracts...'
 & (Join-Path $repoRoot 'scripts\test-keyvault-recovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing runtime configuration reference contracts...'
+& (Join-Path $repoRoot 'scripts\test-runtime-configuration.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Runtime configuration reference tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing mandatory preflight blocker policy...'
+& (Join-Path $repoRoot 'scripts\test-preflight-blocker-policy.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Preflight blocker policy tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing Azure platform readiness preflight contracts...'
+& (Join-Path $repoRoot 'scripts\test-azure-platform-readiness.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Azure platform readiness preflight tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Testing install and upgrade compatibility contracts...'

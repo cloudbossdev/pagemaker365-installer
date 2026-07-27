@@ -25,6 +25,7 @@ function Get-PM365PartialInstallInventory {
         safeToRemove = $inventory.safeToRemove
         blockers = @($inventory.blockers)
         keyVaultName = $inventory.keyVault.name
+        keyVaultFound = [bool]$inventory.keyVault.found
         keyVaultDisposition = $inventory.keyVault.disposition
     }
 
@@ -53,7 +54,11 @@ function Get-PM365PartialInstallInventory {
         -Status 'Passed' `
         -Code 'PartialInstallCleanupReady' `
         -Summary 'The partial PageMaker365 install is ready for approved cleanup.' `
-        -Details "$($inventory.resourceCount) PageMaker365-owned resource(s) will be removed with resource group '$($inventory.resourceGroupName)'. Key Vault '$($inventory.keyVault.name)' will remain recoverable through soft delete." `
+        -Details $(if ($inventory.keyVault.found) {
+            "$($inventory.resourceCount) PageMaker365-owned resource(s) will be removed with resource group '$($inventory.resourceGroupName)'. Key Vault '$($inventory.keyVault.name)' will remain recoverable through soft delete."
+        } else {
+            "$($inventory.resourceCount) PageMaker365-owned resource(s) will be removed with resource group '$($inventory.resourceGroupName)'. The package-named Key Vault is not present in the resource group, so no vault-retention claim will be made."
+        }) `
         -RetrySafe $false `
         -Data $data
 }

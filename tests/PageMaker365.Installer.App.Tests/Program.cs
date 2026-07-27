@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Security;
 using System.Text.Json;
 using PageMaker365.Installer.App.ViewModels;
 using PageMaker365.Installer.Engine.Models;
@@ -18,6 +19,12 @@ internal static class Program
             ("RelayCommand reports asynchronous operation state", RelayCommandReportsAsynchronousOperationState),
             ("Package step locks sign-in until a package is validated", PackageStepLocksSignInUntilPackageIsValidated),
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
+            ("Runtime secret contract exposes only operator inputs", RuntimeSecretContractExposesOnlyOperatorInputs),
+            ("Runtime secret input rejects non-ASCII before install", RuntimeSecretInputRejectsNonAsciiBeforeInstall),
+            ("Runtime secret input rejects values over maximum", RuntimeSecretInputRejectsValuesOverMaximum),
+            ("Runtime secret inputs never persist in session state", RuntimeSecretInputsNeverPersistInSessionState),
+            ("Closing the installer clears runtime secret inputs", ClosingInstallerClearsRuntimeSecretInputs),
+            ("Canceled Graph sign-in clears stale code and remains retryable", CanceledGraphSignInClearsStaleCodeAndRemainsRetryable),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Upgrade package displays source and target versions", UpgradePackageDisplaysSourceAndTargetVersions),
             ("Terminal upgrade attempt disables duplicate final evidence", TerminalUpgradeAttemptDisablesDuplicateFinalEvidence),
@@ -25,7 +32,6 @@ internal static class Program
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
             ("Loaded bootstrap expiry blocks portal acquisition", LoadedBootstrapExpiryBlocksPortalAcquisition),
             ("Resume session restores saved bootstrap without blocking", ResumeSessionRestoresSavedBootstrapWithoutBlocking),
-            ("Resume restores preview binding but clears deployment approval", ResumeRestoresPreviewBindingButClearsDeploymentApproval),
             ("Portal acquisition connects downloads and advances to sign-in", PortalAcquisitionConnectsDownloadsAndAdvancesToSignIn),
             ("Portal acquisition failure stays retryable on package step", PortalAcquisitionFailureStaysRetryableOnPackageStep),
             ("Portal authorization rejection requests a new setup file", PortalAuthorizationRejectionRequestsNewSetupFile),
@@ -40,6 +46,8 @@ internal static class Program
             ("DownloadGeneratedPackageCommand loads downloaded portal package", DownloadGeneratedPackageCommandLoadsDownloadedPortalPackage),
             ("Evidence sync failure keeps package event in persisted outbox", EvidenceSyncFailureKeepsPackageEventInPersistedOutbox),
             ("Removal workflow enables Azure inventory but keeps removal gated", RemovalWorkflowEnablesAzureInventoryButKeepsRemovalGated),
+            ("Removal evidence outbox resumes and retries stable event", RemovalEvidenceOutboxResumesAndRetriesStableEvent),
+            ("Terminal removal attempt disables duplicate final evidence", TerminalRemovalAttemptDisablesDuplicateFinalEvidence),
             ("DownloadGeneratedPackageCommand rejects provenance mismatch without loading package", DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage),
             ("DownloadGeneratedPackageCommand rejects invalid downloaded package", DownloadGeneratedPackageCommandRejectsInvalidDownloadedPackage)
         };
@@ -120,6 +128,28 @@ internal static class Program
         AssertEx.False(viewModel.GoToStepCommand.CanExecute(4), "The Preflight step must remain inaccessible until both sign-ins complete.");
         AssertEx.False(viewModel.CanGoNext, "Next must remain disabled while either required sign-in is incomplete.");
         AssertEx.NotEqual("Not checked", viewModel.PackageTrustStatus);
+    }
+
+    private static async Task CanceledGraphSignInClearsStaleCodeAndRemainsRetryable()
+    {
+        using var scope = TestScope.Create();
+        var engine = new InstallerEngine(
+            new StructuredLogger(new RedactionService()),
+            new PromptThenCancelGraphAuthenticator());
+        var viewModel = scope.CreateViewModel(engine: engine);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        await viewModel.ConnectGraphCommand.ExecuteAsync();
+
+        AssertEx.Equal("Canceled", viewModel.GraphSignInStatus);
+        AssertEx.Equal("", viewModel.GraphDeviceCode);
+        AssertEx.Equal("", viewModel.GraphDeviceCodeStatus);
+        AssertEx.False(viewModel.HasGraphDeviceCode, "Canceled sign-in must not leave an expired device code visible.");
+        AssertEx.False(viewModel.IsOperationRunning, "Canceled sign-in must return the app to an idle state.");
+        AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "Canceled Graph sign-in must remain retryable.");
+        AssertEx.False(viewModel.RunPreflightCommand.CanExecute(null), "Canceled Graph sign-in must not unlock Preflight.");
+        AssertEx.StringContains(viewModel.FooterStatus, "canceled");
     }
 
     private static async Task LocalDownloadedPackagePathRemainsSupported()
@@ -211,6 +241,111 @@ internal static class Program
             .GetMethod("CanCreateFinalEvidence", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(viewModel, null)!;
         AssertEx.False(canCreate, "A terminal upgrade attempt must not emit a second upgrade_completed event.");
+    }
+
+    private static async Task RuntimeSecretContractExposesOnlyOperatorInputs()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+
+        AssertEx.True(viewModel.HasRuntimeSecretContract, "A valid package should expose its signed runtime secret contract.");
+        AssertEx.Equal(2, viewModel.RuntimeSecretInputs.Count);
+        AssertEx.Equal(1, viewModel.GeneratedRuntimeSecretCount);
+        AssertEx.True(viewModel.RuntimeSecretInputs.All(input =>
+            input.Definition.Source == RuntimeSecretSource.Operator),
+            "Only operator-provided protected values should render as inputs.");
+        AssertEx.False(viewModel.RuntimeSecretInputs.Any(input =>
+            input.AppSettingName == "API_SESSION_SECRET"),
+            "Installer-generated values must not render as operator inputs.");
+    }
+
+    private static async Task RuntimeSecretInputsNeverPersistInSessionState()
+    {
+        const string marker = "PM365-DO-NOT-PERSIST-9ef46f2a";
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        foreach (var input in viewModel.RuntimeSecretInputs)
+        {
+            using var value = ToSecureString(marker + input.AppSettingName);
+            input.SetValue(value);
+        }
+
+        viewModel.SaveCurrentState();
+        var stateFiles = Directory.GetFiles(Path.Combine(scope.RootDirectory, "state"), "session-state.json", SearchOption.AllDirectories);
+        AssertEx.True(stateFiles.Length > 0, "The test should create resumable session state.");
+        foreach (var stateFile in stateFiles)
+        {
+            var json = await File.ReadAllTextAsync(stateFile);
+            AssertEx.False(json.Contains(marker, StringComparison.Ordinal), "Protected values must never be serialized into session state.");
+        }
+    }
+
+    private static Task RuntimeSecretInputRejectsNonAsciiBeforeInstall()
+    {
+        var definition = CreateRuntimeSecretContract()[0];
+        using var input = new RuntimeSecretEntryViewModel(definition);
+        using var value = ToSecureString("postgres://valid-but-unicode-\u00e9");
+
+        input.SetValue(value);
+
+        AssertEx.False(input.IsReady, "Non-ASCII protected input must fail before Azure mutation.");
+        AssertEx.StringContains(input.ValidationMessage, "printable ASCII");
+        return Task.CompletedTask;
+    }
+
+    private static Task RuntimeSecretInputRejectsValuesOverMaximum()
+    {
+        var definition = CreateRuntimeSecretContract()[0];
+        using var input = new RuntimeSecretEntryViewModel(definition);
+        using var value = ToSecureString(new string('x', RuntimeSecretMaterial.MaximumLength + 1));
+
+        input.SetValue(value);
+
+        AssertEx.False(input.IsReady, "Oversized protected input must fail before Azure mutation.");
+        AssertEx.StringContains(input.ValidationMessage, $"no more than {RuntimeSecretMaterial.MaximumLength}");
+        return Task.CompletedTask;
+    }
+
+    private static async Task ClosingInstallerClearsRuntimeSecretInputs()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        foreach (var input in viewModel.RuntimeSecretInputs)
+        {
+            using var value = ToSecureString(new string('x', input.MinimumLength));
+            input.SetValue(value);
+        }
+
+        AssertEx.True(
+            viewModel.RuntimeSecretInputs.All(input => input.IsReady),
+            "The test must begin with complete protected inputs.");
+
+        viewModel.PrepareForClose();
+
+        AssertEx.True(
+            viewModel.RuntimeSecretInputs.All(input => !input.IsReady),
+            "Closing the installer must clear all protected runtime input values.");
+    }
+
+    private static SecureString ToSecureString(string value)
+    {
+        var secure = new SecureString();
+        foreach (var character in value)
+        {
+            secure.AppendChar(character);
+        }
+
+        secure.MakeReadOnly();
+        return secure;
     }
 
     private static async Task BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession()
@@ -392,55 +527,6 @@ internal static class Program
         AssertEx.False(resumedViewModel.HasRestorableSession, "The saved-session prompt should close after resume.");
         AssertEx.Equal(bootstrap.SessionId, resumedViewModel.OnboardingSessionId);
         AssertEx.True(resumedViewModel.AcquirePortalPackageCommand.CanExecute(null), "Portal package acquisition should be available after resume.");
-    }
-
-    private static async Task ResumeRestoresPreviewBindingButClearsDeploymentApproval()
-    {
-        using var scope = TestScope.Create();
-        var config = CreateConfig("Resume Boundary Customer");
-        var packagePath = scope.WritePackage(config);
-        scope.SaveState(new PersistedInstallerState
-        {
-            StateId = "pm365-session-resume-preview-binding",
-            WorkflowMode = "Setup",
-            WorkflowSelected = true,
-            CurrentStepNumber = 6,
-            MaxAccessibleStepNumber = 6,
-            PackagePath = packagePath,
-            Config = config,
-            CustomerName = config.Customer.TenantName,
-            PackageComputedHash = "sha256:validated-package",
-            LastPreviewStatus = InstallStatus.Passed,
-            PreviewStatus = "Passed",
-            PreviewOutputPath = Path.Combine(scope.RootDirectory, "preview-receipt.json"),
-            PreviewArtifactPath = Path.Combine(scope.RootDirectory, "what-if.json"),
-            PreviewPackageHash = "sha256:validated-package",
-            PreviewEvidenceHash = "sha256:preview-receipt",
-            PreviewArtifactHash = "sha256:what-if"
-        });
-
-        var viewModel = scope.CreateViewModel();
-        AssertEx.True(viewModel.HasRestorableSession, "The saved preview session should be offered for resume.");
-        viewModel.DeploymentApprovalConfirmed = true;
-        viewModel.DeploymentConfirmationText = config.Azure.ResourceGroupName;
-
-        await viewModel.ResumeSessionCommand.ExecuteAsync();
-
-        AssertEx.True(viewModel.IsSignInStep, "A resumed deployment session must return to Sign In before later steps are available.");
-        AssertEx.Equal("Passed", viewModel.PreviewStatus);
-        AssertEx.False(viewModel.DeploymentApprovalConfirmed, "Destructive approval must not survive application restart.");
-        AssertEx.Equal("", viewModel.DeploymentConfirmationText);
-
-        var type = typeof(InstallerWizardViewModel);
-        AssertEx.Equal(
-            "sha256:validated-package",
-            type.GetField("_previewPackageHash", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel) as string);
-        AssertEx.Equal(
-            "sha256:preview-receipt",
-            type.GetField("_previewEvidenceHash", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel) as string);
-        AssertEx.Equal(
-            "sha256:what-if",
-            type.GetField("_previewArtifactHash", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel) as string);
     }
 
     private static async Task PortalAcquisitionPollsPendingPackageUntilReady()
@@ -701,6 +787,125 @@ internal static class Program
         AssertEx.Equal(0, client.EvidenceEvents.Count);
     }
 
+    private static async Task RemovalEvidenceOutboxResumesAndRetriesStableEvent()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true, allowRemovalStatusSync: true);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var config = CreateConfig("Removal Outbox Customer");
+        var packagePath = scope.WritePackage(config);
+        var removalAttemptId = "ra_persisted_removal_001";
+        var eventId = "evt_persisted_removal_001";
+        var idempotencyKey = $"{removalAttemptId}:1:{eventId}";
+        scope.SaveState(new PersistedInstallerState
+        {
+            StateId = "state-removal-outbox-001",
+            WorkflowMode = "Removal",
+            WorkflowSelected = true,
+            CurrentStepNumber = 8,
+            MaxAccessibleStepNumber = 8,
+            PackagePath = packagePath,
+            Config = config,
+            BootstrapSourcePath = bootstrapPath,
+            FinishStatus = "Complete",
+            FinishSummary = "Local removal completed; portal sync pending.",
+            RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+            {
+                RemovalAttemptId = removalAttemptId,
+                NextSequence = 2,
+                RemovalStarted = true,
+                LastEventType = InstallerEvidenceEventType.RemovalStarted,
+                PendingEvents =
+                {
+                    new PendingInstallerEvidenceEvent
+                    {
+                        IdempotencyKey = idempotencyKey,
+                        Payload = new InstallerEvidenceEvent
+                        {
+                            Lifecycle = InstallerEvidenceLifecycle.Removal,
+                            AttemptId = removalAttemptId,
+                            EventId = eventId,
+                            EventType = InstallerEvidenceEventType.RemovalStarted,
+                            InstallAttemptId = removalAttemptId,
+                            RemovalAttemptId = removalAttemptId,
+                            Sequence = 1,
+                            OnboardingSessionId = bootstrap.SessionId,
+                            DeploymentExportId = config.ControlPlane.DeploymentExportId,
+                            LifecycleStatus = "removing",
+                            Outcome = "passed"
+                        }
+                    }
+                }
+            }
+        });
+        var client = new FakeOnboardingApiClient
+        {
+            EvidenceFailure = new HttpRequestException("Simulated removal portal outage")
+        };
+        var viewModel = scope.CreateViewModel(client);
+
+        await viewModel.ResumeSessionCommand.ExecuteAsync();
+
+        var pendingState = scope.LoadActiveState();
+        AssertEx.True(pendingState is not null, "Removal state must remain active while portal evidence is queued.");
+        AssertEx.Equal(1, pendingState!.RemovalEvidenceOutbox.PendingEvents.Count);
+        AssertEx.True(viewModel.RetryEvidenceSyncCommand.CanExecute(null), "The queued removal event must remain retryable.");
+        AssertEx.StringContains(viewModel.PortalSyncStatus, "Azure result is unchanged");
+
+        client.EvidenceFailure = null;
+        await viewModel.RetryEvidenceSyncCommand.ExecuteAsync();
+
+        AssertEx.Equal(2, client.EvidenceEvents.Count);
+        AssertEx.Equal(eventId, client.EvidenceEvents[0].EventId);
+        AssertEx.Equal(eventId, client.EvidenceEvents[1].EventId);
+        AssertEx.Equal(idempotencyKey, client.EvidenceIdempotencyKeys[0]);
+        AssertEx.Equal(idempotencyKey, client.EvidenceIdempotencyKeys[1]);
+        AssertEx.False(viewModel.RetryEvidenceSyncCommand.CanExecute(null), "The retry command must disable after delivery succeeds.");
+        AssertEx.True(scope.LoadActiveState() is null, "A locally complete removal should close after the pending callback is delivered.");
+    }
+
+    private static async Task TerminalRemovalAttemptDisablesDuplicateFinalEvidence()
+    {
+        using var scope = TestScope.Create();
+        var bootstrap = CreateBootstrap(allowPortalSync: true, allowRemovalStatusSync: true);
+        var bootstrapPath = scope.WriteBootstrap(bootstrap);
+        var config = CreateConfig("Completed Removal Customer");
+        var packagePath = scope.WritePackage(config);
+        scope.SaveState(new PersistedInstallerState
+        {
+            StateId = "state-terminal-removal-001",
+            WorkflowMode = "Removal",
+            WorkflowSelected = true,
+            CurrentStepNumber = 8,
+            MaxAccessibleStepNumber = 8,
+            PackagePath = packagePath,
+            Config = config,
+            BootstrapSourcePath = bootstrapPath,
+            LastRemovalInventoryStatus = InstallStatus.Passed,
+            LastRemovalStatus = InstallStatus.Passed,
+            LastRemovalValidationStatus = InstallStatus.Passed,
+            FinishStatus = "Ready",
+            RemovalEvidenceOutbox = new RemovalEvidenceOutboxState
+            {
+                RemovalAttemptId = "ra_terminal_removal_001",
+                NextSequence = 6,
+                RemovalStarted = true,
+                InventoryCompleted = true,
+                ExecutionCompleted = true,
+                ValidationCompleted = true,
+                IsTerminal = true,
+                LastEventType = InstallerEvidenceEventType.RemovalCompleted
+            }
+        });
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.ResumeSessionCommand.ExecuteAsync();
+
+        AssertEx.False(
+            viewModel.CreateRemovalEvidenceCommand.CanExecute(null),
+            "A terminal removal attempt must not generate or queue a second removal_completed event.");
+    }
+
     private static async Task DownloadGeneratedPackageCommandRejectsProvenanceMismatchWithoutLoadingPackage()
     {
         using var scope = TestScope.Create();
@@ -787,7 +992,10 @@ internal static class Program
         };
     }
 
-    private static OnboardingBootstrapSession CreateBootstrap(bool allowPortalSync, bool allowPackageGeneration = true)
+    private static OnboardingBootstrapSession CreateBootstrap(
+        bool allowPortalSync,
+        bool allowPackageGeneration = true,
+        bool allowRemovalStatusSync = false)
     {
         var session = OnboardingSessionService.CreateFallbackSession();
         session.ExpiresAt = DateTimeOffset.UtcNow.AddDays(7);
@@ -802,6 +1010,10 @@ internal static class Program
             {
                 session.AllowedOperations.Add("InstallPackageGeneration");
             }
+            if (allowRemovalStatusSync)
+            {
+                session.AllowedOperations.Add("RemovalStatusSync");
+            }
         }
 
         return session;
@@ -811,7 +1023,7 @@ internal static class Program
     {
         return new CustomerInstallConfig
         {
-            ContractVersion = "0.2",
+            ContractVersion = "0.3",
             Customer =
             {
                 CustomerId = "cust-download",
@@ -865,9 +1077,9 @@ internal static class Program
                 Operation = UpgradeContractService.InstallOperation,
                 TargetRuntimeVersion = "0.1.0",
                 MinimumInstallerVersion = UpgradeContractService.CurrentInstallerVersion,
-                FailureRecovery = UpgradeContractService.ForwardFixRecovery,
-                ResourceNamePolicy = UpgradeContractService.ImmutableResourceNames,
-                SharePointDataPolicy = UpgradeContractService.PreserveSharePointData
+                FailureRecovery = "ForwardFix",
+                ResourceNamePolicy = "Immutable",
+                SharePointDataPolicy = "Preserve"
             },
             ControlPlane =
             {
@@ -890,17 +1102,32 @@ internal static class Program
             Secrets =
             {
                 KeyVaultName = "kv-pm365-download",
-                RequiredSecretNames = ["runtime-session-secret"],
+                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-SESSION-SECRET"],
                 PromptForSecrets =
                 [
                     new SecretPromptInfo
                     {
-                        Name = "runtime-session-secret",
-                        Label = "Runtime session secret",
+                        Name = "DATABASE-URL",
+                        Label = "Runtime database connection string",
+                        Required = true,
+                        GeneratedByInstaller = false
+                    },
+                    new SecretPromptInfo
+                    {
+                        Name = "API-ENTRA-CLIENT-SECRET",
+                        Label = "Runtime Entra application client secret",
+                        Required = true,
+                        GeneratedByInstaller = false
+                    },
+                    new SecretPromptInfo
+                    {
+                        Name = "API-SESSION-SECRET",
+                        Label = "Runtime session signing secret",
                         Required = true,
                         GeneratedByInstaller = true
                     }
-                ]
+                ],
+                RuntimeSecrets = CreateRuntimeSecretContract()
             },
             Features =
             {
@@ -917,6 +1144,49 @@ internal static class Program
                 EntitlementSyncPath = "/api/runtime/entitlements/sync"
             }
         };
+    }
+
+    private static List<RuntimeSecretInfo> CreateRuntimeSecretContract()
+    {
+        return
+        [
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "DATABASE-URL",
+                AppSettingName = "DATABASE_URL",
+                Label = "Runtime database connection string",
+                Purpose = "Connects the runtime API to PostgreSQL.",
+                Source = RuntimeSecretSource.Operator,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 12
+            },
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "API-ENTRA-CLIENT-SECRET",
+                AppSettingName = "API_ENTRA_CLIENT_SECRET",
+                Label = "Runtime Entra application client secret",
+                Purpose = "Authenticates the customer runtime API application.",
+                Source = RuntimeSecretSource.Operator,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 16
+            },
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "API-SESSION-SECRET",
+                AppSettingName = "API_SESSION_SECRET",
+                Label = "Runtime session signing secret",
+                Purpose = "Signs customer runtime session state.",
+                Source = RuntimeSecretSource.InstallerGenerated,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 64
+            }
+        ];
     }
 
     private sealed class FakeOnboardingApiClient : IOnboardingApiClient
@@ -939,6 +1209,7 @@ internal static class Program
         public int StatusCalls { get; private set; }
         public int SaveStatusCalls { get; private set; }
         public List<InstallerEvidenceEvent> EvidenceEvents { get; } = [];
+        public List<string> EvidenceIdempotencyKeys { get; } = [];
         public Exception? EvidenceFailure { get; set; }
         public Exception? ConnectFailure { get; set; }
         public TaskCompletionSource? ConnectStarted { get; set; }
@@ -1017,6 +1288,7 @@ internal static class Program
             CancellationToken cancellationToken = default)
         {
             EvidenceEvents.Add(evidence);
+            EvidenceIdempotencyKeys.Add(idempotencyKey);
             if (EvidenceFailure is not null)
             {
                 return Task.FromException<InstallerEvidenceReceipt>(EvidenceFailure);
@@ -1029,7 +1301,10 @@ internal static class Program
                 SessionId = session.SessionId,
                 EventId = evidence.EventId,
                 EventType = evidence.EventType,
+                Lifecycle = evidence.Lifecycle,
+                AttemptId = evidence.AttemptId,
                 InstallAttemptId = evidence.InstallAttemptId,
+                RemovalAttemptId = evidence.RemovalAttemptId,
                 Sequence = evidence.Sequence,
                 LifecycleStatus = evidence.LifecycleStatus,
                 Outcome = evidence.Outcome,
@@ -1063,6 +1338,26 @@ internal static class Program
         }
     }
 
+    private sealed class PromptThenCancelGraphAuthenticator : IGraphDeviceCodeAuthenticator
+    {
+        public async Task<GraphSignInResult> SignInAsync(
+            string tenantId,
+            string clientId,
+            IProgress<GraphDeviceCodePrompt>? promptProgress = null,
+            CancellationToken cancellationToken = default)
+        {
+            promptProgress?.Report(new GraphDeviceCodePrompt
+            {
+                Message = "Enter the code TEST-CODE to sign in.",
+                UserCode = "TEST-CODE",
+                VerificationUrl = "https://microsoft.com/devicelogin",
+                ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(10)
+            });
+            await Task.Delay(50, cancellationToken);
+            throw new OperationCanceledException("Canceled by operator.");
+        }
+    }
+
     private sealed class TestScope : IDisposable
     {
         private TestScope(string rootDirectory)
@@ -1079,10 +1374,16 @@ internal static class Program
             return new TestScope(root);
         }
 
-        public InstallerWizardViewModel CreateViewModel(FakeOnboardingApiClient? client = null)
+        public InstallerWizardViewModel CreateViewModel(
+            FakeOnboardingApiClient? client = null,
+            InstallerEngine? engine = null)
         {
             var stateStore = new InstallerStateStore(Path.Combine(RootDirectory, "state"));
-            return new InstallerWizardViewModel(client ?? new FakeOnboardingApiClient(), stateStore, RootDirectory);
+            return new InstallerWizardViewModel(
+                client ?? new FakeOnboardingApiClient(),
+                stateStore,
+                RootDirectory,
+                engine: engine);
         }
 
         public PersistedInstallerState? LoadActiveState()

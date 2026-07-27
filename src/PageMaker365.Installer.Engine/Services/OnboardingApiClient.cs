@@ -214,18 +214,30 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
                         "sessionId",
                         "eventId",
                         "eventType",
-                        "installAttemptId",
                         "sequence",
                         "correlationId"),
                     request => request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey));
                 EnsureSessionMatches("installer evidence", endpoint, session, receipt.SessionId);
-                var attemptId = EvidenceAttemptId(evidence);
-                if (!receipt.Status.Equals("Accepted", StringComparison.OrdinalIgnoreCase) ||
+                var submittedAttemptId = EvidenceAttemptId(evidence);
+                var lifecycle = EvidenceLifecycle(evidence);
+                var receivedAttemptId = lifecycle switch
+                {
+                    InstallerEvidenceLifecycle.Upgrade => First(receipt.AttemptId, receipt.UpgradeAttemptId, receipt.InstallAttemptId),
+                    InstallerEvidenceLifecycle.Removal => First(receipt.AttemptId, receipt.RemovalAttemptId, receipt.InstallAttemptId),
+                    _ => First(receipt.AttemptId, receipt.InstallAttemptId),
+                };
+                if (!receipt.Status.Equals("Accepted", StringComparison.Ordinal) ||
                     !receipt.EventId.Equals(evidence.EventId, StringComparison.Ordinal) ||
                     !receipt.EventType.Equals(evidence.EventType, StringComparison.Ordinal) ||
                     receipt.Sequence != evidence.Sequence ||
-                    !receipt.InstallAttemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal) ||
-                    (IsUpgradeEvidence(evidence) && !IsMatchingUpgradeReceipt(receipt, evidence, attemptId)))
+                    string.IsNullOrWhiteSpace(receivedAttemptId) ||
+                    !receivedAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) ||
+                    (!string.IsNullOrWhiteSpace(receipt.Lifecycle) &&
+                        !receipt.Lifecycle.Equals(lifecycle, StringComparison.Ordinal)) ||
+                    (lifecycle.Equals(InstallerEvidenceLifecycle.Upgrade, StringComparison.Ordinal) &&
+                        !IsMatchingUpgradeReceipt(receipt, evidence, submittedAttemptId)) ||
+                    (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+                        !IsMatchingRemovalReceipt(receipt, evidence, submittedAttemptId)))
                 {
                     throw new OnboardingApiException(
                         "Portal onboarding API installer evidence response did not match the submitted event.",
@@ -462,6 +474,7 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
         InstallerEvidenceEvent evidence,
         string idempotencyKey)
     {
+        var lifecycle = EvidenceLifecycle(evidence);
         var attemptId = EvidenceAttemptId(evidence);
         if (string.IsNullOrWhiteSpace(idempotencyKey) ||
             string.IsNullOrWhiteSpace(evidence.EventId) ||
@@ -482,9 +495,28 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             throw new InvalidDataException("Installer evidence idempotency identity does not match its persisted event identity.");
         }
 
-        if (IsUpgradeEvidence(evidence))
+        if (lifecycle is not (InstallerEvidenceLifecycle.Install or InstallerEvidenceLifecycle.Upgrade or InstallerEvidenceLifecycle.Removal) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Install, StringComparison.Ordinal) &&
+                !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal)) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Upgrade, StringComparison.Ordinal) &&
+                (!attemptId.Equals(evidence.AttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.UpgradeAttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal))) ||
+            (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+                (!attemptId.Equals(evidence.AttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.RemovalAttemptId, StringComparison.Ordinal) ||
+                    !attemptId.Equals(evidence.InstallAttemptId, StringComparison.Ordinal))))
+        {
+            throw new InvalidDataException("Installer evidence lifecycle and attempt identity do not match.");
+        }
+
+        if (lifecycle.Equals(InstallerEvidenceLifecycle.Upgrade, StringComparison.Ordinal))
         {
             UpgradeEvidenceLifecycleService.ValidatePayload(evidence);
+        }
+        else if (lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal))
+        {
+            RemovalEvidenceLifecycleService.ValidatePayload(evidence);
         }
 
         if (!evidence.OnboardingSessionId.Equals(session.SessionId, StringComparison.OrdinalIgnoreCase))
@@ -525,15 +557,35 @@ public sealed class OnboardingApiClient : IOnboardingApiClient
             receipt.Outcome.Equals(evidence.Outcome, StringComparison.Ordinal);
     }
 
-    private static bool IsUpgradeEvidence(InstallerEvidenceEvent evidence)
+    private static bool IsMatchingRemovalReceipt(
+        InstallerEvidenceReceipt receipt,
+        InstallerEvidenceEvent evidence,
+        string submittedAttemptId)
     {
-        return evidence.Lifecycle.Equals(UpgradeContractService.UpgradeOperation, StringComparison.Ordinal) ||
-            evidence.EventType.StartsWith("upgrade_", StringComparison.Ordinal);
+        return receipt.ContractVersion.Equals("0.3", StringComparison.Ordinal) &&
+            receipt.Lifecycle.Equals(InstallerEvidenceLifecycle.Removal, StringComparison.Ordinal) &&
+            receipt.AttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) &&
+            receipt.RemovalAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal) &&
+            (string.IsNullOrWhiteSpace(receipt.InstallAttemptId) ||
+                receipt.InstallAttemptId.Equals(submittedAttemptId, StringComparison.Ordinal)) &&
+            receipt.LifecycleStatus.Equals(evidence.LifecycleStatus, StringComparison.Ordinal) &&
+            receipt.Outcome.Equals(evidence.Outcome, StringComparison.Ordinal);
+    }
+
+    private static string EvidenceLifecycle(InstallerEvidenceEvent evidence)
+    {
+        return string.IsNullOrWhiteSpace(evidence.Lifecycle)
+            ? evidence.EventType.StartsWith("upgrade_", StringComparison.Ordinal)
+                ? InstallerEvidenceLifecycle.Upgrade
+                : evidence.EventType.StartsWith("removal_", StringComparison.Ordinal)
+                    ? InstallerEvidenceLifecycle.Removal
+                    : InstallerEvidenceLifecycle.Install
+            : evidence.Lifecycle;
     }
 
     private static string EvidenceAttemptId(InstallerEvidenceEvent evidence)
     {
-        return First(evidence.AttemptId, evidence.UpgradeAttemptId, evidence.InstallAttemptId);
+        return First(evidence.AttemptId, evidence.UpgradeAttemptId, evidence.RemovalAttemptId, evidence.InstallAttemptId);
     }
 
     private static void ValidateSanitizedEvidenceText(string value, string field)

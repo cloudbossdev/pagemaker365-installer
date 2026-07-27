@@ -1,5 +1,5 @@
 {
-  "contractVersion": "0.2",
+  "contractVersion": "0.3",
   "customer": {
     "customerId": "cust_contoso",
     "accountKey": "contoso",
@@ -74,7 +74,7 @@
     "licenseActivationId": "lic_contoso_sandbox_001",
     "entitlementSyncUrl": "https://api.pagemaker365.com/api/runtime/entitlements/sync",
     "publicKeyId": "pm365-runtime-signing-key-001",
-    "packageHash": "sha256:1d814671eb32673753134750ce8c4c4f66b5972a6be52c36a8513b912c173a07",
+    "packageHash": "sha256:97b9cea6e77280b5f876f592e71ad6fff1a5d7d47098ceb67b1d382cf87ca26d",
     "packageHashAlgorithm": "SHA-256",
     "canonicalization": "json-c14n-v1",
     "signature": "",
@@ -87,16 +87,63 @@
   "secrets": {
     "keyVaultName": "kv-pm365-contoso-prod",
     "requiredSecretNames": [
-      "runtime-license-public-key",
-      "runtime-session-secret",
-      "graph-client-secret"
+      "DATABASE-URL",
+      "API-ENTRA-CLIENT-SECRET",
+      "API-SESSION-SECRET"
     ],
     "promptForSecrets": [
       {
-        "name": "graph-client-secret",
-        "label": "Microsoft Graph app client secret",
+        "name": "DATABASE-URL",
+        "label": "Runtime database connection string",
+        "required": true,
+        "generatedByInstaller": false
+      },
+      {
+        "name": "API-ENTRA-CLIENT-SECRET",
+        "label": "Runtime Entra application client secret",
+        "required": true,
+        "generatedByInstaller": false
+      },
+      {
+        "name": "API-SESSION-SECRET",
+        "label": "Runtime session signing secret",
         "required": true,
         "generatedByInstaller": true
+      }
+    ],
+    "runtimeSecrets": [
+      {
+        "keyVaultSecretName": "DATABASE-URL",
+        "appSettingName": "DATABASE_URL",
+        "label": "Runtime database connection string",
+        "purpose": "Connects the customer runtime API to its production PostgreSQL database.",
+        "source": "operator",
+        "owner": "customer",
+        "targetApp": "api",
+        "required": true,
+        "minimumLength": 12
+      },
+      {
+        "keyVaultSecretName": "API-ENTRA-CLIENT-SECRET",
+        "appSettingName": "API_ENTRA_CLIENT_SECRET",
+        "label": "Runtime Entra application client secret",
+        "purpose": "Authenticates the customer runtime API as its customer-owned Entra application.",
+        "source": "operator",
+        "owner": "customer",
+        "targetApp": "api",
+        "required": true,
+        "minimumLength": 16
+      },
+      {
+        "keyVaultSecretName": "API-SESSION-SECRET",
+        "appSettingName": "API_SESSION_SECRET",
+        "label": "Runtime session signing secret",
+        "purpose": "Signs and validates runtime session state for this customer environment.",
+        "source": "installerGenerated",
+        "owner": "customer",
+        "targetApp": "api",
+        "required": true,
+        "minimumLength": 64
       }
     ]
   },

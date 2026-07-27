@@ -107,6 +107,11 @@ public sealed class FinalEvidenceService
                     artifactSourcePath = request.DeploymentArtifactPath,
                     artifactCopiedPath = copiedEvidence.DeploymentArtifactPath
                 },
+                runtimeConfiguration = new
+                {
+                    artifactSourcePath = request.RuntimeConfigurationArtifactPath,
+                    artifactCopiedPath = copiedEvidence.RuntimeConfigurationArtifactPath
+                },
                 validation = new
                 {
                     status = request.ValidationStatus,
@@ -157,9 +162,13 @@ public sealed class FinalEvidenceService
             request.DeploymentArtifactPath,
             finalRoot,
             "azure-deployment.json");
+        var runtimeConfigurationArtifactPath = CopyOptionalIfExists(
+            request.RuntimeConfigurationArtifactPath,
+            finalRoot,
+            "runtime-configuration.json");
         var validationPath = CopyIfExists(request.ValidationEvidencePath, finalRoot, "deployment-validation.json", missing);
 
-        return new CopiedEvidence(previewPath, previewArtifactPath, approvalManifestPath, deploymentPath, deploymentArtifactPath, validationPath, missing);
+        return new CopiedEvidence(previewPath, previewArtifactPath, approvalManifestPath, deploymentPath, deploymentArtifactPath, runtimeConfigurationArtifactPath, validationPath, missing);
     }
 
     private static string CopyIfExists(string sourcePath, string targetDirectory, string targetFileName, List<string> missing)
@@ -260,6 +269,7 @@ public sealed class FinalEvidenceService
         report.AppendLine($"- Approval manifest: {copiedEvidence.ApprovalManifestPath}");
         report.AppendLine($"- Install: {request.DeploymentStatus} ({copiedEvidence.DeploymentPath})");
         report.AppendLine($"- Azure deployment artifact: {copiedEvidence.DeploymentArtifactPath}");
+        report.AppendLine($"- Runtime configuration artifact: {copiedEvidence.RuntimeConfigurationArtifactPath}");
         report.AppendLine($"- Validation: {request.ValidationStatus} ({copiedEvidence.ValidationPath})");
         report.AppendLine();
         report.AppendLine("## Source Paths");
@@ -270,6 +280,7 @@ public sealed class FinalEvidenceService
         report.AppendLine($"- Approval manifest: {request.ApprovalManifestPath}");
         report.AppendLine($"- Install evidence: {request.DeploymentEvidencePath}");
         report.AppendLine($"- Azure deployment artifact: {request.DeploymentArtifactPath}");
+        report.AppendLine($"- Runtime configuration artifact: {request.RuntimeConfigurationArtifactPath}");
         report.AppendLine($"- Validation evidence: {request.ValidationEvidencePath}");
         report.AppendLine();
         report.AppendLine("## Recommended Handoff");
@@ -298,6 +309,7 @@ public sealed class FinalEvidenceService
         string ApprovalManifestPath,
         string DeploymentPath,
         string DeploymentArtifactPath,
+        string RuntimeConfigurationArtifactPath,
         string ValidationPath,
         IReadOnlyList<string> MissingEvidence);
 }
@@ -314,6 +326,7 @@ public sealed class FinalEvidenceRequest
     public string DeploymentStatus { get; set; } = "";
     public string DeploymentEvidencePath { get; set; } = "";
     public string DeploymentArtifactPath { get; set; } = "";
+    public string RuntimeConfigurationArtifactPath { get; set; } = "";
     public string ValidationStatus { get; set; } = "";
     public string ValidationEvidencePath { get; set; } = "";
     public string FinalStatus { get; set; } = "";

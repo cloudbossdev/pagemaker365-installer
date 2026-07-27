@@ -59,7 +59,7 @@
                         Margin="0,0,28,0"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center">
-                    <TextBlock Text="{Binding InstallerVersion}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding InstallerVersionDisplay}" FontWeight="SemiBold" />
                 </Border>
             </Grid>
         </Border>
@@ -1147,6 +1147,66 @@
                                            TextWrapping="Wrap"
                                            LineHeight="20"
                                            Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource PmPanel}"
+                                BorderBrush="{StaticResource PmLine}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="20"
+                                Margin="0,0,0,18"
+                                Visibility="{Binding HasRuntimeSecretContract, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="Protected Runtime Configuration" Foreground="{StaticResource PmCyan}" FontWeight="Bold" />
+                                <TextBlock Text="{Binding RuntimeSecretTargetSummary}"
+                                           Foreground="{StaticResource PmMuted}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,4" />
+                                <TextBlock Text="{Binding GeneratedRuntimeSecretSummary}"
+                                           Foreground="{StaticResource PmMuted}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,14" />
+                                <ItemsControl x:Name="RuntimeSecretInputsControl" ItemsSource="{Binding RuntimeSecretInputs}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,14">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*" MinWidth="220" />
+                                                    <ColumnDefinition Width="3*" MinWidth="280" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Margin="0,0,18,0">
+                                                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Purpose}"
+                                                               Foreground="{StaticResource PmMuted}"
+                                                               FontSize="12"
+                                                               TextWrapping="Wrap"
+                                                               Margin="0,4,0,0" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1">
+                                                    <PasswordBox PasswordChanged="OnRuntimeSecretPasswordChanged"
+                                                                 AutomationProperties.Name="{Binding Label}"
+                                                                 MaxLength="{Binding MaximumLength}"
+                                                                 IsEnabled="{Binding DataContext.CanEditRuntimeSecretInputs, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                 Background="#0B1224"
+                                                                 Foreground="{StaticResource PmText}"
+                                                                 BorderBrush="{StaticResource PmLine}"
+                                                                 BorderThickness="1"
+                                                                 Padding="12,9"
+                                                                 MinHeight="40" />
+                                                    <TextBlock Text="{Binding ValidationMessage}"
+                                                               Foreground="{StaticResource PmMuted}"
+                                                               FontSize="12"
+                                                               TextWrapping="Wrap"
+                                                               Margin="0,5,0,0" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Values are held only for this install attempt and cleared when it finishes."
+                                           Foreground="{StaticResource PmMuted}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
                         <Border Background="{StaticResource PmPanel}" BorderBrush="{StaticResource PmLine}" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,18">
