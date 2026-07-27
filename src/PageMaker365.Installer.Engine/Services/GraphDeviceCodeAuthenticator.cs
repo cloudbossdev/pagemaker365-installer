@@ -3,7 +3,7 @@ using PageMaker365.Installer.Engine.Models;
 
 namespace PageMaker365.Installer.Engine.Services;
 
-public sealed class GraphDeviceCodeAuthenticator
+public sealed class GraphDeviceCodeAuthenticator : IGraphDeviceCodeAuthenticator
 {
     public const string DefaultClientId = "14d82eec-204b-4c2f-b7e8-296a70dab67e";
 

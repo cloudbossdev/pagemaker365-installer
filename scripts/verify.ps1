@@ -122,6 +122,7 @@ Write-Host 'Checking exported commands...'
     'Get-PM365GraphDiscovery',
     'Get-PM365PartialInstallInventory',
     'Start-PM365Preflight',
+    'Test-PM365AzurePlatformReadiness',
     'Test-PM365DeploymentContract',
     'Test-PM365KeyVaultRecoveryState',
     'Invoke-PM365WhatIf',
@@ -142,6 +143,12 @@ Write-Host 'Testing discovery command contracts...'
 & (Join-Path $repoRoot 'scripts\test-discovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery command contract tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing authentication cancellation contracts...'
+& (Join-Path $repoRoot 'scripts\test-authentication-cancellation.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Authentication cancellation tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Testing what-if fallback contracts...'
@@ -166,6 +173,18 @@ Write-Host 'Testing Key Vault recovery preflight contracts...'
 & (Join-Path $repoRoot 'scripts\test-keyvault-recovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing mandatory preflight blocker policy...'
+& (Join-Path $repoRoot 'scripts\test-preflight-blocker-policy.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Preflight blocker policy tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing Azure platform readiness preflight contracts...'
+& (Join-Path $repoRoot 'scripts\test-azure-platform-readiness.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Azure platform readiness preflight tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Running preflight...'
