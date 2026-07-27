@@ -223,11 +223,27 @@ function Test-PM365RuntimeArtifactArchive {
         }
 
         $totalLength = [long]0
+        $entryNames = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::Ordinal)
         foreach ($entry in $archive.Entries) {
             $normalizedName = $entry.FullName.Replace('\', '/')
             if ($normalizedName.StartsWith('/') -or
                 $normalizedName -match '(^|/)\.\.(/|$)' -or
                 [System.IO.Path]::IsPathRooted($entry.FullName)) {
+                throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
+            }
+
+            if (-not $entryNames.Add($normalizedName)) {
+                throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
+            }
+
+            $externalAttributes = [System.BitConverter]::ToUInt32(
+                [System.BitConverter]::GetBytes([int]$entry.ExternalAttributes),
+                0)
+            $unixFileType = ($externalAttributes -shr 16) -band 0xF000
+            $windowsAttributes = $externalAttributes -band 0xFFFF
+            if ($unixFileType -eq 0xA000 -or
+                ($windowsAttributes -band [int][System.IO.FileAttributes]::ReparsePoint) -ne 0) {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
             }
 

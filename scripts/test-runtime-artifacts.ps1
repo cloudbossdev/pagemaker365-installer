@@ -38,6 +38,45 @@ function New-TestArchive {
     Compress-Archive -Path (Join-Path $source '*') -DestinationPath $Path -Force
 }
 
+function New-UnsafeApiArchive {
+    param(
+        [string] $Path,
+        [ValidateSet('duplicate', 'symlink')]
+        [string] $UnsafeEntry
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $fileStream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create)
+    $archive = [System.IO.Compression.ZipArchive]::new(
+        $fileStream,
+        [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($entryName in @('dist/index.js', 'package.json')) {
+            $entry = $archive.CreateEntry($entryName)
+            $writer = [System.IO.StreamWriter]::new($entry.Open())
+            try {
+                $writer.Write('PageMaker365 runtime test')
+            } finally {
+                $writer.Dispose()
+            }
+        }
+
+        if ($UnsafeEntry -eq 'duplicate') {
+            $archive.CreateEntry('dist/index.js').Open().Dispose()
+        } else {
+            $link = $archive.CreateEntry('dist/runtime-link')
+            $unixLinkAttributes = [byte[]](0x00, 0x00, 0xFF, 0xA1)
+            $link.ExternalAttributes = [System.BitConverter]::ToInt32(
+                $unixLinkAttributes,
+                0)
+            $link.Open().Dispose()
+        }
+    } finally {
+        $archive.Dispose()
+        $fileStream.Dispose()
+    }
+}
+
 New-Item -Path $tempRoot -ItemType Directory -Force | Out-Null
 
 try {
@@ -130,6 +169,19 @@ try {
     $untrusted = Publish-PM365RuntimeArtifacts -Config $config
     Assert-Equal 'RuntimeArtifactContractInvalid' $untrusted.error.code 'An untrusted artifact URL returned the wrong error.'
     $config.runtimeArtifacts.api.downloadUrl = 'https://downloads.pagemaker365.com/runtime/api.zip'
+
+    foreach ($unsafeEntry in @('duplicate', 'symlink')) {
+        $unsafeArchive = Join-Path $tempRoot "api-$unsafeEntry.zip"
+        New-UnsafeApiArchive -Path $unsafeArchive -UnsafeEntry $unsafeEntry
+        $script:downloadMap['https://downloads.pagemaker365.com/runtime/api.zip'] = $unsafeArchive
+        $config.runtimeArtifacts.api.sha256 = (Get-FileHash -LiteralPath $unsafeArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+        $script:publishCalls = @()
+        $unsafe = Publish-PM365RuntimeArtifacts -Config $config
+        Assert-Equal 'RuntimeArtifactArchiveInvalid' $unsafe.error.code "An API archive with a $unsafeEntry entry returned the wrong error."
+        Assert-Equal 0 $script:publishCalls.Count "An API archive with a $unsafeEntry entry reached Azure publish."
+    }
+    $script:downloadMap['https://downloads.pagemaker365.com/runtime/api.zip'] = $apiArchive
+    $config.runtimeArtifacts.api.sha256 = $originalHash
 
     $stalePortalArchive = Join-Path $tempRoot 'portal-stale.zip'
     New-TestArchive -Kind portal -Path $stalePortalArchive -ReleaseId 'pm365-runtime-0.9.0+stale'
