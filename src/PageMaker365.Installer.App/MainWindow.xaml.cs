@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using PageMaker365.Installer.App.ViewModels;
 
 namespace PageMaker365.Installer.App;
@@ -9,20 +10,70 @@ public partial class MainWindow : Window
     private const double CompactWidth = 940;
     private const double MediumWidth = 1120;
     private const double ShortHeight = 650;
+    private bool _isClearingRuntimeSecretInputs;
 
     public MainWindow()
     {
         InitializeComponent();
-        DataContext = new InstallerWizardViewModel();
+        var viewModel = new InstallerWizardViewModel();
+        viewModel.ClearRuntimeSecretInputControlsRequested += ClearRuntimeSecretInputControls;
+        DataContext = viewModel;
         Loaded += (_, _) => UpdateShellLayout();
         SizeChanged += OnWindowSizeChanged;
         Closing += (_, _) =>
         {
             if (DataContext is InstallerWizardViewModel viewModel)
             {
-                viewModel.SaveCurrentState();
+                viewModel.PrepareForClose();
+                viewModel.ClearRuntimeSecretInputControlsRequested -= ClearRuntimeSecretInputControls;
             }
         };
+    }
+
+    private void OnRuntimeSecretPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isClearingRuntimeSecretInputs ||
+            sender is not PasswordBox passwordBox ||
+            passwordBox.DataContext is not RuntimeSecretEntryViewModel input)
+        {
+            return;
+        }
+
+        input.SetValue(passwordBox.SecurePassword);
+    }
+
+    private void ClearRuntimeSecretInputControls()
+    {
+        _isClearingRuntimeSecretInputs = true;
+        try
+        {
+            foreach (var passwordBox in FindVisualChildren<PasswordBox>(RuntimeSecretInputsControl))
+            {
+                passwordBox.Clear();
+            }
+        }
+        finally
+        {
+            _isClearingRuntimeSecretInputs = false;
+        }
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in FindVisualChildren<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)

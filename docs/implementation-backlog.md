@@ -75,11 +75,12 @@ Acceptance criteria:
 
 Goal: configure the runtime app without writing secrets into logs or control-plane exports.
 
-- [ ] Define required secret prompts.
-- [ ] Add secure secret input UI.
-- [ ] Write supplied/generated secrets to customer Key Vault.
-- [ ] Configure runtime app settings as Key Vault references where supported.
-- [ ] Redact all secret names and values from logs according to policy.
+- [x] Define the versioned runtime secret metadata contract.
+- [x] Add protected secret input UI with no saved-session persistence.
+- [x] Write supplied/generated secrets to customer Key Vault through an ARM secure parameter.
+- [x] Configure API app settings as managed-identity Key Vault references.
+- [x] Keep raw values out of logs, reports, callbacks, artifacts, and support bundles in automated verification.
+- [ ] Prove provisioning, reference resolution, runtime startup, and evidence redaction with a fresh signed staging package.
 
 Acceptance criteria:
 

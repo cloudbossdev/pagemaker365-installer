@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -78,7 +79,12 @@ internal static class Program
             ("CustomerConfigService rejects unsupported signature algorithm", CustomerConfigServiceRejectsUnsupportedSignatureAlgorithm),
             ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
             ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
+            ("CustomerConfigService rejects legacy runtime secret contract", CustomerConfigServiceRejectsLegacyRuntimeSecretContract),
+            ("CustomerConfigService rejects unexpected runtime secret setting", CustomerConfigServiceRejectsUnexpectedRuntimeSecretSetting),
+            ("CustomerConfigService rejects oversized runtime secret minimum", CustomerConfigServiceRejectsOversizedRuntimeSecretMinimum),
             ("CustomerConfigService rejects raw secret containers", CustomerConfigServiceRejectsRawSecretContainers),
+            ("RuntimeSecretMaterial generates required protected length", RuntimeSecretMaterialGeneratesRequiredProtectedLength),
+            ("RuntimeSecretMaterial rejects oversized generation", RuntimeSecretMaterialRejectsOversizedGeneration),
             ("OptionsService loads file and environment overrides", OptionsServiceLoadsFileAndEnvironmentOverrides),
             ("InstallerStateStore saves and loads active state", InstallerStateStoreSavesAndLoadsActiveState),
             ("InstallerStateStore ignores completed state for resume", InstallerStateStoreIgnoresCompletedStateForResume),
@@ -87,9 +93,11 @@ internal static class Program
             ("InstallerEngine parses JSON result from mixed PowerShell output", InstallerEngineParsesJsonResultFromMixedPowerShellOutput),
             ("InstallerEngine passes Graph token and deployment artifact to validation", InstallerEnginePassesGraphTokenToValidationProcess),
             ("PowerShellProcessRunner returns failed result on timeout", PowerShellProcessRunnerReturnsFailedResultOnTimeout),
+            ("PowerShellProcessRunner times out stalled standard input writer", PowerShellProcessRunnerTimesOutStalledStandardInputWriter),
             ("PowerShellProcessRunner returns failed result on cancellation", PowerShellProcessRunnerReturnsFailedResultOnCancellation),
             ("PowerShellProcessRunner reports live output lines", PowerShellProcessRunnerReportsLiveOutputLines),
             ("PowerShellProcessRunner passes scoped environment variables", PowerShellProcessRunnerPassesScopedEnvironmentVariables),
+            ("PowerShellProcessRunner passes protected values through standard input", PowerShellProcessRunnerPassesProtectedValuesThroughStandardInput),
             ("AzureDiscoveryService returns package fallback when module is missing", AzureDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
             ("AzureDiscoveryService maps Azure result into tenant discovery", AzureDiscoveryServiceMapsAzureResultIntoTenantDiscovery),
             ("GraphDiscoveryService returns package fallback when module is missing", GraphDiscoveryServiceReturnsPackageFallbackWhenModuleIsMissing),
@@ -1478,6 +1486,94 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static Task CustomerConfigServiceRejectsLegacyRuntimeSecretContract()
+    {
+        var config = CreateConfig();
+        config.Secrets.RuntimeSecrets = [];
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "runtimeSecrets");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsUnexpectedRuntimeSecretSetting()
+    {
+        var config = CreateConfig();
+        config.Secrets.RuntimeSecrets.Add(new RuntimeSecretInfo
+        {
+            KeyVaultSecretName = "UNSUPPORTED-SECRET",
+            AppSettingName = "UNSUPPORTED_SECRET",
+            Label = "Unsupported runtime secret",
+            Purpose = "Must be rejected by the exact runtime contract.",
+            Source = RuntimeSecretSource.Operator,
+            Owner = RuntimeSecretOwner.Customer,
+            TargetApp = RuntimeSecretTarget.Api,
+            Required = true,
+            MinimumLength = 16
+        });
+
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(string.Join(" ", result.Errors), "unsupported runtime settings");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRejectsOversizedRuntimeSecretMinimum()
+    {
+        var config = CreateConfig();
+        config.Secrets.RuntimeSecrets[0].MinimumLength = RuntimeSecretMaterial.MaximumLength + 1;
+
+        var result = new CustomerConfigService().Validate(config, CustomerConfigService.ToJson(config));
+
+        AssertEx.False(result.IsValid);
+        AssertEx.StringContains(
+            string.Join(" ", result.Errors),
+            $"between 1 and {RuntimeSecretMaterial.MaximumLength}");
+        return Task.CompletedTask;
+    }
+
+    private static Task RuntimeSecretMaterialGeneratesRequiredProtectedLength()
+    {
+        var definition = new RuntimeSecretInfo
+        {
+            KeyVaultSecretName = "API-SESSION-SECRET",
+            AppSettingName = "API_SESSION_SECRET",
+            Label = "Runtime session signing secret",
+            Purpose = "Signs runtime sessions.",
+            Source = RuntimeSecretSource.InstallerGenerated,
+            Owner = RuntimeSecretOwner.Customer,
+            TargetApp = RuntimeSecretTarget.Api,
+            Required = true,
+            MinimumLength = 96
+        };
+
+        using var material = RuntimeSecretMaterial.Generate(definition);
+        AssertEx.True(material.Length >= 96, "Generated protected material must meet the signed minimum length.");
+        return Task.CompletedTask;
+    }
+
+    private static Task RuntimeSecretMaterialRejectsOversizedGeneration()
+    {
+        var definition = new RuntimeSecretInfo
+        {
+            KeyVaultSecretName = "API-SESSION-SECRET",
+            AppSettingName = "API_SESSION_SECRET",
+            Label = "Runtime session signing secret",
+            Purpose = "Signs runtime sessions.",
+            Source = RuntimeSecretSource.InstallerGenerated,
+            Owner = RuntimeSecretOwner.Customer,
+            TargetApp = RuntimeSecretTarget.Api,
+            Required = true,
+            MinimumLength = RuntimeSecretMaterial.MaximumLength + 1
+        };
+
+        var exception = AssertEx.Throws<InvalidOperationException>(() => RuntimeSecretMaterial.Generate(definition));
+        AssertEx.StringContains(exception.Message, RuntimeSecretMaterial.MaximumLength.ToString());
+        return Task.CompletedTask;
+    }
+
     private static Task OptionsServiceLoadsFileAndEnvironmentOverrides()
     {
         var workspaceRoot = CreateTempDirectory();
@@ -1836,6 +1932,30 @@ internal static class Program
         }
     }
 
+    private static async Task PowerShellProcessRunnerTimesOutStalledStandardInputWriter()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var result = await new PowerShellProcessRunner().RunAsync(
+                "-NoLogo -NoProfile -NonInteractive -Command \"$input | Out-Null\"",
+                workspaceRoot,
+                timeout: TimeSpan.FromMilliseconds(250),
+                standardInputWriter: async (_, cancellationToken) =>
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken));
+
+            AssertEx.False(result.Succeeded);
+            AssertEx.True(result.TimedOut);
+            AssertEx.False(result.Canceled);
+            AssertEx.Equal(-1, result.ExitCode);
+            AssertEx.StringContains(result.StandardError, "timed out");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
     private static async Task PowerShellProcessRunnerReturnsFailedResultOnCancellation()
     {
         var workspaceRoot = CreateTempDirectory();
@@ -1906,6 +2026,34 @@ internal static class Program
 
             AssertEx.True(result.Succeeded, result.StandardError);
             AssertEx.StringContains(result.StandardOutput, "scoped-value");
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task PowerShellProcessRunnerPassesProtectedValuesThroughStandardInput()
+    {
+        const string marker = "protected-stdin-marker-7c90";
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var result = await new PowerShellProcessRunner().RunAsync(
+                "-NoLogo -NoProfile -NonInteractive -Command \"$line = [Console]::In.ReadLine(); Write-Output $line.Length\"",
+                workspaceRoot,
+                standardInputWriter: (stream, _) =>
+                {
+                    var bytes = Encoding.UTF8.GetBytes(marker + "\n");
+                    stream.Write(bytes);
+                    CryptographicOperations.ZeroMemory(bytes);
+                    return Task.CompletedTask;
+                });
+
+            AssertEx.True(result.Succeeded, result.StandardError);
+            AssertEx.StringContains(result.StandardOutput, marker.Length.ToString());
+            AssertEx.False(result.StandardOutput.Contains(marker, StringComparison.Ordinal), "Protected standard input must not be echoed by the runner.");
+            AssertEx.False(result.StandardError.Contains(marker, StringComparison.Ordinal), "Protected standard input must not appear in standard error.");
         }
         finally
         {
@@ -2255,6 +2403,7 @@ internal static class Program
     {
         return new CustomerInstallConfig
         {
+            ContractVersion = "0.3",
             Customer =
             {
                 TenantName = "Example Customer",
@@ -2305,18 +2454,78 @@ internal static class Program
             },
             Secrets =
             {
-                RequiredSecretNames = ["runtime-api-secret"],
+                KeyVaultName = "kv-pm365-example",
+                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-SESSION-SECRET"],
                 PromptForSecrets =
                 [
                     new SecretPromptInfo
                     {
-                        Name = "runtime-api-secret",
-                        Label = "Runtime API secret",
-                        Required = true
+                        Name = "DATABASE-URL",
+                        Label = "Runtime database connection string",
+                        Required = true,
+                        GeneratedByInstaller = false
+                    },
+                    new SecretPromptInfo
+                    {
+                        Name = "API-ENTRA-CLIENT-SECRET",
+                        Label = "Runtime Entra application client secret",
+                        Required = true,
+                        GeneratedByInstaller = false
+                    },
+                    new SecretPromptInfo
+                    {
+                        Name = "API-SESSION-SECRET",
+                        Label = "Runtime session signing secret",
+                        Required = true,
+                        GeneratedByInstaller = true
                     }
-                ]
+                ],
+                RuntimeSecrets = CreateRuntimeSecretContract()
             }
         };
+    }
+
+    private static List<RuntimeSecretInfo> CreateRuntimeSecretContract()
+    {
+        return
+        [
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "DATABASE-URL",
+                AppSettingName = "DATABASE_URL",
+                Label = "Runtime database connection string",
+                Purpose = "Connects the runtime API to PostgreSQL.",
+                Source = RuntimeSecretSource.Operator,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 12
+            },
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "API-ENTRA-CLIENT-SECRET",
+                AppSettingName = "API_ENTRA_CLIENT_SECRET",
+                Label = "Runtime Entra application client secret",
+                Purpose = "Authenticates the customer runtime API application.",
+                Source = RuntimeSecretSource.Operator,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 16
+            },
+            new RuntimeSecretInfo
+            {
+                KeyVaultSecretName = "API-SESSION-SECRET",
+                AppSettingName = "API_SESSION_SECRET",
+                Label = "Runtime session signing secret",
+                Purpose = "Signs customer runtime session state.",
+                Source = RuntimeSecretSource.InstallerGenerated,
+                Owner = RuntimeSecretOwner.Customer,
+                TargetApp = RuntimeSecretTarget.Api,
+                Required = true,
+                MinimumLength = 64
+            }
+        ];
     }
 
     private static OnboardingPackageReadiness CreateReadyReadiness()
@@ -2489,6 +2698,21 @@ internal static class Program
 
 internal static class AssertEx
 {
+    public static TException Throws<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException($"Expected exception of type {typeof(TException).Name}.");
+    }
+
     public static void Equal<T>(T expected, T actual, string? message = null)
     {
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
