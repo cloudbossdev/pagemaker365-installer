@@ -1,8 +1,10 @@
 # Installer Implementation Backlog
 
-Status: active backlog. See `docs/execution-master-plan.md` for execution order, subagent lanes, dependencies, and customer decisions.
+Status: historical implementation backlog; not authoritative for current release readiness.
 
-Last updated: 2026-07-08.
+Last reconciled: 2026-07-27.
+
+Use `docs/customer-readiness-program.md`, `docs/installer-requirements-traceability.md`, and the `Installer Customer Readiness v1` GitHub milestone for current scope, status, dependencies, and acceptance evidence. The checklist below records the earlier implementation sequence and may contain superseded status wording.
 
 ## Milestone 1 - Deployment Contract
 
