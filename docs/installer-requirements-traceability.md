@@ -2,6 +2,10 @@
 
 Status: active working record
 
+Live acceptance procedure: `docs/testing/customer-lifecycle-acceptance-runbook.md`
+
+Customer documentation approval template: `docs/customer/customer-documentation-review-record.md`
+
 This document prevents drift between requirements, implementation, tests, live evidence, and customer documentation. A status of `Implemented` is not equivalent to `Verified`.
 
 ## Status Vocabulary
