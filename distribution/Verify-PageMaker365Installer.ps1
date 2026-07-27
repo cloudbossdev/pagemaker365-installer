@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $PackagePath = (Resolve-Path -LiteralPath $PackagePath).Path
 $manifestPath = Join-Path $PackagePath 'release-manifest.json'
+$manifestSignaturePath = "$manifestPath.p7s"
 $checksumPath = Join-Path $PackagePath 'SHA256SUMS.txt'
 
 foreach ($path in @($manifestPath, $checksumPath)) {
@@ -41,6 +42,31 @@ if ($manifest.signing.status -eq 'Signed') {
     if ($manifest.signing.publisher -ne $ExpectedPublisher -or
         ([string]$manifest.signing.certificateThumbprint).ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
         throw 'The release manifest signer does not match the official PageMaker365 release identity.'
+    }
+
+    if (-not (Test-Path -LiteralPath $manifestSignaturePath -PathType Leaf)) {
+        throw 'The signed package is missing its detached release-manifest signature.'
+    }
+
+    Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+    $manifestContent = [System.Security.Cryptography.Pkcs.ContentInfo]::new(
+        [System.IO.File]::ReadAllBytes($manifestPath))
+    $signedManifest = [System.Security.Cryptography.Pkcs.SignedCms]::new(
+        $manifestContent,
+        $true)
+    try {
+        $signedManifest.Decode([System.IO.File]::ReadAllBytes($manifestSignaturePath))
+        $signedManifest.CheckSignature($true)
+    }
+    catch {
+        throw 'Detached release-manifest signature verification failed.'
+    }
+
+    if ($signedManifest.SignerInfos.Count -ne 1 -or
+        $null -eq $signedManifest.SignerInfos[0].Certificate -or
+        $signedManifest.SignerInfos[0].Certificate.Subject -ne $ExpectedPublisher -or
+        $signedManifest.SignerInfos[0].Certificate.Thumbprint.ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
+        throw 'The detached release-manifest signer does not match the official PageMaker365 release identity.'
     }
 
     $verifierSignature = Get-AuthenticodeSignature -LiteralPath $PSCommandPath
@@ -103,7 +129,7 @@ foreach ($file in $manifest.files) {
 $actualPayloadPaths = @(
     Get-ChildItem -LiteralPath $PackagePath -Recurse -File |
         ForEach-Object { [System.IO.Path]::GetRelativePath($PackagePath, $_.FullName).Replace('\', '/') } |
-        Where-Object { $_ -notin @('release-manifest.json', 'SHA256SUMS.txt') } |
+        Where-Object { $_ -notin @('release-manifest.json', 'release-manifest.json.p7s', 'SHA256SUMS.txt') } |
         Sort-Object
 )
 if (($actualPayloadPaths -join "`n") -ne (($expectedPaths | Sort-Object) -join "`n")) {

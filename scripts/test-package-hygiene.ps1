@@ -57,4 +57,10 @@ if ($debugFiles.Count -gt 0) {
     }
 }
 
+$releaseManifest = Get-Content -LiteralPath (Join-Path $resolvedPackagePath 'release-manifest.json') -Raw | ConvertFrom-Json
+if ($releaseManifest.signing.status -eq 'Signed' -and
+    -not (Test-Path -LiteralPath (Join-Path $resolvedPackagePath 'release-manifest.json.p7s') -PathType Leaf)) {
+    throw 'Signed package release evidence is missing: release-manifest.json.p7s'
+}
+
 Write-Host 'Package hygiene checks passed.'

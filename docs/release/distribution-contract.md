@@ -20,12 +20,14 @@ The distribution has three independent controls:
 
 1. Authenticode signs `PageMaker365.Installer.exe`, PageMaker365 first-party
    libraries, and every shipped `.ps1`, `.psm1`, and `.psd1` file.
-2. `release-manifest.json`, `SHA256SUMS.txt`, and the sibling `.zip.sha256`
-   record the exact payload and archive integrity.
+2. A detached CMS signature authenticates `release-manifest.json` with the
+   approved signing certificate. The signed manifest, `SHA256SUMS.txt`, and the
+   sibling `.zip.sha256` record the exact payload and archive integrity.
 3. The official release record supplies the expected publisher and certificate
    thumbprint independently of the ZIP. The verifier requires those external
-   values, checks its own Authenticode identity, and rejects a package whose
-   self-declared or actual signer differs. Customer instructions independently
+   values, authenticates the detached manifest signature, checks its own
+   Authenticode identity, and rejects a package whose self-declared or actual
+   signer differs. Customer instructions independently
    check the verifier's signature before executing code from the ZIP.
 
 The ZIP file itself is not described as Authenticode-signed. A customer release

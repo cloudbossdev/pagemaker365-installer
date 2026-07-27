@@ -16,7 +16,7 @@ A release consists of:
 
 - `pagemaker365-installer-<version>.zip` or an equivalently named ZIP.
 - A sibling `.zip.sha256` file published through the same release record.
-- `release-manifest.json`, `SHA256SUMS.txt`, `RELEASE-NOTES.md`, and
+- `release-manifest.json`, `release-manifest.json.p7s`, `SHA256SUMS.txt`, `RELEASE-NOTES.md`, and
   `Verify-PageMaker365Installer.ps1` inside the ZIP.
 
 The ZIP is an archive, not a machine-wide Windows installer. Authenticode
@@ -71,8 +71,9 @@ thumbprint must match the supplied official values. Do not use
 `-AllowUnsignedDevelopment` for a customer installation; that switch exists
 only for engineering CI validation.
 
-The verification script checks every manifest path, file length, SHA-256 hash,
-required Authenticode signature (including its own), externally supplied
+The verification script authenticates the detached CMS signature over the
+release manifest before trusting its inventory. It then checks every manifest
+path, file length, SHA-256 hash, required Authenticode signature (including its own), externally supplied
 publisher and certificate thumbprint, and the complete extracted-file
 inventory. Extra, missing, modified, or self-declared signer values fail the
 check.

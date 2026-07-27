@@ -281,6 +281,7 @@ try {
     }
 
     $manifestPath = Join-Path $OutputPath 'release-manifest.json'
+    $manifestSignaturePath = "$manifestPath.p7s"
     $checksumPath = Join-Path $OutputPath 'SHA256SUMS.txt'
     $manifestFiles = @(
         Get-ChildItem -LiteralPath $OutputPath -Recurse -File |
@@ -325,6 +326,19 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 8 |
         Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+
+    if ($signingRequested) {
+        Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+        $manifestContent = [System.Security.Cryptography.Pkcs.ContentInfo]::new(
+            [System.IO.File]::ReadAllBytes($manifestPath))
+        $signedManifest = [System.Security.Cryptography.Pkcs.SignedCms]::new(
+            $manifestContent,
+            $true)
+        $manifestSigner = [System.Security.Cryptography.Pkcs.CmsSigner]::new($certificate)
+        $manifestSigner.IncludeOption = [System.Security.Cryptography.X509Certificates.X509IncludeOption]::EndCertOnly
+        $signedManifest.ComputeSignature($manifestSigner, $true)
+        [System.IO.File]::WriteAllBytes($manifestSignaturePath, $signedManifest.Encode())
+    }
 
     $checksumFiles = @(
         Get-ChildItem -LiteralPath $OutputPath -Recurse -File |
@@ -376,6 +390,7 @@ try {
         archiveChecksumPath = $archiveChecksumPath
         archiveSha256 = $archiveSha256
         manifestPath = $manifestPath
+        manifestSignaturePath = if ($signingRequested) { $manifestSignaturePath } else { $null }
         version = $Version
         signed = $signingRequested
         sourceDirty = $sourceDirty

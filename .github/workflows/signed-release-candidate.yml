@@ -19,10 +19,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
 
@@ -103,7 +103,7 @@ jobs:
         run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'pagemaker365-codesign.pfx') -Force -ErrorAction SilentlyContinue
 
       - name: Upload signed release candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pagemaker365-installer-signed-release-candidate
           path: |

@@ -92,12 +92,37 @@ if ($manifest.signing.status -eq 'UnsignedDevelopment') {
     $originalManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
     try {
         $manifest.signing.status = 'Signed'
+        $manifest.signing.publisher = 'CN=Forged PageMaker365'
+        $manifest.signing.certificateThumbprint = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
         $manifest | ConvertTo-Json -Depth 8 |
             Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
         Assert-VerificationFails `
-            -Scenario 'self-declared signed package without an external signer identity' `
-            -ExpectedMessagePattern 'expected publisher and certificate thumbprint' `
-            -Action { & $verifierPath -PackagePath $PackagePath -AllowUnsignedDevelopment }
+            -Scenario 'self-declared signed package without a detached manifest signature' `
+            -ExpectedMessagePattern 'detached release-manifest signature' `
+            -Action {
+                & $verifierPath `
+                    -PackagePath $PackagePath `
+                    -ExpectedPublisher 'CN=Forged PageMaker365' `
+                    -ExpectedCertificateThumbprint 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+            }
+    }
+    finally {
+        [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
+    }
+}
+
+if ($RequireSignature) {
+    $manifestPath = Join-Path $PackagePath 'release-manifest.json'
+    $originalManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+    try {
+        $signedManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $signedManifest.source.repository = 'https://example.invalid/forged'
+        $signedManifest | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+        Assert-VerificationFails `
+            -Scenario 'modified detached-signed manifest' `
+            -ExpectedMessagePattern 'Detached release-manifest signature verification failed' `
+            -Action { & $verifierPath @verifyArguments }
     }
     finally {
         [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
@@ -185,7 +210,10 @@ foreach ($requiredPolicy in @(
     "environment: production-signing",
     "`$env:GITHUB_REF -ne 'refs/heads/main'",
     'PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}',
-    '-ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT'
+    '-ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT',
+    'actions/checkout@v7',
+    'actions/setup-dotnet@v6',
+    'actions/upload-artifact@v7'
 )) {
     if (-not $signedWorkflow.Contains($requiredPolicy, [StringComparison]::Ordinal)) {
         throw "Signed release workflow policy is missing: $requiredPolicy"
