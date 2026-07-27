@@ -6,6 +6,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $storyPath = Join-Path $repoRoot 'docs/install-uninstall-user-stories.md'
 $scenarioPath = Join-Path $repoRoot 'docs/install-uninstall-test-matrix.md'
 $traceabilityPath = Join-Path $repoRoot 'docs/installer-requirements-traceability.md'
+$onboardingContractPath = Join-Path $repoRoot 'docs/onboarding-discovery-contract.md'
 $removalEvidenceContractPath = Join-Path $repoRoot 'docs/removal-evidence-callback-contract.md'
 $documentationPlanPath = Join-Path $repoRoot 'docs/customer/customer-documentation-delivery-plan.md'
 $documentationReviewPath = Join-Path $repoRoot 'docs/customer/customer-documentation-review-record.md'
@@ -20,6 +21,7 @@ foreach ($path in @(
     $storyPath,
     $scenarioPath,
     $traceabilityPath,
+    $onboardingContractPath,
     $removalEvidenceContractPath,
     $documentationPlanPath,
     $documentationReviewPath,
@@ -27,6 +29,29 @@ foreach ($path in @(
     $lifecycleResultTemplatePath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
+    }
+}
+
+$onboardingContractText = Get-Content -LiteralPath $onboardingContractPath -Raw
+@(
+    'Bounded package-download retry for HTTP 408, 429, and 5xx',
+    '`SignedRequired` Ed25519 package verification against the trusted PageMaker365 JWKS endpoint',
+    'External and live acceptance gates:',
+    'cloudbossdev/pagemaker365#5',
+    'installer issue #10'
+) | ForEach-Object {
+    if ($onboardingContractText -notmatch [regex]::Escape($_)) {
+        throw "Onboarding discovery contract is missing the current package-trust or live-gate claim: $_"
+    }
+}
+
+@(
+    'Live PageMaker365 portal API endpoint implementation.',
+    'Portal-side onboarding form population.',
+    'Signed final install package generation and cryptographic signature validation.'
+) | ForEach-Object {
+    if ($onboardingContractText -match [regex]::Escape($_)) {
+        throw "Onboarding discovery contract contains an obsolete not-implemented claim: $_"
     }
 }
 
