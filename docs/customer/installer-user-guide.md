@@ -50,7 +50,7 @@ The current alpha provisions Azure resources but does not yet deploy the PageMak
 - Final customer roles and permission prerequisites from issue #8.
 - Verified runtime completion and customer URL behavior from issue #5.
 - Supported upgrade instructions from issue #6.
-- Signed distribution and verification instructions from issue #13.
+- Production certificate identity and clean-workstation evidence from issue #13. The controlled verification procedure is documented in `installer-distribution-verification.md`.
 - Clean-operator walkthrough results from issue #10.
 
 Until these items are complete, `docs/using-the-installer.md` remains the engineering operator reference rather than a customer publication.

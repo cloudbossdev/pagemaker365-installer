@@ -156,14 +156,47 @@ pwsh .\scripts\verify.ps1
 ## Package
 
 ```powershell
-pwsh .\scripts\package.ps1
+pwsh .\scripts\package.ps1 `
+  -Version 0.1.0-dev `
+  -OutputPath .\artifacts\installer-package
+
+pwsh .\scripts\test-release-package.ps1 `
+  -PackagePath .\artifacts\installer-package `
+  -ArchivePath .\artifacts\installer-package.zip `
+  -ExpectedVersion 0.1.0-dev
 ```
 
-Optional signing:
+The package command produces a deterministic ZIP, a sibling ZIP checksum, an
+exact release manifest, per-file SHA-256 checksums, release notes, and an
+offline verifier. An unsigned package is marked `UnsignedDevelopment` and is
+not a customer release.
+
+Production signing can use a certificate already installed in the current
+user certificate store:
 
 ```powershell
-pwsh .\scripts\package.ps1 -CodeSigningCertificatePath C:\certs\pagemaker365.pfx
+pwsh .\scripts\package.ps1 `
+  -Version 0.1.0 `
+  -OutputPath .\artifacts\pagemaker365-installer-0.1.0 `
+  -CodeSigningCertificateThumbprint '<certificate-thumbprint>' `
+  -ExpectedPublisher '<approved-certificate-subject>' `
+  -ExpectedCertificateThumbprint '<certificate-thumbprint>' `
+  -RequireCleanSource
+
+pwsh .\scripts\test-release-package.ps1 `
+  -PackagePath .\artifacts\pagemaker365-installer-0.1.0 `
+  -ArchivePath .\artifacts\pagemaker365-installer-0.1.0.zip `
+  -ExpectedVersion 0.1.0 `
+  -ExpectedPublisher '<approved-certificate-subject>' `
+  -ExpectedCertificateThumbprint '<certificate-thumbprint>' `
+  -RequireSignature
 ```
+
+For PFX input, use `-CodeSigningCertificatePath` and provide its password only
+through the environment variable named by
+`-CodeSigningCertificatePasswordEnvironmentVariable`. See
+`docs/release/distribution-contract.md` and
+`docs/customer/installer-distribution-verification.md`.
 
 ## First Desktop Flow
 

@@ -70,6 +70,7 @@ Write-Host 'Checking PowerShell syntax...'
 $scriptRoots = @(
     (Join-Path $repoRoot 'modules')
     (Join-Path $repoRoot 'scripts')
+    (Join-Path $repoRoot 'distribution')
 )
 $scriptRoots |
     ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Include *.ps1,*.psm1 } |
@@ -81,6 +82,12 @@ $scriptRoots |
             throw "PowerShell parse error in $($_.FullName): $($errors[0].Message)"
         }
     }
+
+Write-Host 'Testing detached release-manifest signature contract...'
+& (Join-Path $repoRoot 'scripts\test-release-manifest-signature.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Release-manifest signature tests failed with exit code $LASTEXITCODE."
+}
 
 Write-Host 'Restoring solution...'
 dotnet restore (Join-Path $repoRoot 'PageMaker365.Installer.sln')
