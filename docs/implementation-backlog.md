@@ -75,11 +75,12 @@ Acceptance criteria:
 
 Goal: configure the runtime app without writing secrets into logs or control-plane exports.
 
-- [ ] Define required secret prompts.
-- [ ] Add secure secret input UI.
-- [ ] Write supplied/generated secrets to customer Key Vault.
-- [ ] Configure runtime app settings as Key Vault references where supported.
-- [ ] Redact all secret names and values from logs according to policy.
+- [x] Define the versioned runtime secret metadata contract.
+- [x] Add protected secret input UI with no saved-session persistence.
+- [x] Write supplied/generated secrets to customer Key Vault through an ARM secure parameter.
+- [x] Configure API app settings as managed-identity Key Vault references.
+- [x] Keep raw values out of logs, reports, callbacks, artifacts, and support bundles in automated verification.
+- [ ] Prove provisioning, reference resolution, runtime startup, and evidence redaction with a fresh signed staging package.
 
 Acceptance criteria:
 
@@ -128,10 +129,10 @@ Acceptance criteria:
 Goal: produce a customer-ready installer distribution.
 
 - [x] Add package script scaffold.
-- [ ] Select distribution format: signed ZIP, MSIX, MSI, or setup bootstrapper.
+- [x] Select a versioned ZIP for pilot distribution.
 - [ ] Acquire production code-signing certificate.
-- [ ] Sign executable and package.
-- [ ] Add version metadata and release notes.
+- [x] Implement executable, first-party library, and PowerShell signing; production signing remains pending certificate configuration.
+- [x] Add version metadata, deterministic manifest/checksums, verifier, and release notes.
 - [ ] Test install on a clean Windows 11 workstation.
 
 Acceptance criteria:

@@ -6,14 +6,43 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $storyPath = Join-Path $repoRoot 'docs/install-uninstall-user-stories.md'
 $scenarioPath = Join-Path $repoRoot 'docs/install-uninstall-test-matrix.md'
 $traceabilityPath = Join-Path $repoRoot 'docs/installer-requirements-traceability.md'
+$removalEvidenceContractPath = Join-Path $repoRoot 'docs/removal-evidence-callback-contract.md'
+$documentationPlanPath = Join-Path $repoRoot 'docs/customer/customer-documentation-delivery-plan.md'
+$documentationReviewPath = Join-Path $repoRoot 'docs/customer/customer-documentation-review-record.md'
+$lifecycleRunbookPath = Join-Path $repoRoot 'docs/testing/customer-lifecycle-acceptance-runbook.md'
 $customerDraftPaths = @(
     (Join-Path $repoRoot 'docs/customer/installer-user-guide.md'),
     (Join-Path $repoRoot 'docs/customer/installer-technical-security-guide.md')
 )
 
-foreach ($path in @($storyPath, $scenarioPath, $traceabilityPath) + $customerDraftPaths) {
+foreach ($path in @(
+    $storyPath,
+    $scenarioPath,
+    $traceabilityPath,
+    $removalEvidenceContractPath,
+    $documentationPlanPath,
+    $documentationReviewPath,
+    $lifecycleRunbookPath) + $customerDraftPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required customer-readiness document is missing: $path"
+    }
+}
+
+$removalContractText = Get-Content -LiteralPath $removalEvidenceContractPath -Raw
+@(
+    'removal_started',
+    'removal_inventory_completed',
+    'removal_execution_completed',
+    'removal_validation_completed',
+    'removal_completed',
+    'removal_blocked',
+    'removal_failed',
+    'removalAttemptId',
+    'RemovalStatusSync',
+    'Idempotency-Key'
+) | ForEach-Object {
+    if ($removalContractText -notmatch [regex]::Escape($_)) {
+        throw "Removal evidence callback contract is missing required term: $_"
     }
 }
 
@@ -77,6 +106,103 @@ foreach ($path in $customerDraftPaths) {
     if ($draftText -notmatch '(?im)^Status:\s+controlled draft; not approved for customer publication\s*$') {
         throw "Customer document must retain the controlled-draft publication warning: $path"
     }
+}
+
+$userGuideText = Get-Content -LiteralPath $customerDraftPaths[0] -Raw
+@(
+    '## Before You Begin',
+    '## Verify And Start The Installer',
+    '## Install PageMaker365',
+    '## Recover From A Partial Or Interrupted Install',
+    '## Remove PageMaker365 Azure Resources',
+    '## Reinstall After Removal',
+    '## Evidence And Local Data',
+    '## Request Support',
+    '## Assistant And Support Handoff',
+    '## Publication Gates'
+) | ForEach-Object {
+    if ($userGuideText -notmatch "(?m)^$([regex]::Escape($_))\s*$") {
+        throw "Customer user guide is missing required section: $_"
+    }
+}
+
+$technicalGuideText = Get-Content -LiteralPath $customerDraftPaths[1] -Raw
+@(
+    '## Trust Boundaries And Data Flow',
+    '## Lifecycle And Mutation Controls',
+    '## Operator Identities And Permissions',
+    '## Azure Resource Inventory',
+    '## Network Requirements',
+    '## Cryptographic Trust Layers',
+    '## Token And Secret Handling',
+    '## Local Storage And Retention',
+    '## Evidence, Logging, And Portal Sync',
+    '## Assistant And Support Handoff Security',
+    '## Removal And Recovery Boundaries',
+    '## Troubleshooting And Correlation',
+    '## Customer Security Review Checklist',
+    '## Known Release Blockers'
+) | ForEach-Object {
+    if ($technicalGuideText -notmatch "(?m)^$([regex]::Escape($_))\s*$") {
+        throw "Customer technical/security guide is missing required section: $_"
+    }
+}
+
+$lifecycleRunbookText = Get-Content -LiteralPath $lifecycleRunbookPath -Raw
+@(
+    '## Stop Rules',
+    '## Phase 1: Distribution And Clean Workstation',
+    '## Phase 2: Clean Install And Finish',
+    '## Phase 4: Partial Failure, Cleanup, And Reinstall',
+    '## Phase 5: Three Consecutive Lifecycle Cycles',
+    '## Phase 7: Security And Evidence Review',
+    '## Result Record',
+    '## Final Reconciliation And Approval'
+) | ForEach-Object {
+    if ($lifecycleRunbookText -notmatch "(?m)^$([regex]::Escape($_))\s*$") {
+        throw "Customer lifecycle acceptance runbook is missing required section: $_"
+    }
+}
+
+if ($lifecycleRunbookText -notmatch [regex]::Escape('assistant-support-handoff.md')) {
+    throw 'Customer lifecycle acceptance runbook must invoke the assistant support-handoff staging runbook.'
+}
+
+@(
+    'W01', 'W06', 'S03', 'P01', 'A01', 'F01', 'D01', 'D07',
+    'L01', 'L02', 'L03', 'L04', 'L05', 'L06', 'L07', 'L08', 'L09',
+    'R01', 'R09', 'R13', 'R14', 'R15', 'E06', 'E08', 'T04'
+) | ForEach-Object {
+    if ($lifecycleRunbookText -notmatch "\b$([regex]::Escape($_))\b") {
+        throw "Customer lifecycle acceptance runbook is missing release-critical scenario: $_"
+    }
+}
+
+$documentationReviewText = Get-Content -LiteralPath $documentationReviewPath -Raw
+@(
+    'Status: template; no approval recorded',
+    '## Release Identity',
+    '## Claim Review',
+    '## Required Decisions',
+    '## Publication Decision',
+    'Identity and security',
+    'Clean test operator'
+) | ForEach-Object {
+    if ($documentationReviewText -notmatch [regex]::Escape($_)) {
+        throw "Customer documentation review template is missing required control: $_"
+    }
+}
+
+$documentationPlanText = Get-Content -LiteralPath $documentationPlanPath -Raw
+foreach ($storyId in $expectedStoryIds) {
+    if ($documentationPlanText -notmatch "(?m)^\| $([regex]::Escape($storyId))\s") {
+        throw "$storyId is missing from the customer documentation story-coverage table."
+    }
+}
+
+if ($documentationPlanText -notmatch '(?i)controlled draft' -or
+    $documentationPlanText -notmatch '(?m)^## Evidence Gates\s*$') {
+    throw 'Customer documentation delivery plan must retain its controlled-draft publication and evidence gates.'
 }
 
 Write-Host "Documentation traceability checks passed: $($storyIds.Count) stories, $($scenarioIds.Count) scenarios."

@@ -70,6 +70,7 @@ Write-Host 'Checking PowerShell syntax...'
 $scriptRoots = @(
     (Join-Path $repoRoot 'modules')
     (Join-Path $repoRoot 'scripts')
+    (Join-Path $repoRoot 'distribution')
 )
 $scriptRoots |
     ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Include *.ps1,*.psm1 } |
@@ -81,6 +82,12 @@ $scriptRoots |
             throw "PowerShell parse error in $($_.FullName): $($errors[0].Message)"
         }
     }
+
+Write-Host 'Testing detached release-manifest signature contract...'
+& (Join-Path $repoRoot 'scripts\test-release-manifest-signature.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Release-manifest signature tests failed with exit code $LASTEXITCODE."
+}
 
 Write-Host 'Restoring solution...'
 dotnet restore (Join-Path $repoRoot 'PageMaker365.Installer.sln')
@@ -126,6 +133,7 @@ Write-Host 'Checking exported commands...'
     'Test-PM365KeyVaultRecoveryState',
     'Invoke-PM365WhatIf',
     'Invoke-PM365Deployment',
+    'Set-PM365RuntimeConfiguration',
     'Remove-PM365PartialInstall',
     'Test-PM365SmokeTests'
 ) | ForEach-Object {
@@ -172,6 +180,12 @@ Write-Host 'Testing Key Vault recovery preflight contracts...'
 & (Join-Path $repoRoot 'scripts\test-keyvault-recovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Key Vault recovery preflight tests failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Testing runtime configuration reference contracts...'
+& (Join-Path $repoRoot 'scripts\test-runtime-configuration.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Runtime configuration reference tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Testing mandatory preflight blocker policy...'

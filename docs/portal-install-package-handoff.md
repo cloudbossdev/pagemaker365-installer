@@ -1,6 +1,6 @@
 # Portal Install Package Handoff
 
-Last updated: 2026-07-09
+Last updated: 2026-07-26
 
 ## Purpose
 
@@ -17,6 +17,7 @@ Use these files in the installer repo as the contract source:
 - Portal API flow: `D:\projects\pagemaker365-installer\docs\onboarding-discovery-contract.md`
 - Deployment trust rules: `D:\projects\pagemaker365-installer\docs\deployment-contract.md`
 - Current sandbox readiness: `D:\projects\pagemaker365-installer\docs\sandbox-whatif-readiness.md`
+- Runtime secret contract: `D:\projects\pagemaker365-installer\docs\runtime-secret-contract.md`
 
 Do not use `D:\projects\pagemaker365-installer\docs\cloudboss-sandbox-sandbox-deployment-export-2026-07-07T22-53-19-801Z.json` as the installer package. That file is a raw deployment export. It can be used as source data by the portal, but the endpoint response must be transformed into the `customer-install` contract.
 
@@ -160,13 +161,11 @@ Alpha packages may use `trustMode: "UnsignedAllowed"`. Missing hash/signature me
 
 ## Secrets Contract
 
-The package may include secret names and prompts, but must not include raw secret values.
+The portal must generate contract version `0.3`. `secrets.runtimeSecrets` must contain exactly `DATABASE_URL`, `API_ENTRA_CLIENT_SECRET`, and `API_SESSION_SECRET` using the metadata shape in `samples/contoso.customer.install.json` and `docs/runtime-secret-contract.md`.
 
-Allowed examples:
+`DATABASE_URL` and `API_ENTRA_CLIENT_SECRET` use source `operator` with minimum lengths of at least 12 and 16 respectively. `API_SESSION_SECRET` uses source `installerGenerated` with a minimum length of at least 32; the installer currently generates at least 64. All three use owner `customer`, target `api`, and `required: true`. `secrets.keyVaultName` must equal `azure.resourceNames.keyVaultName`.
 
-- `secrets.keyVaultName`
-- `secrets.requiredSecretNames`
-- `secrets.promptForSecrets`
+The legacy `requiredSecretNames` and `promptForSecrets` fields may be present only for compatibility; they do not replace `runtimeSecrets`. Any package without the complete `0.3` runtime contract is rejected before Azure mutation.
 
 Blocked containers:
 
@@ -176,6 +175,8 @@ Blocked containers:
 - `secrets.tokens`
 - `secrets.clientSecrets`
 - `secrets.apiKeys`
+
+Each runtime secret entry is metadata only and must not contain `value`, `defaultValue`, or any encoded secret material.
 
 ## Minimal Validation Commands
 
@@ -212,6 +213,7 @@ The portal side is ready for installer validation when:
 - The endpoint requires and validates `X-PM365-Onboarding-Session` and `X-PM365-Onboarding-Code`.
 - The package contains real CloudBoss tenant/subscription/resource values.
 - The package does not contain raw secrets.
+- The package declares `contractVersion: "0.3"` and the exact required runtime secret metadata.
 - The package includes `controlPlane.deploymentExportId`.
 - The package binds to the active onboarding session and discovery payload.
 - The package passes `Test-PM365DeploymentContract`.

@@ -19,6 +19,7 @@ As an installer operator, I want to start the correct workflow or safely resume 
 
 Acceptance criteria:
 
+- The customer can verify the distribution version, integrity, publisher, and signing certificate before launch.
 - The operator can choose install/update or Azure-only removal.
 - A saved active session identifies the customer, environment, workflow, last step, and save time.
 - The operator can resume, start new, or forget the saved session.
@@ -181,8 +182,8 @@ Acceptance criteria:
 - Ownership and activity are rechecked immediately before deletion.
 - The dedicated resource group is deleted and absence is validated.
 - SharePoint content, shared or ambiguous Azure resources, and external customer resources are never modified.
-- Key Vault is never purged; soft-deleted recoverability is retained and reported.
-- Removal callbacks remain disabled until the hardened contract in issue #9 is implemented.
+- Key Vault is never purged. When the package-named vault exists before approved deletion, its soft-deleted recoverability is reported; missing or already-absent resources are recorded without an unsupported retention claim.
+- Authorized removal callbacks use a distinct ordered attempt and persisted outbox; portal sync failure never changes the Azure result.
 
 ## US-15 Reinstall After Removal
 
