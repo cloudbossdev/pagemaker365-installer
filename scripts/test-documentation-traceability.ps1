@@ -7,6 +7,9 @@ $storyPath = Join-Path $repoRoot 'docs/install-uninstall-user-stories.md'
 $scenarioPath = Join-Path $repoRoot 'docs/install-uninstall-test-matrix.md'
 $traceabilityPath = Join-Path $repoRoot 'docs/installer-requirements-traceability.md'
 $upgradeContractPath = Join-Path $repoRoot 'docs/upgrade-contract.md'
+$executionPlanPath = Join-Path $repoRoot 'docs/execution-master-plan.md'
+$implementationBacklogPath = Join-Path $repoRoot 'docs/implementation-backlog.md'
+$onboardingContractPath = Join-Path $repoRoot 'docs/onboarding-discovery-contract.md'
 $removalEvidenceContractPath = Join-Path $repoRoot 'docs/removal-evidence-callback-contract.md'
 $documentationPlanPath = Join-Path $repoRoot 'docs/customer/customer-documentation-delivery-plan.md'
 $documentationReviewPath = Join-Path $repoRoot 'docs/customer/customer-documentation-review-record.md'
@@ -22,6 +25,9 @@ foreach ($path in @(
     $scenarioPath,
     $traceabilityPath,
     $upgradeContractPath,
+    $executionPlanPath,
+    $implementationBacklogPath,
+    $onboardingContractPath,
     $removalEvidenceContractPath,
     $documentationPlanPath,
     $documentationReviewPath,
@@ -48,6 +54,44 @@ $upgradeContractText = Get-Content -LiteralPath $upgradeContractPath -Raw
 ) | ForEach-Object {
     if ($upgradeContractText -notmatch [regex]::Escape($_)) {
         throw "Upgrade contract is missing required term: $_"
+    }
+}
+
+foreach ($path in @($executionPlanPath, $implementationBacklogPath)) {
+    $historicalPlanText = Get-Content -LiteralPath $path -Raw
+    @(
+        'historical implementation',
+        'not authoritative for current release readiness',
+        'docs/customer-readiness-program.md',
+        'docs/installer-requirements-traceability.md',
+        'Installer Customer Readiness v1'
+    ) | ForEach-Object {
+        if ($historicalPlanText -notmatch [regex]::Escape($_)) {
+            throw "Historical plan must direct maintainers to the current readiness sources: $path is missing $_"
+        }
+    }
+}
+
+$onboardingContractText = Get-Content -LiteralPath $onboardingContractPath -Raw
+@(
+    'Bounded package-download retry for HTTP 408, 429, and 5xx',
+    '`SignedRequired` Ed25519 package verification against the trusted PageMaker365 JWKS endpoint',
+    'External and live acceptance gates:',
+    'cloudbossdev/pagemaker365#5',
+    'installer issue #10'
+) | ForEach-Object {
+    if ($onboardingContractText -notmatch [regex]::Escape($_)) {
+        throw "Onboarding discovery contract is missing the current package-trust or live-gate claim: $_"
+    }
+}
+
+@(
+    'Live PageMaker365 portal API endpoint implementation.',
+    'Portal-side onboarding form population.',
+    'Signed final install package generation and cryptographic signature validation.'
+) | ForEach-Object {
+    if ($onboardingContractText -match [regex]::Escape($_)) {
+        throw "Onboarding discovery contract contains an obsolete not-implemented claim: $_"
     }
 }
 

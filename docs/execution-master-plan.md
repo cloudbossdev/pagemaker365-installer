@@ -1,8 +1,10 @@
 # PageMaker365 Installer Execution Master Plan
 
-Status: active execution plan.
+Status: historical implementation plan; not authoritative for current release readiness.
 
-Last updated: 2026-07-08.
+Last reconciled: 2026-07-27.
+
+Current status and delivery decisions are maintained in `docs/customer-readiness-program.md`, `docs/installer-requirements-traceability.md`, the `Installer Customer Readiness v1` GitHub milestone, and its linked issues. The slices below preserve implementation history and rationale; an unchecked or blocked item here must not override the current traceability record or a GitHub acceptance gate.
 
 ## Purpose
 

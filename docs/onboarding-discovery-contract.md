@@ -381,16 +381,19 @@ Implemented in this repo:
 - Mock package-readiness status.
 - Mock generated package download and load into the installer.
 - Portal API client for connect, discovery sync, package readiness, and package download with fail-closed response validation.
+- Bounded package-download retry for HTTP 408, 429, and 5xx without retrying authorization or package-trust failures.
 - Customer package export metadata and hash validation.
 - Generated package provenance validation for onboarding session, tenant, discovery ID, and deployment export ID.
+- `SignedRequired` Ed25519 package verification against the trusted PageMaker365 JWKS endpoint, including key ID, canonical hash, and signature validation.
 - Onboarding API configuration and environment override support.
 - Read-only Azure discovery command and engine integration.
 - Read-only Graph and SharePoint discovery command and engine integration.
 - Onboarding API, Azure discovery, and Graph discovery contract harness.
 - Portal response, API error, and generated-package validation contract tests.
 
-Not implemented yet:
+External and live acceptance gates:
 
-- Live PageMaker365 portal API endpoint implementation.
-- Portal-side onboarding form population.
-- Signed final install package generation and cryptographic signature validation.
+- Approve and deploy the production portal onboarding workflow and package endpoints; staging connect, status, package generation, download, and signed-package verification have been exercised but are not production approval.
+- Remediate the persistent staging package-download rate limit tracked by `cloudbossdev/pagemaker365#5`, then repeat the production-client download with a fresh setup session.
+- Prove a fresh staging package contains every required onboarding field and matches the active session, tenant, discovery ID, deployment export ID, canonical SHA-256 hash, and Ed25519 signature.
+- Complete the controlled clean-workstation and repeated lifecycle campaign in installer issue #10 before treating the portal handoff as customer-ready.
