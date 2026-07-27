@@ -10,12 +10,14 @@ Tracking issues: [#11 customer user guide](https://github.com/cloudbossdev/pagem
 
 Publish two customer documents whose instructions and technical claims match the released installer, are traceable to all fifteen canonical user stories, and are supported by automated tests and live lifecycle evidence.
 
-The documents are:
+The controlled documentation set is:
 
 1. A task-focused user guide for authorized customer operators.
 2. A technical and security guide for architecture, identity, security, networking, operations, and support review.
+3. An executable clean-workstation and lifecycle acceptance runbook.
+4. A release-bound documentation review record.
 
-This branch establishes the documentation structure, evidence gates, review responsibilities, and publication controls. Merging this delivery plan does not approve either customer guide: both guide files must retain their controlled-draft status until the release and evidence gates below are satisfied. Product behavior changes must be implemented and reviewed on their own issue-linked branches before the guides describe them as supported.
+The delivery-plan foundation establishes documentation structure, evidence gates, review responsibilities, and publication controls. The `docs/customer-guides-acceptance-runbook` branch turns that foundation into full controlled drafts and an executable acceptance procedure. Merging either stage does not approve the customer guides: both guide files must retain controlled-draft status until the release and evidence gates below are satisfied. Product behavior changes must be implemented and reviewed on their own issue-linked branches before the guides describe them as supported.
 
 ## Audience And Content Boundaries
 
@@ -66,6 +68,7 @@ Unknown or incomplete behavior must be labeled as a release blocker in the contr
 ## Branch And Pull Request Strategy
 
 - `docs/customer-guides-v1` establishes the delivery plan and initial guide controls.
+- `docs/customer-guides-acceptance-runbook` contains the complete controlled-draft procedure, technical review content, acceptance runbook, and approval template.
 - Each product gap uses a branch named `issue/<number>-<short-description>` from current `main`.
 - Product pull requests include implementation, tests, traceability changes, and any immediately affected draft language.
 - Product pull requests merge before the documentation branch records the capability as supported.
@@ -117,8 +120,8 @@ An individual may hold more than one role, but each decision must be recorded in
 
 ## Immediate Actions
 
-1. Merge the delivery-plan and CI controls while keeping both guide files as controlled drafts until #4 through #10, #13, and #28 are accepted.
-2. Integrate issue #7 before issue #5 so runtime deployment consumes the approved Key Vault-backed configuration contract; do not add actual secret values to packages, logs, evidence, or tests.
-3. Update the controlled drafts through each implementation pull request, replacing blocker language only with traceable verified behavior.
-4. During #10, complete a clean-operator walkthrough using the user guide alone and record the screenshot states needed for publication.
-5. After #13 produces the signed release candidate, capture sanitized final screenshots, request the required reviews, and record decisions in the documentation pull request.
+1. Keep both guides as controlled drafts while #4 through #10, #13, and #28 complete their live/release gates.
+2. Execute `docs/testing/customer-lifecycle-acceptance-runbook.md` for issue #10 and link the completed evidence record from traceability.
+3. Update blocker language only after the corresponding implementation has merged and automated/live evidence supports the customer claim.
+4. Use the user guide alone for the clean-operator walkthrough and record every point that requires undocumented assistance as a failure/deviation.
+5. After #13 produces the signed release candidate, capture sanitized final screenshots, complete `customer-documentation-review-record.md` for each guide, request the required reviews, and record decisions in the final documentation pull request.
