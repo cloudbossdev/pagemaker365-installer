@@ -32,7 +32,7 @@ Raw values are prohibited. A package that omits this metadata, declares another 
 6. ARM creates customer-owned `Microsoft.KeyVault/vaults/secrets` resources in the package-named vault.
 7. The API App Service receives only Key Vault reference strings and uses the package-named user-assigned managed identity through `keyVaultReferenceIdentity`.
 8. The installer refreshes App Service references and requires every declared setting to report `Resolved` before validation is unlocked.
-9. All in-memory materials and password controls are cleared after the attempt, whether it passes or fails.
+9. Parent-process secure buffers and password controls are cleared after the attempt, whether it passes or fails, and when the window closes. PowerShell releases child-process string references in `finally`; managed runtimes do not guarantee immediate zeroing of immutable strings before process exit.
 
 ## Identity And Authorization
 
@@ -54,7 +54,7 @@ The install lifecycle is:
 
 Configuration failure emits sanitized `install_failed` evidence and does not unlock validation. Portal callback delivery failure remains in the installer outbox and does not redefine the Azure or runtime result.
 
-The runtime configuration artifact contains secret names, app-setting names, deployment metadata, reference status, and `valuesPersisted: false`. It contains no values.
+The runtime configuration artifact contains secret names, app-setting names, deployment metadata, reference status, `rawValuesIncluded: false`, and `valueStorage: "CustomerKeyVault"`. It contains no values and does not incorrectly imply that the Key Vault values are non-persistent.
 
 ## Verification
 

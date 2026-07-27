@@ -21,7 +21,10 @@ internal static class Program
             ("LoadSamplePackageCommand loads sample package and enables sign-in", LoadSamplePackageCommandLoadsSamplePackageAndEnablesSignIn),
             ("Runtime secret contract exposes only operator inputs", RuntimeSecretContractExposesOnlyOperatorInputs),
             ("Runtime secret input rejects non-ASCII before install", RuntimeSecretInputRejectsNonAsciiBeforeInstall),
+            ("Runtime secret input rejects values over maximum", RuntimeSecretInputRejectsValuesOverMaximum),
             ("Runtime secret inputs never persist in session state", RuntimeSecretInputsNeverPersistInSessionState),
+            ("Closing the installer clears runtime secret inputs", ClosingInstallerClearsRuntimeSecretInputs),
+            ("Canceled Graph sign-in clears stale code and remains retryable", CanceledGraphSignInClearsStaleCodeAndRemainsRetryable),
             ("Local downloaded package path remains supported", LocalDownloadedPackagePathRemainsSupported),
             ("Bootstrap loader rejects customer package without terminating session", BootstrapLoaderRejectsCustomerPackageWithoutTerminatingSession),
             ("Bootstrap loader rejects expired setup file", BootstrapLoaderRejectsExpiredSetupFile),
@@ -123,6 +126,28 @@ internal static class Program
         AssertEx.NotEqual("Not checked", viewModel.PackageTrustStatus);
     }
 
+    private static async Task CanceledGraphSignInClearsStaleCodeAndRemainsRetryable()
+    {
+        using var scope = TestScope.Create();
+        var engine = new InstallerEngine(
+            new StructuredLogger(new RedactionService()),
+            new PromptThenCancelGraphAuthenticator());
+        var viewModel = scope.CreateViewModel(engine: engine);
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        await viewModel.ConnectGraphCommand.ExecuteAsync();
+
+        AssertEx.Equal("Canceled", viewModel.GraphSignInStatus);
+        AssertEx.Equal("", viewModel.GraphDeviceCode);
+        AssertEx.Equal("", viewModel.GraphDeviceCodeStatus);
+        AssertEx.False(viewModel.HasGraphDeviceCode, "Canceled sign-in must not leave an expired device code visible.");
+        AssertEx.False(viewModel.IsOperationRunning, "Canceled sign-in must return the app to an idle state.");
+        AssertEx.True(viewModel.ConnectGraphCommand.CanExecute(null), "Canceled Graph sign-in must remain retryable.");
+        AssertEx.False(viewModel.RunPreflightCommand.CanExecute(null), "Canceled Graph sign-in must not unlock Preflight.");
+        AssertEx.StringContains(viewModel.FooterStatus, "canceled");
+    }
+
     private static async Task LocalDownloadedPackagePathRemainsSupported()
     {
         using var scope = TestScope.Create();
@@ -194,6 +219,43 @@ internal static class Program
         AssertEx.False(input.IsReady, "Non-ASCII protected input must fail before Azure mutation.");
         AssertEx.StringContains(input.ValidationMessage, "printable ASCII");
         return Task.CompletedTask;
+    }
+
+    private static Task RuntimeSecretInputRejectsValuesOverMaximum()
+    {
+        var definition = CreateRuntimeSecretContract()[0];
+        using var input = new RuntimeSecretEntryViewModel(definition);
+        using var value = ToSecureString(new string('x', RuntimeSecretMaterial.MaximumLength + 1));
+
+        input.SetValue(value);
+
+        AssertEx.False(input.IsReady, "Oversized protected input must fail before Azure mutation.");
+        AssertEx.StringContains(input.ValidationMessage, $"no more than {RuntimeSecretMaterial.MaximumLength}");
+        return Task.CompletedTask;
+    }
+
+    private static async Task ClosingInstallerClearsRuntimeSecretInputs()
+    {
+        using var scope = TestScope.Create();
+        var viewModel = scope.CreateViewModel();
+
+        await viewModel.SelectSetupModeCommand.ExecuteAsync();
+        await viewModel.LoadSamplePackageCommand.ExecuteAsync();
+        foreach (var input in viewModel.RuntimeSecretInputs)
+        {
+            using var value = ToSecureString(new string('x', input.MinimumLength));
+            input.SetValue(value);
+        }
+
+        AssertEx.True(
+            viewModel.RuntimeSecretInputs.All(input => input.IsReady),
+            "The test must begin with complete protected inputs.");
+
+        viewModel.PrepareForClose();
+
+        AssertEx.True(
+            viewModel.RuntimeSecretInputs.All(input => !input.IsReady),
+            "Closing the installer must clear all protected runtime input values.");
     }
 
     private static SecureString ToSecureString(string value)
@@ -1078,6 +1140,26 @@ internal static class Program
         }
     }
 
+    private sealed class PromptThenCancelGraphAuthenticator : IGraphDeviceCodeAuthenticator
+    {
+        public async Task<GraphSignInResult> SignInAsync(
+            string tenantId,
+            string clientId,
+            IProgress<GraphDeviceCodePrompt>? promptProgress = null,
+            CancellationToken cancellationToken = default)
+        {
+            promptProgress?.Report(new GraphDeviceCodePrompt
+            {
+                Message = "Enter the code TEST-CODE to sign in.",
+                UserCode = "TEST-CODE",
+                VerificationUrl = "https://microsoft.com/devicelogin",
+                ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(10)
+            });
+            await Task.Delay(50, cancellationToken);
+            throw new OperationCanceledException("Canceled by operator.");
+        }
+    }
+
     private sealed class TestScope : IDisposable
     {
         private TestScope(string rootDirectory)
@@ -1094,10 +1176,16 @@ internal static class Program
             return new TestScope(root);
         }
 
-        public InstallerWizardViewModel CreateViewModel(FakeOnboardingApiClient? client = null)
+        public InstallerWizardViewModel CreateViewModel(
+            FakeOnboardingApiClient? client = null,
+            InstallerEngine? engine = null)
         {
             var stateStore = new InstallerStateStore(Path.Combine(RootDirectory, "state"));
-            return new InstallerWizardViewModel(client ?? new FakeOnboardingApiClient(), stateStore, RootDirectory);
+            return new InstallerWizardViewModel(
+                client ?? new FakeOnboardingApiClient(),
+                stateStore,
+                RootDirectory,
+                engine: engine);
         }
 
         public PersistedInstallerState? LoadActiveState()

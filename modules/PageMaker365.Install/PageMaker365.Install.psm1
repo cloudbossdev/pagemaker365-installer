@@ -21,6 +21,7 @@ Export-ModuleMember -Function @(
     'Start-PM365Preflight',
     'Test-PM365SmokeTests',
     'Test-PM365AzureContext',
+    'Test-PM365AzurePlatformReadiness',
     'Test-PM365DeploymentContract',
     'Test-PM365EntraPermissions',
     'Test-PM365KeyVaultRecoveryState',

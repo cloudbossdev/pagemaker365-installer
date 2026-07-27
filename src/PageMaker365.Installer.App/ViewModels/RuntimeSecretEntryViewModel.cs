@@ -22,7 +22,12 @@ public sealed class RuntimeSecretEntryViewModel : ViewModelBase, IDisposable
     public string Purpose => Definition.Purpose;
     public string AppSettingName => Definition.AppSettingName;
     public int MinimumLength => Definition.MinimumLength;
-    public bool IsReady => _value is not null && _value.Length >= MinimumLength && _containsOnlyPrintableAscii;
+    public int MaximumLength => RuntimeSecretMaterial.MaximumLength;
+    public bool IsReady =>
+        _value is not null &&
+        _value.Length >= MinimumLength &&
+        _value.Length <= MaximumLength &&
+        _containsOnlyPrintableAscii;
 
     public string ValidationMessage
     {
@@ -39,6 +44,8 @@ public sealed class RuntimeSecretEntryViewModel : ViewModelBase, IDisposable
         _containsOnlyPrintableAscii = RuntimeSecretMaterial.IsPrintableAscii(_value);
         ValidationMessage = !_containsOnlyPrintableAscii
             ? "Use printable ASCII characters only."
+            : _value.Length > MaximumLength
+            ? $"Use no more than {MaximumLength} characters."
             : IsReady
             ? "Ready for protected provisioning."
             : $"Enter at least {MinimumLength} character{(MinimumLength == 1 ? "" : "s")}.";

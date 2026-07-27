@@ -129,10 +129,10 @@ Acceptance criteria:
 Goal: produce a customer-ready installer distribution.
 
 - [x] Add package script scaffold.
-- [ ] Select distribution format: signed ZIP, MSIX, MSI, or setup bootstrapper.
+- [x] Select a versioned ZIP for pilot distribution.
 - [ ] Acquire production code-signing certificate.
-- [ ] Sign executable and package.
-- [ ] Add version metadata and release notes.
+- [x] Implement executable, first-party library, and PowerShell signing; production signing remains pending certificate configuration.
+- [x] Add version metadata, deterministic manifest/checksums, verifier, and release notes.
 - [ ] Test install on a clean Windows 11 workstation.
 
 Acceptance criteria:

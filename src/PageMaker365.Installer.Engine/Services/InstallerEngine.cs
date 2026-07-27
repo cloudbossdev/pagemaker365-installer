@@ -12,12 +12,15 @@ public sealed class InstallerEngine
 {
     private readonly StructuredLogger _logger;
     private readonly PowerShellProcessRunner _powerShellRunner;
-    private readonly GraphDeviceCodeAuthenticator _graphAuthenticator = new();
+    private readonly IGraphDeviceCodeAuthenticator _graphAuthenticator;
 
-    public InstallerEngine(StructuredLogger logger)
+    public InstallerEngine(
+        StructuredLogger logger,
+        IGraphDeviceCodeAuthenticator? graphAuthenticator = null)
     {
         _logger = logger;
         _powerShellRunner = new PowerShellProcessRunner();
+        _graphAuthenticator = graphAuthenticator ?? new GraphDeviceCodeAuthenticator();
     }
 
     public InstallerSession CreateSession(CustomerInstallConfig config, string workspaceRoot)
@@ -140,16 +143,50 @@ public sealed class InstallerEngine
                 promptProgress,
                 cancellationToken);
         }
+        catch (OperationCanceledException)
+        {
+            var canceled = InstallerStepResult.Failed(
+                "Microsoft Graph Sign In",
+                "GraphSignInCanceled",
+                "Microsoft Graph sign-in was canceled.",
+                "The device-code sign-in ended before authentication completed.",
+                retrySafe: true);
+            await RecordResultAsync(session, canceled, progress, CancellationToken.None);
+            await CompletePhaseAsync(session, CancellationToken.None);
+            return new GraphSignInResult { StepResult = canceled };
+        }
         catch (MsalException exception)
         {
+            var errorCode = exception.ErrorCode ?? "";
+            var canceled = errorCode.Contains("cancel", StringComparison.OrdinalIgnoreCase) ||
+                errorCode.Contains("declined", StringComparison.OrdinalIgnoreCase);
+            var expired = errorCode.Contains("expired", StringComparison.OrdinalIgnoreCase);
+            var resultCode = canceled
+                ? "GraphSignInCanceled"
+                : expired
+                    ? "GraphSignInExpired"
+                    : "GraphSignInFailed";
+            var summary = canceled
+                ? "Microsoft Graph sign-in was canceled."
+                : expired
+                    ? "Microsoft Graph sign-in code expired."
+                    : "Microsoft Graph sign-in did not complete.";
+            var details = canceled
+                ? "The device-code sign-in ended before authentication completed."
+                : expired
+                    ? "Start Microsoft Graph sign-in again and use the new code before it expires."
+                    : exception.Message;
             var failed = InstallerStepResult.Failed(
                 "Microsoft Graph Sign In",
-                "GraphSignInFailed",
-                "Microsoft Graph sign-in did not complete.",
-                exception.Message,
+                resultCode,
+                summary,
+                details,
                 retrySafe: true);
-            await RecordResultAsync(session, failed, progress, cancellationToken);
-            await CompletePhaseAsync(session, cancellationToken);
+            var persistenceToken = cancellationToken.IsCancellationRequested
+                ? CancellationToken.None
+                : cancellationToken;
+            await RecordResultAsync(session, failed, progress, persistenceToken);
+            await CompletePhaseAsync(session, persistenceToken);
             return new GraphSignInResult { StepResult = failed };
         }
 
@@ -528,6 +565,12 @@ public sealed class InstallerEngine
             {
                 throw new InvalidOperationException($"Runtime secret value for {definition.AppSettingName} is shorter than the package minimum.");
             }
+
+            if (material.Length > RuntimeSecretMaterial.MaximumLength)
+            {
+                throw new InvalidOperationException(
+                    $"Runtime secret value for {definition.AppSettingName} exceeds the supported maximum length.");
+            }
         }
 
         if (materialsBySetting.Count != config.Secrets.RuntimeSecrets.Count)
@@ -786,13 +829,21 @@ public sealed class InstallerEngine
             "DeploymentContractReadable" or "DeploymentContractReady" or "DeploymentContractIncomplete" => "Deployment Contract",
             "DeploymentPackageSecretSafe" or "DeploymentPackageContainsRawSecrets" or "DeploymentSecretsContractMissing" => "Deployment Package Secrets",
             "DeploymentPackageTrustVerified" or "DeploymentPackageHashVerified" or "DeploymentPackageLegacyTrust" or "DeploymentPackageHashMismatch" or "DeploymentPackageSignatureMissing" or "DeploymentPackageTrustMetadataReady" or "DeploymentPackageTrustMetadataIncomplete" or "DeploymentPackageTrustMetadataInvalid" => "Package Trust",
-            "AzAccountsReady" or "AzAccountsMissing" => "Az.Accounts Module",
+            "AzAccountsReady" or "AzAccountsMissing" or "AzAccountsLoadFailed" => "Az.Accounts Module",
+            "AzResourcesMissing" or "AzResourcesLoadFailed" => "Az.Resources Module",
             "BicepReady" or "BicepMissing" => "Bicep",
-            "AzureSignInCompleted" or "AzureSignInFailed" => "Azure Sign In",
-            "GraphSignInCompleted" or "GraphSignInFailed" => "Microsoft Graph Sign In",
+            "AzureSignInCompleted" or "AzureSignInFailed" or "AzureSignInCanceled" => "Azure Sign In",
+            "GraphSignInCompleted" or "GraphSignInFailed" or "GraphSignInCanceled" or "GraphSignInExpired" => "Microsoft Graph Sign In",
+            "GraphAuthenticationMissing" or "GraphAuthenticationLoadFailed" => "Microsoft Graph Authentication",
+            "GraphSitesModuleMissing" or "GraphSitesModuleLoadFailed" => "Microsoft Graph Sites Module",
+            "GraphAccessTokenConnectionFailed" or "GraphAccessTokenConnectionFailedForSharePoint" => "Microsoft Graph Token",
             "AzureTenantReady" or "AzureTenantMismatch" => "Azure Tenant",
             "AzureSubscriptionReady" or "AzureSubscriptionMismatch" or "AzureSubscriptionUnavailable" => "Azure Subscription",
             "AzureResourceGroupReady" or "AzureResourceGroupWillBeCreated" or "AzureResourceGroupMissing" or "AzureResourceGroupOwnershipMismatch" => "Azure Resource Group",
+            "AzurePlatformReadinessSkipped" or "AzurePlatformReadinessContractMissing" => "Azure Platform Readiness",
+            "AzureResourceProvidersReady" or "AzureResourceProvidersNotRegistered" or "AzureResourceProviderCheckUnavailable" => "Azure Resource Providers",
+            "AppServiceSkuReady" or "AppServiceSkuUnavailable" or "AppServiceSkuCheckUnavailable" => "App Service SKU",
+            "AppServiceQuotaReady" or "AppServiceQuotaExhausted" or "AppServiceQuotaSignalUnavailable" or "AppServiceQuotaCheckUnavailable" => "App Service Quota",
             "KeyVaultNameReady" or "KeyVaultRecoveryRequired" or "KeyVaultRecoveryCheckSkipped" or "KeyVaultRecoveryCheckUnavailable" or "KeyVaultRecoveryContractMissing" => "Key Vault Recovery",
             "AzureRbacReady" or "AzureRbacInsufficient" or "AzureRbacNotFound" or "AzureRbacCheckUnavailable" => "Azure RBAC",
             "GraphTenantReady" or "GraphTenantMismatch" => "Microsoft Graph Tenant",
@@ -800,7 +851,7 @@ public sealed class InstallerEngine
             "EntraAdminRoleReady" or "EntraAdminRoleMissing" or "EntraAdminRoleCheckUnavailable" => "Entra Admin Role",
             "SharePointSiteUrlReady" or "SharePointSiteUrlInvalid" => "SharePoint Site URL",
             "SharePointSiteResolved" or "SharePointSiteResolveFailed" => "SharePoint Site",
-            "SharePointLibraryReady" or "SharePointLibraryNotFound" or "SharePointLibraryNotConfigured" => "SharePoint Library",
+            "SharePointLibraryReady" or "SharePointLibraryNotFound" or "SharePointLibraryNotConfigured" or "SharePointLibraryAccessFailed" => "SharePoint Library",
             "AzureWhatIfReady" or "AzureWhatIfFailed" => "Azure What-If",
             "AzureDeploymentReady" or "AzureDeploymentFailed" or "AppServiceCapacityUnavailable" => "Azure Deployment",
             "RuntimeConfigurationReady" or "RuntimeConfigurationFailed" or "RuntimeConfigurationInputInvalid" or "RuntimeKeyVaultReferenceFailed" => "Runtime Configuration",

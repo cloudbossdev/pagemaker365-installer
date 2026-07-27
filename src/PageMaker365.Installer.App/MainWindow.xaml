@@ -59,7 +59,7 @@
                         Margin="0,0,28,0"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center">
-                    <TextBlock Text="{Binding InstallerVersion}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding InstallerVersionDisplay}" FontWeight="SemiBold" />
                 </Border>
             </Grid>
         </Border>
@@ -1172,6 +1172,7 @@
                                                 <StackPanel Grid.Column="1">
                                                     <PasswordBox PasswordChanged="OnRuntimeSecretPasswordChanged"
                                                                  AutomationProperties.Name="{Binding Label}"
+                                                                 MaxLength="{Binding MaximumLength}"
                                                                  IsEnabled="{Binding DataContext.CanEditRuntimeSecretInputs, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                  Background="#0B1224"
                                                                  Foreground="{StaticResource PmText}"

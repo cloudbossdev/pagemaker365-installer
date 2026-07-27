@@ -15,13 +15,35 @@ function Set-PM365RuntimeConfiguration {
     $configuredAt = [DateTimeOffset]::UtcNow
 
     try {
+        $declaredSecrets = @($config.secrets.runtimeSecrets)
+        $expectedAppSettings = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_SESSION_SECRET')
+        $declaredAppSettings = @($declaredSecrets | ForEach-Object { [string]$_.appSettingName })
+        if ($declaredSecrets.Count -ne $expectedAppSettings.Count -or
+            @($expectedAppSettings | Where-Object { $declaredAppSettings -cnotcontains $_ }).Count -gt 0 -or
+            @($declaredAppSettings | Where-Object { $expectedAppSettings -cnotcontains $_ }).Count -gt 0) {
+            throw [System.IO.InvalidDataException]::new(
+                'The signed customer package does not contain the exact supported runtime secret contract.')
+        }
+
+        if (-not (Test-Path -LiteralPath $TemplateFile)) {
+            throw [System.IO.FileNotFoundException]::new('Runtime configuration template was not found.')
+        }
+
+        Import-Module Az.Accounts -ErrorAction Stop
+        Import-Module Az.Resources -ErrorAction Stop
+
+        $context = Get-AzContext -ErrorAction Stop
+        $subscriptionId = [string]$config.azure.subscriptionId
+        if (-not $context.Subscription.Id -or [string]$context.Subscription.Id -ne $subscriptionId) {
+            throw [System.InvalidOperationException]::new('Azure subscription context no longer matches the signed customer package.')
+        }
+
         $metadataLine = [Console]::In.ReadLine()
         if ([string]::IsNullOrWhiteSpace($metadataLine)) {
             throw [System.IO.InvalidDataException]::new('Protected runtime configuration input was not provided.')
         }
 
         $metadata = $metadataLine | ConvertFrom-Json -Depth 12
-        $declaredSecrets = @($config.secrets.runtimeSecrets)
         $inputSecrets = @($metadata.secrets)
         if ($metadata.contractVersion -ne '0.1' -or $declaredSecrets.Count -eq 0 -or $inputSecrets.Count -ne $declaredSecrets.Count) {
             throw [System.IO.InvalidDataException]::new('Protected runtime configuration metadata does not match the signed customer package.')
@@ -43,7 +65,7 @@ function Set-PM365RuntimeConfiguration {
 
             $value = [Console]::In.ReadLine()
             $minimumLength = [int]$declared[0].minimumLength
-            if ($null -eq $value -or $value.Length -lt $minimumLength) {
+            if ($null -eq $value -or $value.Length -lt $minimumLength -or $value.Length -gt 4096) {
                 $value = $null
                 throw [System.IO.InvalidDataException]::new("Protected runtime configuration is incomplete for $appSettingName.")
             }
@@ -57,18 +79,6 @@ function Set-PM365RuntimeConfiguration {
 
         if ($null -ne [Console]::In.ReadLine()) {
             throw [System.IO.InvalidDataException]::new('Protected runtime configuration contains undeclared input.')
-        }
-
-        if (-not (Test-Path -LiteralPath $TemplateFile)) {
-            throw [System.IO.FileNotFoundException]::new('Runtime configuration template was not found.')
-        }
-
-        Import-Module Az.Accounts -ErrorAction Stop
-        Import-Module Az.Resources -ErrorAction Stop
-
-        $context = Get-AzContext -ErrorAction Stop
-        if (-not $context.Subscription.Id -or [string]$context.Subscription.Id -ne [string]$config.azure.subscriptionId) {
-            throw [System.InvalidOperationException]::new('Azure subscription context no longer matches the signed customer package.')
         }
 
         $deploymentName = 'pm365-runtime-config-{0}' -f ([DateTimeOffset]::UtcNow.ToString('yyyyMMddHHmmss'))
@@ -88,7 +98,6 @@ function Set-PM365RuntimeConfiguration {
             $item.value = $null
         }
 
-        $subscriptionId = [string]$config.azure.subscriptionId
         $resourceGroupName = [string]$config.azure.resourceGroupName
         $apiAppName = [string]$config.azure.resourceNames.apiAppName
         $apiResourcePath = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.Web/sites/$apiAppName"
@@ -97,7 +106,6 @@ function Set-PM365RuntimeConfiguration {
             -Path "$apiResourcePath/config/configreferences/appsettings/refresh?api-version=2025-03-01" `
             -ErrorAction Stop | Out-Null
 
-        $expectedAppSettings = @($declaredSecrets | ForEach-Object { [string]$_.appSettingName })
         for ($attempt = 1; $attempt -le 12; $attempt++) {
             $response = Invoke-AzRestMethod `
                 -Method GET `
@@ -156,7 +164,8 @@ function Set-PM365RuntimeConfiguration {
                     deploymentName = [string]$deployment.DeploymentName
                     secretNames = @($declaredSecrets | ForEach-Object { [string]$_.keyVaultSecretName })
                     appSettingNames = $expectedAppSettings
-                    valuesPersisted = $false
+                    rawValuesIncluded = $false
+                    valueStorage = 'CustomerKeyVault'
                     referenceStatuses = $referenceStatuses
                 })
         }
@@ -170,7 +179,8 @@ function Set-PM365RuntimeConfiguration {
                 artifactPath = $artifactPath
                 configuredSecretCount = $declaredSecrets.Count
                 appSettingNames = $expectedAppSettings
-                valuesPersisted = $false
+                rawValuesIncluded = $false
+                valueStorage = 'CustomerKeyVault'
             }
     } catch [System.IO.InvalidDataException] {
         New-PM365Result `

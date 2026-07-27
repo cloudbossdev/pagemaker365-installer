@@ -72,7 +72,8 @@ Assert-True ($apiTemplate.Contains('keyVaultReferenceIdentity')) 'The API App Se
 Assert-True ($apiTemplate.Contains('@Microsoft.KeyVault(VaultName=')) 'Runtime App Service settings must use Key Vault references instead of raw values.'
 Assert-True ($installerEngine.Contains('standardInputWriter:')) 'Protected values must be passed to the child process through redirected standard input.'
 Assert-True ($runtimeCommand.Contains('[Console]::In.ReadLine()')) 'The runtime configuration command must read protected input from standard input.'
-Assert-True ($runtimeCommand.Contains('valuesPersisted = $false')) 'Runtime configuration evidence must explicitly record that values were not persisted.'
+Assert-True ($runtimeCommand.Contains('rawValuesIncluded = $false')) 'Runtime configuration evidence must explicitly exclude raw values.'
+Assert-True ($runtimeCommand.Contains("valueStorage = 'CustomerKeyVault'")) 'Runtime configuration evidence must identify the customer Key Vault storage boundary.'
 Assert-True (-not $stateModel.Contains('RuntimeSecretMaterial')) 'Resumable installer state must not contain protected runtime material.'
 Assert-True ($runtimeArtifactCommand.Contains('Publish-AzWebApp')) 'Verified runtime ZIP files must be published with the authenticated Az.Websites module.'
 Assert-True ($runtimeArtifactCommand.Contains('Get-FileHash')) 'Runtime artifact SHA-256 must be recomputed before Azure publish.'
@@ -103,6 +104,21 @@ try {
     $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
     $invalidSecretResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)
     Assert-True ($invalidSecretResults.code -contains 'DeploymentSecretsContractInvalid') 'Direct PowerShell deployment must reject incomplete runtime secret metadata.'
+
+    $invalidPackage = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
+    $unexpectedSecret = $invalidPackage.secrets.runtimeSecrets[0].PSObject.Copy()
+    $unexpectedSecret.keyVaultSecretName = 'UNSUPPORTED-SECRET'
+    $unexpectedSecret.appSettingName = 'UNSUPPORTED_SECRET'
+    $invalidPackage.secrets.runtimeSecrets = @($invalidPackage.secrets.runtimeSecrets) + @($unexpectedSecret)
+    $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
+    $unexpectedSecretResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)
+    Assert-True ($unexpectedSecretResults.code -contains 'DeploymentSecretsContractInvalid') 'Direct PowerShell deployment must reject unexpected runtime secret metadata.'
+
+    $invalidPackage = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
+    $invalidPackage.secrets.runtimeSecrets[0].minimumLength = 4097
+    $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
+    $oversizedSecretResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)
+    Assert-True ($oversizedSecretResults.code -contains 'DeploymentSecretsContractInvalid') 'Direct PowerShell deployment must reject runtime secret minimum lengths over 4096.'
 } finally {
     Remove-Item -LiteralPath $invalidPackagePath -Force -ErrorAction SilentlyContinue
 }
