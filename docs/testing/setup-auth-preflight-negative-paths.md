@@ -34,7 +34,7 @@ Use this runbook to collect live evidence for setup-file, authentication, and pr
 | A02 | Sign in to Graph first, then the correct Azure context. | Order does not bypass either requirement. |
 | A04-tenant | Attempt Azure sign-in with an account from a different tenant. | Sign-in or preflight blocks and identifies the tenant mismatch. |
 | A04-subscription | Use the correct tenant but select a different subscription. | Sign-in or preflight blocks and identifies the subscription mismatch. |
-| A06-Azure | Cancel the Azure browser/device flow. | The installer returns to idle, stays on Sign In, and permits retry. |
+| A06-Azure | Cancel the Azure browser/device flow. | The installer reports a sanitized `AzureSignInCanceled` result, returns to idle, stays on Sign In, and permits retry. |
 
 ## Microsoft Graph Authentication
 
@@ -42,8 +42,9 @@ Use this runbook to collect live evidence for setup-file, authentication, and pr
 | --- | --- | --- |
 | A03 | Complete Azure sign-in only. | Graph remains Required and Preflight stays disabled. |
 | A05 | Complete Graph device login with an account from another tenant when the authority permits selection. | Sign In remains incomplete and identifies the tenant mismatch. |
-| A06-Graph | Cancel or allow the Graph device-code flow to end without authentication. | The installer returns to idle, clears the code, stays on Sign In, and permits retry. |
-| A07 | Allow a short-lived test token to expire before continuing. | Graph becomes invalid and a new sign-in is required before Preflight. |
+| A06-Graph | Cancel the Graph device-code flow. | The installer reports `GraphSignInCanceled`, returns to idle, clears the code, stays on Sign In, and permits retry. |
+| A07-code | Allow the Graph device code to expire without authentication. | The installer reports `GraphSignInExpired`, clears the stale code, and requires a new sign-in. |
+| A07-token | Allow a short-lived test access token to expire before continuing. | Graph becomes invalid and a new sign-in is required before Preflight. |
 | A08 | Use a test account that cannot consent to one or more required scopes. | Missing scopes/admin readiness are explicit; the installer does not grant access automatically. |
 
 ## Preflight

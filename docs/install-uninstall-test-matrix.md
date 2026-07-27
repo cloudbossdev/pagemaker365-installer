@@ -54,8 +54,8 @@ Scenario status meanings:
 | A03 | Only one required service is signed in | Sign In remains incomplete and later checks identify the missing context. | Automated |
 | A04 | Azure account uses the wrong tenant or subscription | Preflight blocks before preview or deployment. | Partial |
 | A05 | Graph account uses the wrong tenant | Graph, Entra, and SharePoint checks block. | Partial |
-| A06 | Operator cancels device-code or Azure sign-in | Action returns to a retryable state without freezing or advancing. | Partial |
-| A07 | Device code or access token expires | Status becomes unauthenticated and a new sign-in is required. | Partial |
+| A06 | Operator cancels device-code or Azure sign-in | Action returns to a retryable idle state, clears stale Graph codes, and does not advance. | Automated |
+| A07 | Device code or access token expires | Status becomes unauthenticated, stale codes are cleared, and a new sign-in is required. | Automated |
 | A08 | Graph scopes, Azure RBAC, or consent-capable admin role is missing | Exact missing access is reported without attempting to grant it automatically. | Partial |
 | A09 | Session is resumed after application restart | Tokens are absent and both required contexts are revalidated. | Partial |
 
