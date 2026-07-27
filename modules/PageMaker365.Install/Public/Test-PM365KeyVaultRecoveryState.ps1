@@ -6,6 +6,15 @@ function Test-PM365KeyVaultRecoveryState {
     )
 
     $config = Get-PM365Config -ConfigPath $ConfigPath
+    if (-not (Get-Command Get-AzContext -ErrorAction SilentlyContinue)) {
+        New-PM365Result `
+            -Status 'Skipped' `
+            -Code 'KeyVaultRecoveryCheckSkipped' `
+            -Summary 'Key Vault recovery state was not checked.' `
+            -Details 'Install Az.Accounts, sign in to Azure, and rerun Preflight.'
+        return
+    }
+
     $context = Get-AzContext -ErrorAction SilentlyContinue
     if (-not $context -or -not $context.Subscription.Id) {
         New-PM365Result `
@@ -75,7 +84,7 @@ function Test-PM365KeyVaultRecoveryState {
             }
     } catch {
         New-PM365Result `
-            -Status 'Warning' `
+            -Status 'Failed' `
             -Code 'KeyVaultRecoveryCheckUnavailable' `
             -Summary 'Key Vault soft-delete state could not be verified.' `
             -Details $_.Exception.Message `

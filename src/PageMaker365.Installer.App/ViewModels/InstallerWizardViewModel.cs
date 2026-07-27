@@ -5646,6 +5646,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "The signed-in Azure tenant does not match the loaded customer package. Sign in with the correct customer tenant or load a package generated for the current tenant, then rerun preflight.",
             "AzureSubscriptionMismatch" =>
                 "The selected Azure subscription does not match the loaded customer package. Switch to the target subscription with Set-AzContext or load the correct package, then rerun preflight.",
+            "AzureResourceProvidersNotRegistered" =>
+                "One or more Azure resource providers required by PageMaker365 are not registered. Ask a subscription administrator to register the providers listed in the failed check, then rerun preflight.",
+            "AppServiceSkuUnavailable" =>
+                "App Service B1 is not available to this subscription in the package region. Resolve the subscription restriction or obtain a newly approved package for a supported region, then rerun preflight.",
+            "AppServiceQuotaExhausted" =>
+                "The subscription has no remaining App Service core quota in the package region. Request quota or obtain a newly approved package for another region, then rerun preflight.",
             "AzureSignInContextMissing" =>
                 "Azure sign-in did not return a verifiable tenant and subscription. Retry Azure sign-in and confirm the target subscription before continuing.",
             "GraphTenantMismatch" =>
@@ -5654,12 +5660,22 @@ public sealed class InstallerWizardViewModel : ViewModelBase
                 "The Microsoft Graph sign-in is no longer valid. Start Graph sign-in again and complete the device-login flow before the code expires.",
             "GraphConsentScopesMissing" =>
                 "Microsoft Graph did not grant every required scope. Have an authorized tenant administrator approve the requested scopes, then retry Graph sign-in.",
+            "AzAccountsMissing" or "AzAccountsLoadFailed" or "AzResourcesMissing" or "AzResourcesLoadFailed" =>
+                "A required Azure PowerShell module is missing. Install the module named by the failed check, restart the installer, and rerun preflight.",
+            "BicepMissing" =>
+                "The Bicep CLI is required for deployment preview and install. Install Bicep, restart the installer, and rerun preflight.",
+            "GraphAuthenticationMissing" or "GraphAuthenticationLoadFailed" or "GraphSitesModuleMissing" or "GraphSitesModuleLoadFailed" =>
+                "A required Microsoft Graph PowerShell module is missing. Install the module named by the failed check, restart the installer, and retry Graph sign-in and preflight.",
             "GraphNotSignedIn" or "GraphNotSignedInForSharePoint" =>
                 "Microsoft Graph sign-in is required before the installer can validate Entra consent or SharePoint access. Sign in with the required Graph scopes, then rerun preflight.",
             "MissingApplicationAdministrator" or "EntraAdminRoleMissing" or "EntraAdminRoleCheckUnavailable" =>
                 "The installer may need an Entra administrator to approve app permissions. Ask a Global Administrator, Cloud Application Administrator, or Application Administrator to complete consent when the final app registration check is wired.",
             "SharePointSiteResolveFailed" =>
                 "The SharePoint site could not be resolved through Microsoft Graph. Confirm the site URL, Graph sign-in tenant, and Sites.Read.All consent, then rerun preflight.",
+            "SharePointLibraryNotConfigured" =>
+                "The signed customer package does not identify the required SharePoint document library. Request a corrected package from the PageMaker365 portal before continuing.",
+            "SharePointLibraryNotFound" or "SharePointLibraryAccessFailed" =>
+                "The configured SharePoint document library could not be verified. Confirm the library name, site access, and Sites.Read.All consent, then rerun preflight.",
             _ =>
                 "The installer is running module-based local, Azure, Entra, and SharePoint preflight checks. Review the failed check details, resolve the issue, then rerun preflight."
         };
