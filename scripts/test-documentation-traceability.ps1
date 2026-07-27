@@ -185,10 +185,32 @@ $lifecycleResultTemplateText = Get-Content -LiteralPath $lifecycleResultTemplate
     '## Security Review',
     '## Deviations And Stop Decisions',
     '## Approval',
+    '## Machine Approval Record',
     'Final decision: Not approved'
 ) | ForEach-Object {
     if ($lifecycleResultTemplateText -notmatch [regex]::Escape($_)) {
         throw "Customer lifecycle result template is missing required control: $_"
+    }
+}
+
+@(
+    'docs/testing/results/customer-lifecycle-result.template.json',
+    'validate-customer-lifecycle-result.ps1',
+    'config/customer-lifecycle-acceptance.json',
+    '-RequireApproval'
+) | ForEach-Object {
+    if ($lifecycleRunbookText -notmatch [regex]::Escape($_)) {
+        throw "Customer lifecycle acceptance runbook is missing machine-approval control: $_"
+    }
+}
+
+@(
+    'docs/testing/results/customer-lifecycle-result.template.json',
+    'scripts/validate-customer-lifecycle-result.ps1 -RequireApproval',
+    'Minimum required passing executions: 192'
+) | ForEach-Object {
+    if ($lifecycleResultTemplateText -notmatch [regex]::Escape($_)) {
+        throw "Customer lifecycle result template is missing machine-approval control: $_"
     }
 }
 
@@ -210,7 +232,8 @@ $documentationReviewText = Get-Content -LiteralPath $documentationReviewPath -Ra
     '## Required Decisions',
     '## Publication Decision',
     'Identity and security',
-    'Clean test operator'
+    'Clean test operator',
+    'Lifecycle JSON passes `-RequireApproval` for the exact release'
 ) | ForEach-Object {
     if ($documentationReviewText -notmatch [regex]::Escape($_)) {
         throw "Customer documentation review template is missing required control: $_"

@@ -257,13 +257,14 @@ Before transfer, review the support bundle manifest and selected artifacts. The 
 - Approve portal-side evidence schema, idempotency, retention, and support-handoff policy outside this repository.
 - Confirm upgrade is excluded until issue #6 is accepted and that removal is Azure-only with no SharePoint mutation.
 - Require completed clean-workstation and lifecycle evidence from `docs/testing/customer-lifecycle-acceptance-runbook.md` before production authorization.
+- Require the sanitized lifecycle JSON to pass `scripts/validate-customer-lifecycle-result.ps1 -RequireApproval` for the exact release commit before approving publication.
 
 ## Known Release Blockers
 
 | Capability | Current state | Issue |
 | --- | --- | --- |
-| API and portal application delivery | Not implemented | #5 |
-| Supported upgrade/version policy | Not defined | #6 |
+| API and portal application delivery | Installer contract implemented in draft PR #22; immutable producers and staging proof pending | #5 |
+| Supported upgrade/version policy | Installer contract implemented in draft PR #21; control-plane support and staging proof pending | #6 |
 | Runtime secret inventory and protected provisioning | Implemented locally; live staging proof pending | #7 |
 | Removal lifecycle callbacks | Installer implemented; portal/API acceptance and staging proof pending | #9 |
 | Clean-workstation and repeated lifecycle acceptance | Not complete | #10 |

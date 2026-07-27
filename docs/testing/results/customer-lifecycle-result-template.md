@@ -126,3 +126,15 @@ The campaign is approved only when every release-required scenario passes, all s
 Final decision: Not approved
 
 Publication impact: Customer guides remain controlled drafts until this campaign and their other publication gates are approved.
+
+## Machine Approval Record
+
+Create a sanitized JSON result from `docs/testing/results/customer-lifecycle-result.template.json` beside this record. Validate it with `scripts/validate-customer-lifecycle-result.ps1 -RequireApproval` and record the validator output and commit below.
+
+- Sanitized JSON result path:
+- Validator result: Not run
+- Validated commit:
+- Required single-run scenarios: 84
+- Required scenarios per repeated cycle: 36
+- Required repeated cycles: 3
+- Minimum required passing executions: 192
