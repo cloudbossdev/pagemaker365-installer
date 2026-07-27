@@ -19,8 +19,6 @@ function Connect-PM365Azure {
             -RetrySafe $true
     }
 
-    Import-Module Az.Accounts -ErrorAction Stop
-
     $tenantId = [string]$config.customer.tenantId
     $subscriptionId = [string]$config.azure.subscriptionId
     $connectArgs = @{
@@ -36,6 +34,7 @@ function Connect-PM365Azure {
     }
 
     try {
+        Import-Module Az.Accounts -ErrorAction Stop
         Connect-AzAccount @connectArgs | Out-Null
 
         if (-not (Test-PM365PlaceholderGuid -Value $subscriptionId)) {
@@ -63,12 +62,20 @@ function Connect-PM365Azure {
                 account = [string]$context.Account.Id
             }
     } catch {
+        $wasCanceled = $_.Exception -is [OperationCanceledException] -or
+            $_.Exception.Message -match '(?i)cancel(?:ed|led|lation)?'
+        $resultCode = if ($wasCanceled) { 'AzureSignInCanceled' } else { 'AzureSignInFailed' }
+        $summary = if ($wasCanceled) { 'Azure sign-in was canceled.' } else { 'Azure sign-in did not complete.' }
+        $details = if ($wasCanceled) {
+            'Retry Azure sign-in and complete the browser authentication flow.'
+        } else {
+            $_.Exception.Message
+        }
         return New-PM365Result `
             -Status 'Failed' `
-            -Code 'AzureSignInFailed' `
-            -Summary 'Azure sign-in did not complete.' `
-            -Details $_.Exception.Message `
+            -Code $resultCode `
+            -Summary $summary `
+            -Details $details `
             -RetrySafe $true
     }
 }
-
