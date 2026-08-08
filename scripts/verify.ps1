@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch] $IncludeLiveCloudChecks
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -24,6 +26,12 @@ Write-Host 'Checking installer security contract...'
 & (Join-Path $repoRoot 'scripts\test-security-contract.ps1')
 if ($LASTEXITCODE -ne 0) {
     throw "Security contract checks failed with exit code $LASTEXITCODE."
+}
+
+Write-Host 'Checking the noninteractive verification gate...'
+& (Join-Path $repoRoot 'scripts\test-verify-noninteractive.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Noninteractive verification gate tests failed with exit code $LASTEXITCODE."
 }
 
 Write-Host 'Checking JSON files...'
@@ -146,11 +154,16 @@ Write-Host 'Checking exported commands...'
     Get-Command $_ -Module PageMaker365.Install -ErrorAction Stop | Out-Null
 }
 
-Write-Host 'Running Azure discovery...'
-Get-PM365AzureDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
+if ($IncludeLiveCloudChecks) {
+    Write-Host 'Running live Azure discovery...'
+    Get-PM365AzureDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
 
-Write-Host 'Running Graph discovery...'
-Get-PM365GraphDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 16 | Out-Null
+    Write-Host 'Running live Graph discovery...'
+    Get-PM365GraphDiscovery -ConfigPath $configPath | ConvertTo-Json -Depth 16 | Out-Null
+}
+else {
+    Write-Host 'Skipping live Azure and Graph discovery. Use -IncludeLiveCloudChecks to opt in.'
+}
 
 Write-Host 'Testing discovery command contracts...'
 & (Join-Path $repoRoot 'scripts\test-discovery.ps1')
@@ -206,8 +219,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "Azure platform readiness preflight tests failed with exit code $LASTEXITCODE."
 }
 
-Write-Host 'Running preflight...'
-Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
+if ($IncludeLiveCloudChecks) {
+    Write-Host 'Running live preflight...'
+    Start-PM365Preflight -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
+}
+else {
+    Write-Host 'Skipping live preflight. Mocked preflight contracts ran above.'
+}
 
 Write-Host 'Checking deployment contract...'
 Test-PM365DeploymentContract -ConfigPath $configPath | ConvertTo-Json -Depth 12 | Out-Null
@@ -229,18 +247,23 @@ try {
 Write-Host 'Building Bicep template...'
 Invoke-PM365BicepBuild | ConvertTo-Json -Depth 12 | Out-Null
 
-Write-Host 'Checking what-if guard...'
-$whatIfArtifactPath = Join-Path $repoRoot 'support-bundle\verify-azure-whatif.json'
-if (Test-Path -LiteralPath $whatIfArtifactPath) {
-    Remove-Item -LiteralPath $whatIfArtifactPath -Force
-}
+if ($IncludeLiveCloudChecks) {
+    Write-Host 'Running live what-if guard...'
+    $whatIfArtifactPath = Join-Path $repoRoot 'support-bundle\verify-azure-whatif.json'
+    if (Test-Path -LiteralPath $whatIfArtifactPath) {
+        Remove-Item -LiteralPath $whatIfArtifactPath -Force
+    }
 
-Invoke-PM365WhatIf -ConfigPath $configPath -OutputPath $whatIfArtifactPath | ConvertTo-Json -Depth 12 | Out-Null
-if (-not (Test-Path -LiteralPath $whatIfArtifactPath)) {
-    throw "What-if artifact was not written: $whatIfArtifactPath"
-}
+    Invoke-PM365WhatIf -ConfigPath $configPath -OutputPath $whatIfArtifactPath | ConvertTo-Json -Depth 12 | Out-Null
+    if (-not (Test-Path -LiteralPath $whatIfArtifactPath)) {
+        throw "What-if artifact was not written: $whatIfArtifactPath"
+    }
 
-Get-Content -LiteralPath $whatIfArtifactPath -Raw | ConvertFrom-Json | Out-Null
+    Get-Content -LiteralPath $whatIfArtifactPath -Raw | ConvertFrom-Json | Out-Null
+}
+else {
+    Write-Host 'Skipping live Azure what-if. Mocked what-if contracts ran above.'
+}
 
 Write-Host 'Testing runtime smoke-test contracts...'
 & (Join-Path $repoRoot 'scripts\test-smoke-tests.ps1')
