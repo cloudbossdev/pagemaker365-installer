@@ -158,6 +158,12 @@ pwsh .\scripts\install.ps1 -Config .\samples\contoso.customer.install.json -Mode
 pwsh .\scripts\verify.ps1
 ```
 
+`scripts/verify.ps1` is noninteractive by default: it runs local builds plus
+mocked Azure, Graph, preflight, and what-if contract tests without contacting a
+customer tenant. Live discovery, preflight, and Azure what-if checks require an
+operator to opt in explicitly with `-IncludeLiveCloudChecks`; that mode may
+prompt for Azure or Microsoft Graph authentication and is not a CI gate.
+
 ## Package
 
 ```powershell

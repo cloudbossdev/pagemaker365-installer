@@ -74,7 +74,10 @@ does not promise that independently timestamped signatures are byte-identical.
 
 1. Start from a clean, reviewed commit on `main`. The production signing
    workflow rejects any other selected ref.
-2. Run `scripts/verify.ps1`.
+2. Run the noninteractive release gate, `scripts/verify.ps1`. Run
+   `scripts/verify.ps1 -IncludeLiveCloudChecks` only as a separately authorized
+   sandbox acceptance step; it is not part of the default or CI verification
+   path.
 3. Package with an approved version, certificate, expected publisher, expected
    certificate thumbprint, and `-RequireCleanSource`.
 4. Run `scripts/test-package-hygiene.ps1` against the extracted directory.
