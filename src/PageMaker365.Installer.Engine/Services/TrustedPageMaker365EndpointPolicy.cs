@@ -64,14 +64,32 @@ public static class TrustedPageMaker365EndpointPolicy
         return uri!;
     }
 
-    public static bool TryValidateArtifactUrl(string value, out Uri? uri, out string error)
+    public static bool TryValidateArtifactUrl(
+        string value,
+        bool allowLocalDevelopment,
+        out Uri? uri,
+        out string error)
     {
+        if (string.IsNullOrEmpty(value) || !value.Equals(value.Trim(), StringComparison.Ordinal))
+        {
+            uri = null;
+            error = "must not contain surrounding whitespace.";
+            return false;
+        }
+
         if (!TryValidateBaseUrl(value, out uri, out error))
         {
             return false;
         }
 
-        if (!IsLocalHost(uri!.Host) &&
+        if (IsLocalHost(uri!.Host) && !allowLocalDevelopment)
+        {
+            error = "must not use a local endpoint outside the explicit development mock path.";
+            uri = null;
+            return false;
+        }
+
+        if (!IsLocalHost(uri.Host) &&
             !uri.Host.Equals("downloads.pagemaker365.com", StringComparison.OrdinalIgnoreCase) &&
             !uri.Host.Equals("downloads-staging.pagemaker365.com", StringComparison.OrdinalIgnoreCase))
         {

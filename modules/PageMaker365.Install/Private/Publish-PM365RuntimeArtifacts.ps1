@@ -31,20 +31,38 @@ function Publish-PM365RuntimeArtifacts {
             }
         )
 
+        $allowLocalDevelopment = [string]$Config.azure.environment -ceq 'dev' -and
+            [Environment]::GetEnvironmentVariable('PM365_ALLOW_LOCAL_RUNTIME_ARTIFACTS', 'Process') -ceq 'true'
+        $apiArtifactUri = Get-PM365TrustedRuntimeArtifactUri `
+            -Value ([string]$release.api.downloadUrl) `
+            -AllowLocalDevelopment:$allowLocalDevelopment
+        $portalArtifactUri = Get-PM365TrustedRuntimeArtifactUri `
+            -Value ([string]$release.portal.downloadUrl) `
+            -AllowLocalDevelopment:$allowLocalDevelopment
+        if ([uri]::new($apiArtifactUri, '.').AbsoluteUri -cne [uri]::new($portalArtifactUri, '.').AbsoluteUri) {
+            throw [System.IO.InvalidDataException]::new('RuntimeArtifactContractInvalid:runtime:downloadUrl')
+        }
+
+        $validatedArtifacts = @()
         foreach ($definition in $definitions) {
             $artifact = $definition.contract
             $expectedStartupCommand = if ($definition.kind -eq 'api') {
                 'node dist/index.js'
             } else {
-                'pm2 serve /home/site/wwwroot --no-daemon --spa'
+                'node .pm365/start-portal-runtime.mjs'
             }
             if ([string]$artifact.startupCommand -cne $expectedStartupCommand) {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactContractInvalid:$($definition.kind):startupCommand")
             }
-            $uri = Get-PM365TrustedRuntimeArtifactUri -Value ([string]$artifact.downloadUrl)
+            $uri = Get-PM365TrustedRuntimeArtifactUri `
+                -Value ([string]$artifact.downloadUrl) `
+                -AllowLocalDevelopment:$allowLocalDevelopment
             $fileName = [string]$artifact.fileName
-            if ([System.IO.Path]::GetFileName($fileName) -ne $fileName -or $fileName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$') {
+            if ([System.IO.Path]::GetFileName($fileName) -ne $fileName -or $fileName -cnotmatch '^[A-Za-z0-9._+-]+\.zip$') {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactContractInvalid:$($definition.kind):fileName")
+            }
+            if ([uri]::UnescapeDataString($uri.Segments[-1]) -cne $fileName) {
+                throw [System.IO.InvalidDataException]::new("RuntimeArtifactContractInvalid:$($definition.kind):downloadUrl")
             }
 
             $declaredHash = [string]$artifact.sha256
@@ -52,7 +70,7 @@ function Publish-PM365RuntimeArtifacts {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactContractInvalid:$($definition.kind):sha256")
             }
 
-            $archivePath = Join-Path $tempRoot $fileName
+            $archivePath = Join-Path $tempRoot "$($definition.kind)-$fileName"
             try {
                 Save-PM365RuntimeArtifactDownload -Uri $uri -OutputPath $archivePath -MaximumBytes 268435456
             } catch {
@@ -60,7 +78,10 @@ function Publish-PM365RuntimeArtifacts {
             }
 
             $file = Get-Item -LiteralPath $archivePath -ErrorAction Stop
-            if ($file.Length -le 0 -or $file.Length -gt 268435456) {
+            $declaredSize = [long]$artifact.sizeBytes
+            if ($declaredSize -le 0 -or
+                $declaredSize -gt 268435456 -or
+                $file.Length -cne $declaredSize) {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactSizeInvalid:$($definition.kind)")
             }
 
@@ -72,27 +93,43 @@ function Publish-PM365RuntimeArtifacts {
             Test-PM365RuntimeArtifactArchive `
                 -ArchivePath $archivePath `
                 -Kind $definition.kind `
-                -ReleaseId ([string]$release.releaseId)
+                -ReleaseId ([string]$release.releaseId) `
+                -RuntimeVersion ([string]$release.runtimeVersion) `
+                -SourceCommit ([string]$release.sourceCommit) `
+                -StartupCommand $expectedStartupCommand
 
+            $validatedArtifacts += [pscustomobject]@{
+                kind = $definition.kind
+                targetAppName = $definition.targetAppName
+                fileName = $fileName
+                uri = $uri
+                file = $file
+                declaredHash = $declaredHash
+                computedHash = $computedHash
+                declaredSize = $declaredSize
+            }
+        }
+
+        foreach ($artifact in $validatedArtifacts) {
             try {
                 Publish-AzWebApp `
                     -ResourceGroupName $resourceGroupName `
-                    -Name $definition.targetAppName `
-                    -ArchivePath $file.FullName `
+                    -Name $artifact.targetAppName `
+                    -ArchivePath $artifact.file.FullName `
                     -Force `
                     -ErrorAction Stop | Out-Null
             } catch {
-                throw [System.InvalidOperationException]::new("RuntimeArtifactPublishFailed:$($definition.kind)")
+                throw [System.InvalidOperationException]::new("RuntimeArtifactPublishFailed:$($artifact.kind)")
             }
 
             $evidence.artifacts += [pscustomobject][ordered]@{
-                kind = $definition.kind
-                fileName = $fileName
-                sourceHost = $uri.Host
-                byteCount = $file.Length
-                declaredSha256 = $declaredHash
-                computedSha256 = $computedHash
-                targetAppName = $definition.targetAppName
+                kind = $artifact.kind
+                fileName = $artifact.fileName
+                sourceHost = $artifact.uri.Host
+                byteCount = $artifact.file.Length
+                declaredSha256 = $artifact.declaredHash
+                computedSha256 = $artifact.computedHash
+                targetAppName = $artifact.targetAppName
                 status = 'Passed'
             }
         }
@@ -179,8 +216,14 @@ function Get-PM365TrustedRuntimeArtifactUri {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string] $Value
+        [string] $Value,
+
+        [switch] $AllowLocalDevelopment
     )
+
+    if ($Value -cne $Value.Trim()) {
+        throw [System.IO.InvalidDataException]::new('RuntimeArtifactContractInvalid:runtime:downloadUrl')
+    }
 
     $uri = $null
     if (-not [uri]::TryCreate($Value, [System.UriKind]::Absolute, [ref]$uri)) {
@@ -189,12 +232,13 @@ function Get-PM365TrustedRuntimeArtifactUri {
 
     $isLocal = $uri.Host -in @('localhost', '127.0.0.1', '::1')
     $allowedHost = $uri.Host -in @('downloads.pagemaker365.com', 'downloads-staging.pagemaker365.com')
-    if ((-not $allowedHost -and -not $isLocal) -or
-        ($uri.Scheme -ne 'https' -and -not ($isLocal -and $uri.Scheme -eq 'http')) -or
+    if ((-not $allowedHost -and -not ($isLocal -and $AllowLocalDevelopment)) -or
+        ($uri.Scheme -ne 'https' -and -not ($isLocal -and $AllowLocalDevelopment -and $uri.Scheme -eq 'http')) -or
         (-not $isLocal -and -not $uri.IsDefaultPort) -or
         -not [string]::IsNullOrWhiteSpace($uri.UserInfo) -or
         -not [string]::IsNullOrWhiteSpace($uri.Query) -or
-        -not [string]::IsNullOrWhiteSpace($uri.Fragment)) {
+        -not [string]::IsNullOrWhiteSpace($uri.Fragment) -or
+        $uri.AbsolutePath.Contains('//')) {
         throw [System.IO.InvalidDataException]::new('RuntimeArtifactContractInvalid:runtime:downloadUrl')
     }
 
@@ -212,7 +256,16 @@ function Test-PM365RuntimeArtifactArchive {
         [string] $Kind,
 
         [Parameter(Mandatory)]
-        [string] $ReleaseId
+        [string] $ReleaseId,
+
+        [Parameter(Mandatory)]
+        [string] $RuntimeVersion,
+
+        [Parameter(Mandatory)]
+        [string] $SourceCommit,
+
+        [Parameter(Mandatory)]
+        [string] $StartupCommand
     )
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -227,7 +280,12 @@ function Test-PM365RuntimeArtifactArchive {
             [System.StringComparer]::Ordinal)
         foreach ($entry in $archive.Entries) {
             $normalizedName = $entry.FullName.Replace('\', '/')
-            if ($normalizedName.StartsWith('/') -or
+            if ($entry.FullName.Contains('\') -or
+                $normalizedName -cne $entry.FullName -or
+                [string]::IsNullOrEmpty($normalizedName) -or
+                $normalizedName.StartsWith('/') -or
+                $normalizedName -match '//' -or
+                $normalizedName -match '(^|/)\.(/|$)' -or
                 $normalizedName -match '(^|/)\.\.(/|$)' -or
                 [System.IO.Path]::IsPathRooted($entry.FullName)) {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
@@ -253,14 +311,80 @@ function Test-PM365RuntimeArtifactArchive {
             }
         }
 
-        $requiredEntries = if ($Kind -eq 'api') { @('dist/index.js', 'package.json') } else { @('index.html') }
+        $requiredEntries = if ($Kind -eq 'api') {
+            @('dist/index.js', 'package.json', '.pm365/provenance.json')
+        } else {
+            @(
+                'index.html',
+                'auth-redirect.html',
+                '.pm365/start-portal-runtime.mjs',
+                '.pm365/generate-web-runtime-config.mjs',
+                '.pm365/provenance.json'
+            )
+        }
         foreach ($requiredEntry in $requiredEntries) {
             if (-not ($archive.Entries.FullName.Replace('\', '/') -ccontains $requiredEntry)) {
                 throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
             }
         }
 
+        $provenanceEntry = $archive.Entries |
+            Where-Object { $_.FullName.Replace('\', '/') -ceq '.pm365/provenance.json' } |
+            Select-Object -First 1
+        if ($provenanceEntry.Length -le 0 -or $provenanceEntry.Length -gt 65536) {
+            throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
+        }
+
+        $provenanceReader = [System.IO.StreamReader]::new($provenanceEntry.Open())
+        try {
+            $provenanceJson = $provenanceReader.ReadToEnd()
+        } finally {
+            $provenanceReader.Dispose()
+        }
+
+        try {
+            $provenance = $provenanceJson | ConvertFrom-Json -Depth 4 -ErrorAction Stop
+        } catch {
+            throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
+        }
+        $expectedProvenancePropertyNames = @(
+            'schemaVersion',
+            'product',
+            'artifactKind',
+            'releaseId',
+            'runtimeVersion',
+            'sourceRepository',
+            'sourceCommit',
+            'dependencyLockSha256',
+            'startupCommand'
+        )
+        $provenancePropertyNames = @($provenance.PSObject.Properties.Name)
+        $nonStringProvenanceProperties = @($expectedProvenancePropertyNames | Where-Object {
+            $property = $provenance.PSObject.Properties[$_]
+            $null -eq $property -or $property.Value -isnot [string]
+        })
+        if ($null -eq $provenance -or
+            $provenancePropertyNames.Count -ne $expectedProvenancePropertyNames.Count -or
+            @($expectedProvenancePropertyNames | Where-Object { -not ($provenancePropertyNames -ccontains $_) }).Count -gt 0 -or
+            $nonStringProvenanceProperties.Count -gt 0 -or
+            [string]$provenance.schemaVersion -cne 'pagemaker365.runtime-provenance.v1' -or
+            [string]$provenance.product -cne 'PageMaker365' -or
+            [string]$provenance.artifactKind -cne $Kind -or
+            [string]$provenance.releaseId -cne $ReleaseId -or
+            [string]$provenance.runtimeVersion -cne $RuntimeVersion -or
+            [string]$provenance.sourceRepository -cne 'cloudbossdev/spo-ui' -or
+            [string]$provenance.sourceCommit -cne $SourceCommit -or
+            [string]$provenance.sourceCommit -cnotmatch '^[0-9a-f]{40}$' -or
+            [string]$provenance.dependencyLockSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            [string]$provenance.startupCommand -cne $StartupCommand) {
+            throw [System.IO.InvalidDataException]::new("RuntimeArtifactArchiveInvalid:$Kind")
+        }
+
         if ($Kind -eq 'portal') {
+            if ($archive.Entries.FullName.Replace('\', '/') -ccontains 'staticwebapp.config.json') {
+                throw [System.IO.InvalidDataException]::new('RuntimeArtifactArchiveInvalid:portal')
+            }
+
             $indexEntry = $archive.Entries | Where-Object { $_.FullName.Replace('\', '/') -ceq 'index.html' } | Select-Object -First 1
             if ($indexEntry.Length -gt 5242880) {
                 throw [System.IO.InvalidDataException]::new('RuntimeArtifactArchiveInvalid:portal')
@@ -272,10 +396,12 @@ function Test-PM365RuntimeArtifactArchive {
             } finally {
                 $reader.Dispose()
             }
-            $escapedReleaseId = [regex]::Escape($ReleaseId)
             $hasProduct = $indexContent -match '(?i)PageMaker365'
-            $hasRelease = $indexContent -match "(?is)<meta\s+[^>]*name=[`"']pm365-release-id[`"'][^>]*content=[`"']$escapedReleaseId[`"']" -or
-                $indexContent -match "(?is)<meta\s+[^>]*content=[`"']$escapedReleaseId[`"'][^>]*name=[`"']pm365-release-id[`"']"
+            $portalReleaseMarker = Get-PM365PortalReleaseMarker -Content $indexContent
+            $hasRelease = [string]::Equals(
+                $portalReleaseMarker,
+                $ReleaseId,
+                [System.StringComparison]::Ordinal)
             if (-not $hasProduct -or -not $hasRelease) {
                 throw [System.IO.InvalidDataException]::new('RuntimeArtifactArchiveInvalid:portal')
             }

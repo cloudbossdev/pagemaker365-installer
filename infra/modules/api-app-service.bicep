@@ -37,16 +37,37 @@ type RuntimeSecretReference = {
 @description('Secret-name-only runtime App Service references.')
 param runtimeSecretReferences RuntimeSecretReference[]
 
+@description('Customer Entra tenant ID used for token validation and Microsoft Graph OBO.')
+@minLength(36)
+@maxLength(36)
+param customerTenantId string
+
+@description('Customer-owned API Entra application client ID.')
+@minLength(36)
+@maxLength(36)
+param apiClientId string
+
+@description('Exact portal origin allowed by API CORS.')
+@minLength(1)
+param portalOrigin string
+
+@description('Exact customer SharePoint origin allowed for governed File Preview frames.')
+@minLength(1)
+param filePreviewAllowedFrameOrigins string
+
 @description('Immutable PageMaker365 runtime release identifier.')
 @minLength(1)
+@maxLength(128)
 param runtimeReleaseId string
 
 @description('Stable semantic PageMaker365 runtime version.')
 @minLength(5)
+@maxLength(32)
 param runtimeVersion string
 
 @description('Signed control-plane deployment export identifier.')
 @minLength(1)
+@maxLength(256)
 param deploymentExportId string
 
 var runtimeSecretAppSettings = [for secret in runtimeSecretReferences: {
@@ -81,16 +102,40 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'production'
         }
         {
+          name: 'API_ENV'
+          value: 'production'
+        }
+        {
           name: 'API_HOST'
           value: '0.0.0.0'
         }
         {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: applicationInsightsConnectionString
+          name: 'API_CORS_ORIGIN'
+          value: portalOrigin
         }
         {
-          name: 'PM365_KEY_VAULT_URI'
+          name: 'API_ENTRA_TENANT_ID'
+          value: customerTenantId
+        }
+        {
+          name: 'API_ENTRA_AUDIENCE'
+          value: 'api://${apiClientId}'
+        }
+        {
+          name: 'API_ENTRA_CLIENT_ID'
+          value: apiClientId
+        }
+        {
+          name: 'API_AZURE_KEY_VAULT_URL'
           value: keyVaultUri
+        }
+        {
+          name: 'API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
+          value: filePreviewAllowedFrameOrigins
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: applicationInsightsConnectionString
         }
         {
           name: 'PM365_PRODUCT'

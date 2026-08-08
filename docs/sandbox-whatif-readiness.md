@@ -70,7 +70,7 @@ For deployment preview:
 Set-AzContext -SubscriptionId '3de10659-9db8-4ab6-ae44-ac4b71b24751' -Tenant 'edf280e3-9c1b-491c-8a0c-f3bf252761a3'
 Import-Module .\modules\PageMaker365.Install\PageMaker365.Install.psd1 -Force
 Test-PM365DeploymentContract -ConfigPath .\.tmp\cloudboss-sandbox.customer.install.json
-Invoke-PM365WhatIf -ConfigPath .\.tmp\cloudboss-sandbox.customer.install.json -OutputPath .\support-bundle\cloudboss-sandbox-whatif.json
+Invoke-PM365WhatIf -ConfigPath .\.tmp\cloudboss-sandbox.customer.install.json -ExpectedPackagePayloadSha256 $validatedPayloadSha256 -OutputPath .\support-bundle\cloudboss-sandbox-whatif.json
 ```
 
 Before running actual deployment, review the generated artifact for:
@@ -85,8 +85,14 @@ Before running actual deployment, review the generated artifact for:
 Actual sandbox deployment should be run as a separate explicit approval step:
 
 ```powershell
-Invoke-PM365Deployment -ConfigPath .\.tmp\cloudboss-sandbox.customer.install.json -OutputPath .\support-bundle\cloudboss-sandbox-deployment.json
+Invoke-PM365Deployment -ConfigPath .\.tmp\cloudboss-sandbox.customer.install.json -ExpectedPackagePayloadSha256 $validatedPayloadSha256 -OutputPath .\support-bundle\cloudboss-sandbox-deployment.json
 ```
+
+The value in `$validatedPayloadSha256` is an external trust binding returned by
+successful C# signature validation of the exact UTF-8 package payload. Never
+derive it from the mutable file or from `controlPlane.packageHash`. The standard
+installer GUI supplies it automatically; direct signed-package calls without it
+fail before Azure access.
 
 ## Tooling Behavior
 

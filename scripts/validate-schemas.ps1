@@ -74,4 +74,29 @@ foreach ($validation in $validations) {
     Invoke-SchemaValidation -SamplePath $samplePath -SchemaPath $schemaPath
 }
 
+$customerSchemaPath = Join-Path $repoRoot 'schemas\customer-install.schema.json'
+$customerSample = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
+foreach ($negativeCase in @(
+    @{ Name = 'customer line separator'; Mutate = { param($c) $c.customer.tenantName = "Unsafe$([char]0x2028)Name" } },
+    @{ Name = 'customer bidi override'; Mutate = { param($c) $c.customer.accountKey = "unsafe$([char]0x202e)key" } },
+    @{ Name = 'missing runtime source commit'; Mutate = { param($c) $c.runtimeArtifacts.PSObject.Properties.Remove('sourceCommit') } },
+    @{ Name = 'invalid runtime artifact size'; Mutate = { param($c) $c.runtimeArtifacts.api.sizeBytes = 0 } }
+)) {
+    $candidate = $customerSample | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    & $negativeCase.Mutate $candidate
+    $candidateJson = $candidate | ConvertTo-Json -Depth 30
+    if (Test-Json -Json $candidateJson -SchemaFile $customerSchemaPath -ErrorAction SilentlyContinue) {
+        throw "Customer package schema accepted $($negativeCase.Name)."
+    }
+}
+
+$producerFileNameCandidate = $customerSample | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$producerFileNameCandidate.runtimeArtifacts.api.fileName = 'pagemaker365-api-pm365-runtime-1.0.0+sample.zip'
+if (-not (Test-Json `
+    -Json ($producerFileNameCandidate | ConvertTo-Json -Depth 30) `
+    -SchemaFile $customerSchemaPath `
+    -ErrorAction SilentlyContinue)) {
+    throw 'Customer package schema rejected a producer-compatible plus-sign artifact file name.'
+}
+
 Write-Host 'Schema validation completed.'

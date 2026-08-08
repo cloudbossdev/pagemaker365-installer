@@ -39,7 +39,7 @@ try {
     @'
 {
   "accountId": "admin@contoso.com",
-  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "tenantId": "11111111-1111-4111-8111-111111111111",
   "selectedSubscriptionId": "11111111-1111-1111-1111-111111111111",
   "selectedSubscriptionName": "Contoso Production",
   "selectedSubscriptionState": "Enabled",
@@ -60,7 +60,7 @@ try {
     @'
 {
   "accountId": "admin@contoso.com",
-  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "tenantId": "11111111-1111-4111-8111-111111111111",
   "scopes": [
     "User.Read",
     "Domain.Read.All",
@@ -92,14 +92,14 @@ try {
 '@ | Set-Content -LiteralPath $graphMockPath -Encoding utf8
 
     $azure = Get-PM365AzureDiscovery -ConfigPath $configPath -MockContextPath $azureMockPath
-    Assert-Equal '00000000-0000-0000-0000-000000000000' $azure.tenantId 'Azure tenant did not match the mock context.'
+    Assert-Equal '11111111-1111-4111-8111-111111111111' $azure.tenantId 'Azure tenant did not match the mock context.'
     Assert-Equal '11111111-1111-1111-1111-111111111111' $azure.selectedSubscriptionId 'Azure subscription did not match the mock context.'
     Assert-Equal 'Enabled' $azure.selectedSubscriptionState 'Azure subscription state was not preserved.'
     Assert-True $azure.resourceGroupExists 'Azure resource group existence was not preserved.'
     Assert-True (@($azure.findings | Where-Object { $_.code -eq 'AzureDiscoveryReady' }).Count -eq 1) 'Azure discovery ready finding was not returned.'
 
     $graph = Get-PM365GraphDiscovery -ConfigPath $configPath -MockContextPath $graphMockPath
-    Assert-Equal '00000000-0000-0000-0000-000000000000' $graph.tenantId 'Graph tenant did not match the mock context.'
+    Assert-Equal '11111111-1111-4111-8111-111111111111' $graph.tenantId 'Graph tenant did not match the mock context.'
     Assert-Equal 'contoso.com' $graph.defaultDomain 'Graph default domain was not preserved.'
     Assert-True ($graph.verifiedDomains -contains 'contoso.sharepoint.com') 'Graph verified domains did not include the SharePoint hostname.'
     Assert-True $graph.siteResolved 'SharePoint site was not marked resolved.'
@@ -131,7 +131,7 @@ try {
     @'
 {
   "accountId": "admin@contoso.com",
-  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "tenantId": "11111111-1111-4111-8111-111111111111",
   "scopes": [
     "User.Read"
   ],

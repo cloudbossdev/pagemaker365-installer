@@ -28,6 +28,7 @@ public sealed class RuntimeArtifactContract
     public string ContractVersion { get; set; } = "";
     public string ReleaseId { get; set; } = "";
     public string RuntimeVersion { get; set; } = "";
+    public string SourceCommit { get; set; } = "";
     public RuntimeArtifactInfo Api { get; set; } = new();
     public RuntimeArtifactInfo Portal { get; set; } = new();
 }
@@ -35,6 +36,7 @@ public sealed class RuntimeArtifactContract
 public sealed class RuntimeArtifactInfo
 {
     public string FileName { get; set; } = "";
+    public long SizeBytes { get; set; }
     public string DownloadUrl { get; set; } = "";
     public string Sha256 { get; set; } = "";
     public string StartupCommand { get; set; } = "";

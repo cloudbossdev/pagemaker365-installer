@@ -1,19 +1,19 @@
 {
-  "contractVersion": "0.3",
+  "contractVersion": "0.4",
   "customer": {
     "customerId": "cust_contoso",
     "accountKey": "contoso",
     "installationId": "inst_contoso_sandbox",
     "tenantName": "Contoso Intranet",
-    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "tenantId": "11111111-1111-4111-8111-111111111111",
     "primaryContact": "admin@contoso.com"
   },
   "azure": {
-    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "tenantId": "11111111-1111-4111-8111-111111111111",
     "subscriptionId": "11111111-1111-1111-1111-111111111111",
     "location": "eastus",
     "resourceGroupName": "rg-pagemaker365-contoso-prod",
-    "environment": "prod",
+    "environment": "production",
     "resourceNames": {
       "keyVaultName": "kv-pm365-contoso-prod",
       "storageAccountName": "stpm365contosoprod",
@@ -21,7 +21,7 @@
       "applicationInsightsName": "ai-pm365-contoso-prod",
       "appServicePlanName": "asp-pm365-contoso-prod",
       "apiAppName": "app-pm365-contoso-api-prod",
-      "portalAppName": "swa-pm365-contoso-prod",
+      "portalAppName": "app-pm365-contoso-portal-prod",
       "managedIdentityName": "id-pm365-contoso-prod"
     }
   },
@@ -40,8 +40,8 @@
   },
   "entra": {
     "appRegistrationMode": "Create",
-    "portalClientId": "",
-    "apiClientId": "",
+    "portalClientId": "22222222-2222-4222-8222-222222222222",
+    "apiClientId": "33333333-3333-4333-8333-333333333333",
     "permissionMode": "SitesSelected",
     "requiredApplicationPermissions": [
       "Sites.Selected"
@@ -56,17 +56,20 @@
     "contractVersion": "1.0",
     "releaseId": "pm365-runtime-1.0.0+sample",
     "runtimeVersion": "1.0.0",
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "api": {
       "fileName": "pagemaker365-api-1.0.0.zip",
+      "sizeBytes": 123456,
       "downloadUrl": "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-api-1.0.0.zip",
       "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "startupCommand": "node dist/index.js"
     },
     "portal": {
       "fileName": "pagemaker365-portal-1.0.0.zip",
+      "sizeBytes": 654321,
       "downloadUrl": "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-portal-1.0.0.zip",
       "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-      "startupCommand": "pm2 serve /home/site/wwwroot --no-daemon --spa"
+      "startupCommand": "node .pm365/start-portal-runtime.mjs"
     }
   },
   "controlPlane": {
@@ -83,7 +86,7 @@
     "licenseActivationId": "lic_contoso_sandbox_001",
     "entitlementSyncUrl": "https://api.pagemaker365.com/api/runtime/entitlements/sync",
     "publicKeyId": "pm365-runtime-signing-key-001",
-    "packageHash": "sha256:9c6c7abe8635f6111f6f4b48e28b4d9c82c04b4db7639ea1da1ecfb0311e3bc4",
+    "packageHash": "sha256:4e8ecac434bddeb4d5ca83d40a9bca4072627db4af2903702577733e255d6df1",
     "packageHashAlgorithm": "SHA-256",
     "canonicalization": "json-c14n-v1",
     "signature": "",
@@ -98,7 +101,7 @@
     "requiredSecretNames": [
       "DATABASE-URL",
       "API-ENTRA-CLIENT-SECRET",
-      "API-SESSION-SECRET"
+      "API-IMAGE-ASSET-CURSOR-SECRET"
     ],
     "promptForSecrets": [
       {
@@ -114,8 +117,8 @@
         "generatedByInstaller": false
       },
       {
-        "name": "API-SESSION-SECRET",
-        "label": "Runtime session signing secret",
+        "name": "API-IMAGE-ASSET-CURSOR-SECRET",
+        "label": "Image asset cursor signing secret",
         "required": true,
         "generatedByInstaller": true
       }
@@ -144,10 +147,10 @@
         "minimumLength": 16
       },
       {
-        "keyVaultSecretName": "API-SESSION-SECRET",
-        "appSettingName": "API_SESSION_SECRET",
-        "label": "Runtime session signing secret",
-        "purpose": "Signs and validates runtime session state for this customer environment.",
+        "keyVaultSecretName": "API-IMAGE-ASSET-CURSOR-SECRET",
+        "appSettingName": "API_IMAGE_ASSET_CURSOR_SECRET",
+        "label": "Image asset cursor signing secret",
+        "purpose": "Signs governed Image Assets folder and paging cursors for this customer environment.",
         "source": "installerGenerated",
         "owner": "customer",
         "targetApp": "api",

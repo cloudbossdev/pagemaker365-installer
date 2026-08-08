@@ -55,12 +55,15 @@ The response must include these top-level sections:
 - `sharePoint`
 - `app`
 - `entra`
+- `runtimeArtifacts`
 - `controlPlane`
 - `secrets`
 - `features`
-- `smokeTests`
 
-The schema currently requires `customer`, `azure`, `sharePoint`, `app`, and `features`, but the portal should include all sections above for launch readiness.
+Contract `0.4` requires every section above. `smokeTests` is optional and does
+not block package validation. Missing Entra, runtime artifact, control-plane, or
+protected-secret metadata blocks the package before Azure mutation, matching the
+JSON schema and `RuntimeContractValidator`.
 
 ## CloudBoss Sandbox Values
 
@@ -75,7 +78,7 @@ Use these values for the first real CloudBoss sandbox package unless the portal 
 | `azure.subscriptionId` | `3de10659-9db8-4ab6-ae44-ac4b71b24751` |
 | `azure.location` | `eastus2` |
 | `azure.resourceGroupName` | `rg-pagemaker365-cloudboss-sandbox` |
-| `azure.environment` | `sandbox` |
+| `azure.environment` | `staging` (the hosted runtime contract uses `dev`, `staging`, or `production`) |
 | `sharePoint.siteUrl` | `https://bosscloud.sharepoint.com/sites/cloudboss` |
 | `sharePoint.defaultDocumentLibrary` | `Documents` unless the portal has a better value |
 | `sharePoint.permissionMode` | `SitesSelected` |
@@ -170,8 +173,9 @@ Required fields:
 - `runtimeArtifacts.contractVersion`: `1.0`
 - `runtimeArtifacts.releaseId`: immutable release identifier
 - `runtimeArtifacts.runtimeVersion`: stable `major.minor.patch` version
+- `runtimeArtifacts.sourceCommit`: exact 40-character lowercase spo-ui source commit
 - `runtimeArtifacts.api` and `runtimeArtifacts.portal`
-- for each artifact: simple ZIP `fileName`, approved HTTPS `downloadUrl`, 64
+- for each artifact: simple ZIP `fileName`, positive bounded `sizeBytes`, approved HTTPS `downloadUrl`, 64
   character lowercase `sha256`, and the contract-fixed `startupCommand`
 
 The release values come from the runtime release manifest and are covered by
@@ -181,13 +185,33 @@ or use ephemeral CI artifact URLs. Package readiness remains blocked until both
 artifacts are present and the runtime version matches the approved deployment
 target.
 
+The runtime launcher contract is bound to
+`cloudbossdev/spo-ui@1a4aa8519456d1c59022b7f962331389c18e9f9e`.
+The signed package must provide non-empty canonical GUID values for
+`entra.portalClientId` and `entra.apiClientId`, a hosted `azure.environment`
+of `dev`, `staging`, or `production`, a trimmed 1-128 character
+`customer.tenantName`, and a trimmed 1-64 character `customer.accountKey`.
+The installer derives the API audience and portal scope from the API client ID,
+the default App Service origins from the signed resource names, and the exact
+File Preview origin from `sharePoint.siteUrl`; these derived values do not need
+new signed fields.
+
+Both selected runtime ZIPs must contain `.pm365/provenance.json`. It is a closed
+object using producer schema `pagemaker365.runtime-provenance.v1`; its exact,
+case-sensitive product, `artifactKind`, release, version, source repository,
+source commit, dependency-lock digest, and startup command must satisfy the
+producer schema and signed package identity. The portal ZIP must also contain
+`index.html`, `auth-redirect.html`, `.pm365/start-portal-runtime.mjs`, and
+`.pm365/generate-web-runtime-config.mjs`, and must not contain the obsolete
+root `staticwebapp.config.json`.
+
 ## Secrets Contract
 
-The portal must generate contract version `0.3`. `secrets.runtimeSecrets` must contain exactly `DATABASE_URL`, `API_ENTRA_CLIENT_SECRET`, and `API_SESSION_SECRET` using the metadata shape in `samples/contoso.customer.install.json` and `docs/runtime-secret-contract.md`.
+The portal must generate contract version `0.4`. `secrets.runtimeSecrets` must contain exactly `DATABASE_URL`, `API_ENTRA_CLIENT_SECRET`, and `API_IMAGE_ASSET_CURSOR_SECRET` using the metadata shape in `samples/contoso.customer.install.json` and `docs/runtime-secret-contract.md`.
 
-`DATABASE_URL` and `API_ENTRA_CLIENT_SECRET` use source `operator` with minimum lengths of at least 12 and 16 respectively. `API_SESSION_SECRET` uses source `installerGenerated` with a minimum length of at least 32; the installer currently generates at least 64. All three use owner `customer`, target `api`, and `required: true`. `secrets.keyVaultName` must equal `azure.resourceNames.keyVaultName`.
+`DATABASE_URL` and `API_ENTRA_CLIENT_SECRET` use source `operator` with minimum lengths of at least 12 and 16 respectively. `API_IMAGE_ASSET_CURSOR_SECRET` uses source `installerGenerated` with a minimum length of at least 32; the installer currently generates at least 64. All three use owner `customer`, target `api`, and `required: true`. `secrets.keyVaultName` must equal `azure.resourceNames.keyVaultName`.
 
-The legacy `requiredSecretNames` and `promptForSecrets` fields may be present only for compatibility; they do not replace `runtimeSecrets`. Any package without the complete `0.3` runtime contract is rejected before Azure mutation.
+The legacy `requiredSecretNames` and `promptForSecrets` fields may be present only for compatibility; they do not replace `runtimeSecrets`. Any package without the complete `0.4` runtime contract is rejected before Azure mutation.
 
 Blocked containers:
 
@@ -221,8 +245,15 @@ Then run what-if:
 
 ```powershell
 Set-AzContext -SubscriptionId '3de10659-9db8-4ab6-ae44-ac4b71b24751' -Tenant 'edf280e3-9c1b-491c-8a0c-f3bf252761a3'
-Invoke-PM365WhatIf -ConfigPath <path-to-cloudboss-customer-install-json> -OutputPath .\support-bundle\cloudboss-sandbox-whatif.json
+Invoke-PM365WhatIf -ConfigPath <path-to-cloudboss-customer-install-json> -ExpectedPackagePayloadSha256 $validatedPayloadSha256 -OutputPath .\support-bundle\cloudboss-sandbox-whatif.json
 ```
+
+`$validatedPayloadSha256` must come from the successful C# package signature
+validation result for the exact UTF-8 payload. Do not calculate it from the
+current file or copy a self-declared package hash. Direct `SignedRequired`
+preview, deployment, and runtime-configuration calls without that trusted
+binding fail closed before any Azure call. The standard installer GUI carries
+this binding automatically.
 
 The target resource group `rg-pagemaker365-cloudboss-sandbox` already exists in `eastus2`.
 
@@ -235,7 +266,7 @@ The portal side is ready for installer validation when:
 - The endpoint requires and validates `X-PM365-Onboarding-Session` and `X-PM365-Onboarding-Code`.
 - The package contains real CloudBoss tenant/subscription/resource values.
 - The package does not contain raw secrets.
-- The package declares `contractVersion: "0.3"` and the exact required runtime secret metadata.
+- The package declares `contractVersion: "0.4"` and the exact required runtime secret metadata.
 - The package includes the approved immutable `runtimeArtifacts` release manifest values.
 - The package includes `controlPlane.deploymentExportId`.
 - The package binds to the active onboarding session and discovery payload.

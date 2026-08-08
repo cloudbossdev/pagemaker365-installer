@@ -46,9 +46,11 @@ Required launch sections:
 - `controlPlane`
 - `secrets`
 - `features`
-- `smokeTests`
 
-Contract `0.3` requires `runtimeArtifacts` to bind the signed package to one
+`smokeTests` is optional. Its absence may produce a non-blocking warning but is
+not a package-validation failure.
+
+Contract `0.4` requires `runtimeArtifacts` to bind the signed package to one
 immutable pair of ready-to-run API and portal ZIP files. The installer validates
 trusted download hosts, SHA-256, ZIP safety, expected contents, and fixed startup
 commands before publishing either artifact. See `runtime-artifact-contract.md`.
@@ -228,8 +230,10 @@ Minimum post-deployment smoke tests:
 
 - deployment artifact resource group matches the signed customer package
 - runtime API URL and portal URL are read from the Azure deployment outputs
-- runtime API `/health` returns `ok: true`, `product: PageMaker365`, and the package `deploymentExportId`
-- runtime portal returns PageMaker365 content and is not the Azure default App Service page
+- runtime API `/health` returns `ok: true`, `product: PageMaker365`, and exact case-sensitive package deployment export, release, and runtime version values
+- runtime portal returns PageMaker365 content, is not the Azure default App Service page, and exposes the exact artifact release marker
+- portal `/runtime-config.json` matches the signed tenant/client/customer values and derived API origin/scope without exposing secret material
+- the portal CSP and API File Preview settings use the same exact customer SharePoint origin
 - configured SharePoint site resolves through Graph
 - configured document library resolves through Graph
 - runtime can read required Key Vault references through managed identity

@@ -32,12 +32,21 @@ function New-PM365TemplateParameterObject {
         )
     }
 
+    $sharePointUri = [uri][string]$Config.sharePoint.siteUrl
+    $filePreviewAllowedFrameOrigins = $sharePointUri.GetLeftPart([System.UriPartial]::Authority)
+
     @{
         resourceGroupName = [string]$Config.azure.resourceGroupName
         appName = [string]$Config.app.appName
         environment = [string]$Config.azure.environment
         location = [string]$Config.azure.location
         customerTenantId = [string]$Config.customer.tenantId
+        portalClientId = [string]$Config.entra.portalClientId
+        apiClientId = [string]$Config.entra.apiClientId
+        customerDisplayName = [string]$Config.customer.tenantName
+        customerShortName = [string]$Config.customer.accountKey
+        webRuntimeEnvironment = [string]$Config.azure.environment
+        filePreviewAllowedFrameOrigins = $filePreviewAllowedFrameOrigins
         resourceNames = $resourceNames
         runtimeSecretReferences = $runtimeSecretReferences
         runtimeReleaseId = [string]$Config.runtimeArtifacts.releaseId

@@ -4,12 +4,21 @@ function Invoke-PM365Deployment {
         [Parameter(Mandatory)]
         [string] $ConfigPath,
 
+        [string] $ExpectedPackagePayloadSha256 = '',
+
         [string] $TemplateFile = (Get-PM365DefaultTemplateFile),
 
         [string] $OutputPath = ''
     )
 
-    $config = Get-PM365Config -ConfigPath $ConfigPath
+    if ($ExpectedPackagePayloadSha256 -cnotmatch '^[0-9a-f]{64}$') {
+        throw [System.IO.InvalidDataException]::new(
+            'A trusted exact-payload SHA-256 binding from successful package signature validation is required.')
+    }
+
+    $config = Get-PM365BoundConfig `
+        -ConfigPath $ConfigPath `
+        -ExpectedPackagePayloadSha256 $ExpectedPackagePayloadSha256
     $buildResult = Invoke-PM365BicepBuild -TemplateFile $TemplateFile
     if ($buildResult.status -eq 'Failed') {
         if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {

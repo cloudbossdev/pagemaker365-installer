@@ -4,22 +4,36 @@
   "title": "PageMaker365 Customer Install Package",
   "type": "object",
   "additionalProperties": true,
-  "required": ["contractVersion", "customer", "azure", "sharePoint", "app", "runtimeArtifacts", "secrets", "features"],
+  "required": ["contractVersion", "customer", "azure", "sharePoint", "app", "entra", "runtimeArtifacts", "controlPlane", "secrets", "features"],
   "properties": {
     "contractVersion": {
       "type": "string",
-      "const": "0.3",
-      "description": "Installer package contract version with protected runtime secret metadata."
+      "const": "0.4",
+      "description": "Installer package contract version with protected runtime secret metadata and customer runtime settings."
     },
     "customer": {
       "type": "object",
-      "required": ["tenantName", "tenantId", "primaryContact"],
+      "required": ["accountKey", "tenantName", "tenantId", "primaryContact"],
       "properties": {
         "customerId": { "type": "string" },
-        "accountKey": { "type": "string" },
+        "accountKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]+$"
+        },
         "installationId": { "type": "string" },
-        "tenantName": { "type": "string", "minLength": 1 },
-        "tenantId": { "type": "string", "minLength": 1 },
+        "tenantName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]+$"
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "not": { "const": "00000000-0000-0000-0000-000000000000" }
+        },
         "primaryContact": { "type": "string", "minLength": 1 }
       }
     },
@@ -31,7 +45,7 @@
         "subscriptionId": { "type": "string", "minLength": 1 },
         "location": { "type": "string", "minLength": 1 },
         "resourceGroupName": { "type": "string", "minLength": 1 },
-        "environment": { "type": "string", "minLength": 1 },
+        "environment": { "type": "string", "enum": ["dev", "staging", "production"] },
         "resourceNames": {
           "type": "object",
           "properties": {
@@ -73,14 +87,23 @@
     },
     "runtimeArtifacts": {
       "type": "object",
+      "$comment": "API and portal downloadUrl values must share the exact same approved parent host/path directory; this relational invariant is enforced by installer validators.",
       "additionalProperties": false,
-      "required": ["contractVersion", "releaseId", "runtimeVersion", "api", "portal"],
+      "required": ["contractVersion", "releaseId", "runtimeVersion", "sourceCommit", "api", "portal"],
       "properties": {
         "contractVersion": { "const": "1.0" },
-        "releaseId": { "type": "string", "minLength": 1 },
+        "releaseId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._+-]{1,128}$"
+        },
         "runtimeVersion": {
           "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+          "maxLength": 32,
+          "pattern": "^(0|[1-9][0-9]{0,9})\\.(0|[1-9][0-9]{0,9})\\.(0|[1-9][0-9]{0,9})$"
+        },
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
         },
         "api": { "$ref": "#/$defs/runtimeArtifact" },
         "portal": { "$ref": "#/$defs/runtimeArtifact" }
@@ -88,13 +111,22 @@
     },
     "entra": {
       "type": "object",
+      "required": ["portalClientId", "apiClientId"],
       "properties": {
         "appRegistrationMode": {
           "type": "string",
           "enum": ["Create", "Reuse", "Manual"]
         },
-        "portalClientId": { "type": "string" },
-        "apiClientId": { "type": "string" },
+        "portalClientId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "not": { "const": "00000000-0000-0000-0000-000000000000" }
+        },
+        "apiClientId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "not": { "const": "00000000-0000-0000-0000-000000000000" }
+        },
         "permissionMode": {
           "type": "string",
           "enum": ["SitesSelected", "BroadGraphRead", "Manual"]
@@ -111,9 +143,15 @@
     },
     "controlPlane": {
       "type": "object",
+      "required": ["deploymentExportId"],
       "properties": {
         "baseUrl": { "type": "string" },
-        "deploymentExportId": { "type": "string" },
+        "deploymentExportId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+        },
         "exportedAt": { "type": "string", "format": "date-time" },
         "expiresAt": { "type": "string", "format": "date-time" },
         "issuer": { "type": "string" },
@@ -170,6 +208,7 @@
         "runtimeSecrets": {
           "type": "array",
           "minItems": 3,
+          "maxItems": 3,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -253,11 +292,16 @@
     "runtimeArtifact": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fileName", "downloadUrl", "sha256", "startupCommand"],
+      "required": ["fileName", "sizeBytes", "downloadUrl", "sha256", "startupCommand"],
       "properties": {
         "fileName": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.zip$"
+          "pattern": "^[A-Za-z0-9._+-]+\\.zip$"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
         },
         "downloadUrl": { "type": "string", "format": "uri" },
         "sha256": {

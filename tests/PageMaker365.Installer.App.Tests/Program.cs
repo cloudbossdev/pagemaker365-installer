@@ -337,7 +337,7 @@ internal static class Program
             input.Definition.Source == RuntimeSecretSource.Operator),
             "Only operator-provided protected values should render as inputs.");
         AssertEx.False(viewModel.RuntimeSecretInputs.Any(input =>
-            input.AppSettingName == "API_SESSION_SECRET"),
+            input.AppSettingName == "API_IMAGE_ASSET_CURSOR_SECRET"),
             "Installer-generated values must not render as operator inputs.");
     }
 
@@ -1102,23 +1102,23 @@ internal static class Program
     {
         return new CustomerInstallConfig
         {
-            ContractVersion = "0.3",
+            ContractVersion = "0.4",
             Customer =
             {
                 CustomerId = "cust-download",
                 AccountKey = "download",
                 InstallationId = "inst-download",
                 TenantName = tenantName,
-                TenantId = "tenant-download",
+                TenantId = "11111111-1111-4111-8111-111111111111",
                 PrimaryContact = "owner@example.test"
             },
             Azure =
             {
-                TenantId = "tenant-download",
+                TenantId = "11111111-1111-4111-8111-111111111111",
                 SubscriptionId = "sub-download",
                 Location = "eastus",
                 ResourceGroupName = "rg-pm365-download",
-                Environment = "test",
+                Environment = "staging",
                 ResourceNames =
                 {
                     KeyVaultName = "kv-pm365-download",
@@ -1127,7 +1127,7 @@ internal static class Program
                     ApplicationInsightsName = "ai-pm365-download",
                     AppServicePlanName = "asp-pm365-download",
                     ApiAppName = "app-pm365-download-api",
-                    PortalAppName = "swa-pm365-download",
+                    PortalAppName = "app-pm365-download-portal",
                     ManagedIdentityName = "id-pm365-download"
                 }
             },
@@ -1147,6 +1147,8 @@ internal static class Program
             Entra =
             {
                 AppRegistrationMode = "Create",
+                PortalClientId = "22222222-2222-4222-8222-222222222222",
+                ApiClientId = "33333333-3333-4333-8333-333333333333",
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
@@ -1156,9 +1158,11 @@ internal static class Program
                 ContractVersion = "1.0",
                 ReleaseId = "pm365-runtime-1.0.0+test",
                 RuntimeVersion = "1.0.0",
+                SourceCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 Api = new RuntimeArtifactInfo
                 {
                     FileName = "pagemaker365-api-1.0.0.zip",
+                    SizeBytes = 123_456,
                     DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-api-1.0.0.zip",
                     Sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                     StartupCommand = "node dist/index.js"
@@ -1166,9 +1170,10 @@ internal static class Program
                 Portal = new RuntimeArtifactInfo
                 {
                     FileName = "pagemaker365-portal-1.0.0.zip",
+                    SizeBytes = 654_321,
                     DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-portal-1.0.0.zip",
                     Sha256 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-                    StartupCommand = "pm2 serve /home/site/wwwroot --no-daemon --spa"
+                    StartupCommand = "node .pm365/start-portal-runtime.mjs"
                 }
             },
             ControlPlane =
@@ -1192,7 +1197,7 @@ internal static class Program
             Secrets =
             {
                 KeyVaultName = "kv-pm365-download",
-                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-SESSION-SECRET"],
+                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-IMAGE-ASSET-CURSOR-SECRET"],
                 PromptForSecrets =
                 [
                     new SecretPromptInfo
@@ -1211,8 +1216,8 @@ internal static class Program
                     },
                     new SecretPromptInfo
                     {
-                        Name = "API-SESSION-SECRET",
-                        Label = "Runtime session signing secret",
+                        Name = "API-IMAGE-ASSET-CURSOR-SECRET",
+                        Label = "Image asset cursor signing secret",
                         Required = true,
                         GeneratedByInstaller = true
                     }
@@ -1266,10 +1271,10 @@ internal static class Program
             },
             new RuntimeSecretInfo
             {
-                KeyVaultSecretName = "API-SESSION-SECRET",
-                AppSettingName = "API_SESSION_SECRET",
-                Label = "Runtime session signing secret",
-                Purpose = "Signs customer runtime session state.",
+                KeyVaultSecretName = "API-IMAGE-ASSET-CURSOR-SECRET",
+                AppSettingName = "API_IMAGE_ASSET_CURSOR_SECRET",
+                Label = "Image asset cursor signing secret",
+                Purpose = "Signs governed Image Assets cursors.",
                 Source = RuntimeSecretSource.InstallerGenerated,
                 Owner = RuntimeSecretOwner.Customer,
                 TargetApp = RuntimeSecretTarget.Api,

@@ -30,7 +30,10 @@ public static class RuntimeContractValidator
         "azure",
         "sharePoint",
         "app",
+        "entra",
         "runtimeArtifacts",
+        "controlPlane",
+        "secrets",
         "features"
     ];
 
@@ -91,8 +94,10 @@ public static class RuntimeContractValidator
                 RequireObject(root, section, result);
             }
 
-            RequireString(root, "customer.tenantName", result);
-            RequireString(root, "customer.tenantId", result);
+            RequireExactString(root, "contractVersion", "0.4", result);
+            RequireSafeText(root, "customer.accountKey", 64, result);
+            RequireSafeText(root, "customer.tenantName", 128, result);
+            RequireNonEmptyGuid(root, "customer.tenantId", result);
             RequireString(root, "customer.primaryContact", result);
             RequireString(root, "azure.subscriptionId", result);
             RequireString(root, "azure.location", result);
@@ -102,19 +107,34 @@ public static class RuntimeContractValidator
             RequireString(root, "sharePoint.defaultDocumentLibrary", result);
             RequireString(root, "app.appName", result);
             RequireString(root, "app.supportEmail", result);
-            RequireString(root, "runtimeArtifacts.contractVersion", result);
+            RequireNonEmptyGuid(root, "entra.portalClientId", result);
+            RequireNonEmptyGuid(root, "entra.apiClientId", result);
+            if (TryGetPath(root, "entra.portalClientId", out var portalClientId) &&
+                TryGetPath(root, "entra.apiClientId", out var apiClientId) &&
+                portalClientId.ValueKind == JsonValueKind.String &&
+                apiClientId.ValueKind == JsonValueKind.String &&
+                string.Equals(portalClientId.GetString(), apiClientId.GetString(), StringComparison.OrdinalIgnoreCase))
+            {
+                result.Errors.Add("entra.portalClientId and entra.apiClientId must identify distinct applications.");
+            }
+            RequireExactString(root, "runtimeArtifacts.contractVersion", "1.0", result);
             RequireString(root, "runtimeArtifacts.releaseId", result);
             RequireString(root, "runtimeArtifacts.runtimeVersion", result);
+            RequireLowercaseHex(root, "runtimeArtifacts.sourceCommit", 40, result);
             RequireObject(root, "runtimeArtifacts.api", result);
             RequireString(root, "runtimeArtifacts.api.fileName", result);
+            RequirePositiveInteger(root, "runtimeArtifacts.api.sizeBytes", 268_435_456, result);
             RequireAbsoluteUri(root, "runtimeArtifacts.api.downloadUrl", result);
             RequireString(root, "runtimeArtifacts.api.sha256", result);
             RequireString(root, "runtimeArtifacts.api.startupCommand", result);
             RequireObject(root, "runtimeArtifacts.portal", result);
             RequireString(root, "runtimeArtifacts.portal.fileName", result);
+            RequirePositiveInteger(root, "runtimeArtifacts.portal.sizeBytes", 268_435_456, result);
             RequireAbsoluteUri(root, "runtimeArtifacts.portal.downloadUrl", result);
             RequireString(root, "runtimeArtifacts.portal.sha256", result);
             RequireString(root, "runtimeArtifacts.portal.startupCommand", result);
+            RequireString(root, "controlPlane.deploymentExportId", result);
+            RequireObject(root, "secrets", result);
             RequireBoolean(root, "features.knowledgeBase", "features.knowledgeBase", result);
             RequireBoolean(root, "features.customerPortal", "features.customerPortal", result);
             RequireBoolean(root, "features.billingIntegration", "features.billingIntegration", result);
@@ -236,6 +256,95 @@ public static class RuntimeContractValidator
         if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
         {
             result.Errors.Add($"{path} must be a non-empty string.");
+        }
+    }
+
+    private static void RequireExactString(
+        JsonElement root,
+        string path,
+        string expected,
+        ConfigValidationResult result)
+    {
+        RequireString(root, path, result);
+        if (TryGetPath(root, path, out var value) &&
+            value.ValueKind == JsonValueKind.String &&
+            !string.Equals(value.GetString(), expected, StringComparison.Ordinal))
+        {
+            result.Errors.Add($"{path} must be {expected}.");
+        }
+    }
+
+    private static void RequireNonEmptyGuid(JsonElement root, string path, ConfigValidationResult result)
+    {
+        RequireString(root, path, result);
+        if (TryGetPath(root, path, out var value) &&
+            value.ValueKind == JsonValueKind.String &&
+            (!Guid.TryParseExact(value.GetString(), "D", out var guid) || guid == Guid.Empty))
+        {
+            result.Errors.Add($"{path} must be a non-empty canonical GUID.");
+        }
+    }
+
+    private static void RequireSafeText(
+        JsonElement root,
+        string path,
+        int maximumLength,
+        ConfigValidationResult result)
+    {
+        RequireString(root, path, result);
+        if (TryGetPath(root, path, out var value) && value.ValueKind == JsonValueKind.String)
+        {
+            var text = value.GetString() ?? "";
+            if (text.Length > maximumLength ||
+                !text.Equals(text.Trim(), StringComparison.Ordinal) ||
+                text.Any(character =>
+                    character <= '\u001f' ||
+                    character is >= '\u007f' and <= '\u009f' ||
+                    character is '\u2028' or '\u2029' ||
+                    character is >= '\u202a' and <= '\u202e' ||
+                    character is >= '\u2066' and <= '\u2069'))
+            {
+                result.Errors.Add($"{path} must be 1-{maximumLength} trimmed characters without controls, line separators, or bidi overrides.");
+            }
+        }
+    }
+
+    private static void RequireLowercaseHex(
+        JsonElement root,
+        string path,
+        int length,
+        ConfigValidationResult result)
+    {
+        RequireString(root, path, result);
+        if (TryGetPath(root, path, out var value) && value.ValueKind == JsonValueKind.String)
+        {
+            var text = value.GetString() ?? "";
+            if (text.Length != length || text.Any(character =>
+                !char.IsAsciiHexDigit(character) || char.IsAsciiLetterUpper(character)))
+            {
+                result.Errors.Add($"{path} must be exactly {length} lowercase hexadecimal characters.");
+            }
+        }
+    }
+
+    private static void RequirePositiveInteger(
+        JsonElement root,
+        string path,
+        long maximum,
+        ConfigValidationResult result)
+    {
+        if (!TryGetPath(root, path, out var value))
+        {
+            result.Errors.Add($"{path} is required.");
+            return;
+        }
+
+        if (value.ValueKind != JsonValueKind.Number ||
+            !value.TryGetInt64(out var number) ||
+            number < 1 ||
+            number > maximum)
+        {
+            result.Errors.Add($"{path} must be an integer between 1 and {maximum}.");
         }
     }
 

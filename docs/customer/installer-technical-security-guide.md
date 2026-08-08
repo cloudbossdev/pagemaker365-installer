@@ -118,7 +118,20 @@ verification.
 
 ## Network Requirements
 
-All non-local installer endpoints use HTTPS on TCP 443. Local development may use HTTP only for `localhost`, `127.0.0.1`, or `::1`. The installer uses the Windows/.NET networking stack plus MSAL, Az PowerShell, and Microsoft Graph PowerShell; it has no independent proxy bypass or certificate-trust store. Customer proxy inspection must preserve a certificate chain trusted by those components.
+All non-local installer endpoints use HTTPS on TCP 443. Runtime artifact URLs
+are never local for staging or production; a `dev` package may use a local
+artifact only when the test process explicitly enables
+`PM365_ALLOW_LOCAL_RUNTIME_ARTIFACTS=true`. Other documented local development
+endpoints may use HTTP only for `localhost`, `127.0.0.1`, or `::1`. The
+installer uses the Windows/.NET networking stack plus MSAL, Az PowerShell, and
+Microsoft Graph PowerShell; it has no independent proxy bypass or
+certificate-trust store. Customer proxy inspection must preserve a certificate
+chain trusted by those components.
+
+The current runtime contract supports the commercial Microsoft cloud only:
+`login.microsoftonline.com`, `graph.microsoft.com`, and customer SharePoint
+hosts ending in `.sharepoint.com`. Sovereign-cloud expansion is deferred to a
+separate reviewed contract.
 
 | Destination | Purpose |
 | --- | --- |
@@ -174,7 +187,7 @@ The verifier must receive the expected official publisher and certificate thumbp
 - Azure authentication is managed by Az.Accounts. The installer records tenant, subscription, and sanitized result metadata, not Azure tokens.
 - The one-time onboarding code is sent only to the active trusted onboarding API in request data and headers. Persisted session state retains the setup-file path and session metadata, not the code value.
 - Structured logs, support bundles, discovery output, and assistant transcripts pass through redaction. Evidence callbacks accept only lifecycle metadata and sanitized errors.
-- Package contract `0.3` declares `DATABASE_URL` and `API_ENTRA_CLIENT_SECRET` as operator-provided values and `API_SESSION_SECRET` as installer-generated. The exact three-setting contract is required, minimum lengths must be between 1 and 4,096 characters, and supplied values must be printable ASCII with a 4,096-character maximum. The installer holds operator values in protected process memory for one attempt, passes values to PowerShell through redirected standard input, and submits them to ARM through a secure Bicep parameter.
+- Package contract `0.4` declares `DATABASE_URL` and `API_ENTRA_CLIENT_SECRET` as operator-provided values and `API_IMAGE_ASSET_CURSOR_SECRET` as installer-generated. The exact three-setting contract is required, minimum lengths must be between 1 and 4,096 characters, and supplied values must be printable ASCII with a 4,096-character maximum. The installer holds operator values in protected process memory for one attempt, passes values to PowerShell through redirected standard input, and submits them to ARM through a secure Bicep parameter.
 - ARM writes the values directly to the customer Key Vault. The API App Service stores only Key Vault references and resolves them through its user-assigned managed identity and `Key Vault Secrets User` role.
 - Parent-process secure buffers and password controls are cleared after each attempt and when the window closes. PowerShell releases child-process string references in `finally`; managed runtimes do not guarantee immediate zeroing of immutable strings before process exit.
 - Resumable state, command arguments, environment variables, callbacks, reports, and support bundles contain no runtime values. Sanitized evidence contains names, resolution status, `rawValuesIncluded: false`, and `valueStorage: "CustomerKeyVault"` only.

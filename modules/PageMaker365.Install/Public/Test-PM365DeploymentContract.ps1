@@ -40,7 +40,7 @@ function Test-PM365DeploymentContract {
                 -RetrySafe $false
         } else {
             $runtimeSecrets = @($secrets.runtimeSecrets)
-            $requiredSettings = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_SESSION_SECRET')
+            $requiredSettings = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_IMAGE_ASSET_CURSOR_SECRET')
             $declaredSettings = @($runtimeSecrets | ForEach-Object { [string]$_.appSettingName })
             $invalidRuntimeDefinitions = @(
                 $runtimeSecrets |
@@ -56,14 +56,14 @@ function Test-PM365DeploymentContract {
             )
             $databaseDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'DATABASE_URL' })
             $entraDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'API_ENTRA_CLIENT_SECRET' })
-            $sessionDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'API_SESSION_SECRET' })
+            $imageCursorDefinition = @($runtimeSecrets | Where-Object { [string]$_.appSettingName -ceq 'API_IMAGE_ASSET_CURSOR_SECRET' })
             $contractMatches = `
                 $runtimeSecrets.Count -eq 3 -and `
                 @($requiredSettings | Where-Object { $declaredSettings -notcontains $_ }).Count -eq 0 -and `
                 $invalidRuntimeDefinitions.Count -eq 0 -and `
                 $databaseDefinition.Count -eq 1 -and [string]$databaseDefinition[0].source -ceq 'operator' -and [int]$databaseDefinition[0].minimumLength -ge 12 -and `
                 $entraDefinition.Count -eq 1 -and [string]$entraDefinition[0].source -ceq 'operator' -and [int]$entraDefinition[0].minimumLength -ge 16 -and `
-                $sessionDefinition.Count -eq 1 -and [string]$sessionDefinition[0].source -ceq 'installerGenerated' -and [int]$sessionDefinition[0].minimumLength -ge 32
+                $imageCursorDefinition.Count -eq 1 -and [string]$imageCursorDefinition[0].source -ceq 'installerGenerated' -and [int]$imageCursorDefinition[0].minimumLength -ge 32
 
             if (-not $contractMatches) {
                 $hasBlockingContractFailure = $true
@@ -71,7 +71,7 @@ function Test-PM365DeploymentContract {
                     -Status 'Failed' `
                     -Code 'DeploymentSecretsContractInvalid' `
                     -Summary 'The signed runtime secret metadata contract is invalid.' `
-                    -Details 'Generate a contractVersion 0.3 package containing only the required DATABASE_URL, API_ENTRA_CLIENT_SECRET, and API_SESSION_SECRET definitions.' `
+                    -Details 'Generate a contractVersion 0.4 package containing only the required DATABASE_URL, API_ENTRA_CLIENT_SECRET, and API_IMAGE_ASSET_CURSOR_SECRET definitions.' `
                     -RetrySafe $false
             } else {
             $results += New-PM365Result `
@@ -92,13 +92,13 @@ function Test-PM365DeploymentContract {
     }
 
     $warnings = @()
-    if ([string]$config.contractVersion -cne '0.3') {
+    if ([string]$config.contractVersion -cne '0.4') {
         $hasBlockingContractFailure = $true
         $results += New-PM365Result `
             -Status 'Failed' `
             -Code 'DeploymentContractVersionUnsupported' `
             -Summary 'Customer install package contract version is unsupported.' `
-            -Details 'Generate a new package using contractVersion 0.3.' `
+            -Details 'Generate a new package using contractVersion 0.4.' `
             -RetrySafe $false
     }
 

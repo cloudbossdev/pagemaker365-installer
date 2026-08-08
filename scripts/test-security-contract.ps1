@@ -61,15 +61,49 @@ Assert-True ($bicep.Contains("modules/key-vault-role-assignment.bicep")) 'The Az
 
 $runtimeTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\runtime-configuration.bicep') -Raw
 $apiTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\api-app-service.bicep') -Raw
+$portalTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\frontend-app-service.bicep') -Raw
 $installerEngine = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Services\InstallerEngine.cs') -Raw
 $runtimeCommand = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PageMaker365.Install\Public\Set-PM365RuntimeConfiguration.ps1') -Raw
 $stateModel = Get-Content -LiteralPath (Join-Path $repoRoot 'src\PageMaker365.Installer.Engine\Models\PersistedInstallerState.cs') -Raw
 $runtimeArtifactCommand = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PageMaker365.Install\Private\Publish-PM365RuntimeArtifacts.ps1') -Raw
+Assert-True ($runtimeArtifactCommand.Contains("'.pm365/provenance.json'")) 'Runtime artifact deployment must require embedded provenance in both ZIP files.'
+Assert-True ($runtimeArtifactCommand.Contains("'auth-redirect.html'")) 'Portal artifact deployment must require the silent authentication redirect document.'
+Assert-True ($runtimeArtifactCommand.Contains("-cne 'PageMaker365'")) 'Runtime artifact provenance product validation must remain case-sensitive.'
 
 Assert-True ($runtimeTemplate.Contains('@secure()')) 'Runtime secret values must enter ARM through a secure Bicep parameter.'
 Assert-True ($runtimeTemplate.Contains('Microsoft.KeyVault/vaults/secrets')) 'Runtime secrets must be provisioned directly as customer Key Vault resources.'
 Assert-True ($apiTemplate.Contains('keyVaultReferenceIdentity')) 'The API App Service must explicitly use the customer managed identity for Key Vault references.'
 Assert-True ($apiTemplate.Contains('@Microsoft.KeyVault(VaultName=')) 'Runtime App Service settings must use Key Vault references instead of raw values.'
+foreach ($setting in @(
+    'API_ENV',
+    'API_CORS_ORIGIN',
+    'API_ENTRA_TENANT_ID',
+    'API_ENTRA_AUDIENCE',
+    'API_ENTRA_CLIENT_ID',
+    'API_AZURE_KEY_VAULT_URL',
+    'API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
+)) {
+    Assert-True ($apiTemplate.Contains($setting)) "The API runtime template is missing $setting."
+}
+Assert-True (-not $apiTemplate.Contains('PM365_KEY_VAULT_URI')) 'The API template must not emit the obsolete PM365_KEY_VAULT_URI setting.'
+Assert-True ($portalTemplate.Contains("appCommandLine: 'node .pm365/start-portal-runtime.mjs'")) 'The portal must use the fixed runtime launcher.'
+foreach ($setting in @(
+    'WEB_API_BASE_URL',
+    'WEB_ENTRA_CLIENT_ID',
+    'WEB_ENTRA_TENANT_ID',
+    'WEB_ENTRA_AUTHORITY',
+    'WEB_API_SCOPE',
+    'WEB_RUNTIME_ENVIRONMENT',
+    'WEB_PRODUCT_NAME',
+    'WEB_PRODUCT_LOGO_URL',
+    'WEB_CUSTOMER_DISPLAY_NAME',
+    'WEB_CUSTOMER_SHORT_NAME',
+    'WEB_ENABLE_WEB_PART_WORKBENCH',
+    'WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
+)) {
+    Assert-True ($portalTemplate.Contains($setting)) "The portal runtime template is missing $setting."
+}
+Assert-True (-not $portalTemplate.Contains('VITE_API_BASE_URL')) 'The portal template must not use ineffective build-time VITE settings at runtime.'
 Assert-True ($installerEngine.Contains('standardInputWriter:')) 'Protected values must be passed to the child process through redirected standard input.'
 Assert-True ($runtimeCommand.Contains('[Console]::In.ReadLine()')) 'The runtime configuration command must read protected input from standard input.'
 Assert-True ($runtimeCommand.Contains('rawValuesIncluded = $false')) 'Runtime configuration evidence must explicitly exclude raw values.'
@@ -82,7 +116,7 @@ Assert-True ($runtimeArtifactCommand.Contains('MaximumBytes 268435456')) 'Runtim
 
 $samplePackage = Get-Content -LiteralPath (Join-Path $repoRoot 'samples\contoso.customer.install.json') -Raw | ConvertFrom-Json
 $runtimeSecretNames = @($samplePackage.secrets.runtimeSecrets | ForEach-Object { [string]$_.appSettingName })
-foreach ($requiredSetting in @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_SESSION_SECRET')) {
+foreach ($requiredSetting in @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_IMAGE_ASSET_CURSOR_SECRET')) {
     Assert-True ($runtimeSecretNames -contains $requiredSetting) "The sample signed runtime contract is missing $requiredSetting."
 }
 foreach ($secretDefinition in @($samplePackage.secrets.runtimeSecrets)) {
@@ -97,9 +131,9 @@ try {
     $invalidPackage.contractVersion = '0.2'
     $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
     $invalidVersionResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)
-    Assert-True ($invalidVersionResults.code -contains 'DeploymentContractVersionUnsupported') 'Direct PowerShell deployment must reject pre-0.3 packages.'
+Assert-True ($invalidVersionResults.code -contains 'DeploymentContractVersionUnsupported') 'Direct PowerShell deployment must reject pre-0.4 packages.'
 
-    $invalidPackage.contractVersion = '0.3'
+    $invalidPackage.contractVersion = '0.4'
     $invalidPackage.secrets.runtimeSecrets = @($invalidPackage.secrets.runtimeSecrets | Select-Object -First 2)
     $invalidPackage | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $invalidPackagePath -Encoding utf8
     $invalidSecretResults = @(Test-PM365DeploymentContract -ConfigPath $invalidPackagePath)

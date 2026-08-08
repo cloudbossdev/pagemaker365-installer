@@ -89,13 +89,18 @@ internal static class Program
             ("CustomerConfigService rejects package hash mismatch", CustomerConfigServiceRejectsPackageHashMismatch),
             ("CustomerConfigService enforces signed-required trust mode", CustomerConfigServiceEnforcesSignedRequiredTrustMode),
             ("CustomerConfigService verifies Ed25519 signed package", CustomerConfigServiceVerifiesEd25519SignedPackage),
+            ("CustomerConfigService binds the exact verified UTF-8 payload", CustomerConfigServiceBindsExactVerifiedUtf8Payload),
             ("CustomerConfigService rejects signed package without trusted key", CustomerConfigServiceRejectsSignedPackageWithoutTrustedKey),
             ("CustomerConfigService rejects invalid package signature", CustomerConfigServiceRejectsInvalidPackageSignature),
             ("CustomerConfigService rejects unsupported signature algorithm", CustomerConfigServiceRejectsUnsupportedSignatureAlgorithm),
             ("CustomerConfigService validates sample package contract", CustomerConfigServiceValidatesSamplePackageContract),
             ("CustomerConfigService validates immutable runtime artifacts", CustomerConfigServiceValidatesImmutableRuntimeArtifacts),
             ("CustomerConfigService rejects untrusted runtime artifact URL", CustomerConfigServiceRejectsUntrustedRuntimeArtifactUrl),
+            ("CustomerConfigService gates local runtime artifacts to explicit dev mock mode", CustomerConfigServiceGatesLocalRuntimeArtifactsToExplicitDevMockMode),
+            ("CustomerConfigService requires one runtime release directory", CustomerConfigServiceRequiresOneRuntimeReleaseDirectory),
             ("CustomerConfigService rejects arbitrary runtime startup command", CustomerConfigServiceRejectsArbitraryRuntimeStartupCommand),
+            ("CustomerConfigService rejects unsafe runtime identity domains", CustomerConfigServiceRejectsUnsafeRuntimeIdentityDomains),
+            ("CustomerConfigService requires customer runtime identities", CustomerConfigServiceRequiresCustomerRuntimeIdentities),
             ("CustomerConfigService rejects package missing required contract fields", CustomerConfigServiceRejectsPackageMissingRequiredContractFields),
             ("CustomerConfigService rejects legacy runtime secret contract", CustomerConfigServiceRejectsLegacyRuntimeSecretContract),
             ("CustomerConfigService rejects unexpected runtime secret setting", CustomerConfigServiceRejectsUnexpectedRuntimeSecretSetting),
@@ -124,6 +129,7 @@ internal static class Program
             ("FinalEvidenceService copies approval and Azure artifacts", FinalEvidenceServiceCopiesApprovalAndAzureArtifacts),
             ("InstallerEngine parses JSON result from mixed PowerShell output", InstallerEngineParsesJsonResultFromMixedPowerShellOutput),
             ("InstallerEngine passes Graph token and deployment artifact to validation", InstallerEnginePassesGraphTokenToValidationProcess),
+            ("InstallerEngine requires and forwards trusted package binding", InstallerEngineRequiresAndForwardsTrustedPackageBinding),
             ("PowerShellProcessRunner returns failed result on timeout", PowerShellProcessRunnerReturnsFailedResultOnTimeout),
             ("PowerShellProcessRunner times out stalled standard input writer", PowerShellProcessRunnerTimesOutStalledStandardInputWriter),
             ("PowerShellProcessRunner returns failed result on cancellation", PowerShellProcessRunnerReturnsFailedResultOnCancellation),
@@ -522,7 +528,7 @@ internal static class Program
         AssertJsonString(body.RootElement.GetProperty("discovery"), "discoveryId", "disc_test_001");
         AssertJsonString(body.RootElement.GetProperty("discovery"), "onboardingSessionId", "onb_test_001");
         AssertJsonString(body.RootElement.GetProperty("discovery"), "dataPolicy", "InstallReadinessOnly");
-        AssertJsonString(body.RootElement.GetProperty("discovery").GetProperty("customer"), "tenantId", "tenant-001");
+        AssertJsonString(body.RootElement.GetProperty("discovery").GetProperty("customer"), "tenantId", "11111111-1111-4111-8111-111111111111");
     }
 
     private static async Task GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext()
@@ -555,7 +561,7 @@ internal static class Program
 
         using var body = JsonDocument.Parse(handler.RequestBodies[0]);
         var loadedPackage = body.RootElement.GetProperty("loadedPackage");
-        AssertJsonString(loadedPackage, "tenantId", "tenant-001");
+        AssertJsonString(loadedPackage, "tenantId", "11111111-1111-4111-8111-111111111111");
         AssertJsonString(loadedPackage, "tenantName", "Example Customer");
         AssertJsonString(loadedPackage, "azureSubscriptionId", "sub-001");
         AssertJsonString(loadedPackage, "resourceGroupName", "rg-pm365-example");
@@ -1119,7 +1125,7 @@ internal static class Program
 
     private static Task AuthenticationContextValidatorAcceptsMatchingAzureContext()
     {
-        var result = AzureSignInResult("tenant-001", "sub-001");
+        var result = AzureSignInResult("11111111-1111-4111-8111-111111111111", "sub-001");
 
         var failure = AuthenticationContextValidator.ValidateAzureSignIn(CreateConfig(), [result]);
 
@@ -1152,7 +1158,7 @@ internal static class Program
 
     private static Task AuthenticationContextValidatorRejectsWrongAzureSubscription()
     {
-        var result = AzureSignInResult("tenant-001", "sub-other");
+        var result = AzureSignInResult("11111111-1111-4111-8111-111111111111", "sub-other");
 
         var failure = AuthenticationContextValidator.ValidateAzureSignIn(CreateConfig(), [result]);
 
@@ -1163,7 +1169,7 @@ internal static class Program
     private static Task AuthenticationContextValidatorAcceptsValidGraphContext()
     {
         var now = DateTimeOffset.UtcNow;
-        var result = GraphSignInResult("tenant-001", now.AddHours(1));
+        var result = GraphSignInResult("11111111-1111-4111-8111-111111111111", now.AddHours(1));
 
         var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
 
@@ -1185,7 +1191,7 @@ internal static class Program
     private static Task AuthenticationContextValidatorRejectsExpiredGraphToken()
     {
         var now = DateTimeOffset.UtcNow;
-        var result = GraphSignInResult("tenant-001", now.AddSeconds(-1));
+        var result = GraphSignInResult("11111111-1111-4111-8111-111111111111", now.AddSeconds(-1));
 
         var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
 
@@ -1196,7 +1202,7 @@ internal static class Program
     private static Task AuthenticationContextValidatorRejectsMissingGraphScope()
     {
         var now = DateTimeOffset.UtcNow;
-        var result = GraphSignInResult("tenant-001", now.AddHours(1));
+        var result = GraphSignInResult("11111111-1111-4111-8111-111111111111", now.AddHours(1));
         result.Scopes.Remove("Sites.Read.All");
 
         var failure = AuthenticationContextValidator.ValidateGraphSignIn(CreateConfig(), result, now);
@@ -1480,11 +1486,11 @@ internal static class Program
               "contractVersion": "0.2",
               "customer": {
                 "tenantName": "Example Customer",
-                "tenantId": "tenant-001",
+                "tenantId": "11111111-1111-4111-8111-111111111111",
                 "primaryContact": "owner@example.test"
               },
               "azure": {
-                "tenantId": "tenant-001",
+                "tenantId": "11111111-1111-4111-8111-111111111111",
                 "subscriptionId": "sub-001",
                 "location": "eastus",
                 "resourceGroupName": "rg-pm365-example",
@@ -1790,6 +1796,33 @@ internal static class Program
         AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
         AssertEx.Equal("Verified", result.PackageTrustStatus);
         AssertEx.Equal(package.Config.ControlPlane.PackageHash, result.ComputedPackageHash);
+        AssertEx.Equal(
+            CustomerConfigService.ComputePayloadSha256(Encoding.UTF8.GetBytes(package.Json)),
+            result.ValidatedPayloadSha256);
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceBindsExactVerifiedUtf8Payload()
+    {
+        var package = CreateSignedPackage();
+        var exactJson = package.Json + Environment.NewLine;
+        var exactPayload = Encoding.UTF8.GetBytes(exactJson);
+        var result = new CustomerConfigService().Validate(
+            package.Config,
+            exactJson,
+            trustOptions: CreatePackageTrustOptions(package),
+            exactUtf8Payload: exactPayload);
+
+        AssertEx.True(result.IsValid, string.Join(" ", result.Errors));
+        AssertEx.Equal(CustomerConfigService.ComputePayloadSha256(exactPayload), result.ValidatedPayloadSha256);
+
+        package.Config.ControlPlane.Signature = "invalid";
+        var invalid = new CustomerConfigService().Validate(
+            package.Config,
+            CustomerConfigService.ToJson(package.Config),
+            trustOptions: CreatePackageTrustOptions(package));
+        AssertEx.False(invalid.IsValid);
+        AssertEx.Equal("", invalid.ValidatedPayloadSha256);
         return Task.CompletedTask;
     }
 
@@ -1871,6 +1904,35 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static Task CustomerConfigServiceGatesLocalRuntimeArtifactsToExplicitDevMockMode()
+    {
+        var config = CreateConfig();
+        config.RuntimeArtifacts.Api.DownloadUrl = "http://localhost:5443/runtime/pagemaker365-api-1.0.0.zip";
+        config.RuntimeArtifacts.Portal.DownloadUrl = "http://localhost:5443/runtime/pagemaker365-portal-1.0.0.zip";
+
+        var stagingResult = new CustomerConfigService().Validate(config);
+        AssertEx.False(stagingResult.IsValid, "Staging accepted local runtime artifact endpoints.");
+        AssertEx.StringContains(string.Join(" ", stagingResult.Errors), "explicit development mock path");
+
+        config.Azure.Environment = "dev";
+        using var localRuntimeArtifacts = new EnvironmentVariableScope("PM365_ALLOW_LOCAL_RUNTIME_ARTIFACTS", "true");
+        var devResult = new CustomerConfigService().Validate(config);
+        AssertEx.True(devResult.IsValid, string.Join(" ", devResult.Errors));
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRequiresOneRuntimeReleaseDirectory()
+    {
+        var config = CreateConfig();
+        config.RuntimeArtifacts.Portal.DownloadUrl =
+            "https://downloads.pagemaker365.com/runtime/other/pagemaker365-portal-1.0.0.zip";
+
+        var result = new CustomerConfigService().Validate(config);
+        AssertEx.False(result.IsValid, "Different API and portal release directories were accepted.");
+        AssertEx.StringContains(string.Join(" ", result.Errors), "exact same approved release directory");
+        return Task.CompletedTask;
+    }
+
     private static Task CustomerConfigServiceRejectsArbitraryRuntimeStartupCommand()
     {
         var config = CreateConfig();
@@ -1882,12 +1944,58 @@ internal static class Program
         return Task.CompletedTask;
     }
 
+    private static Task CustomerConfigServiceRejectsUnsafeRuntimeIdentityDomains()
+    {
+        var config = CreateConfig();
+        config.RuntimeArtifacts.ReleaseId = "unsafe/release";
+        config.RuntimeArtifacts.RuntimeVersion = "2147483648.1.0";
+        config.RuntimeArtifacts.SourceCommit = "ABC";
+        config.ControlPlane.DeploymentExportId = " export-001";
+
+        var result = new CustomerConfigService().Validate(config);
+
+        AssertEx.False(result.IsValid, "Unsafe runtime identity domains must fail validation.");
+        var errors = string.Join(" ", result.Errors);
+        AssertEx.StringContains(errors, "runtimeArtifacts.releaseId");
+        AssertEx.StringContains(errors, "runtimeArtifacts.runtimeVersion");
+        AssertEx.StringContains(errors, "runtimeArtifacts.sourceCommit");
+        AssertEx.StringContains(errors, "controlPlane.deploymentExportId");
+        return Task.CompletedTask;
+    }
+
+    private static Task CustomerConfigServiceRequiresCustomerRuntimeIdentities()
+    {
+        var config = CreateConfig();
+        config.Entra.PortalClientId = "";
+        config.Entra.ApiClientId = Guid.Empty.ToString();
+        config.Customer.AccountKey = "unsafe\u2028key";
+        config.Customer.TenantName = "Unsafe\u202eName";
+        config.Azure.Environment = "prod";
+
+        var result = new CustomerConfigService().Validate(config);
+
+        AssertEx.False(result.IsValid, "Missing customer runtime identities must fail validation.");
+        var errors = string.Join(" ", result.Errors);
+        AssertEx.StringContains(errors, "entra.portalClientId");
+        AssertEx.StringContains(errors, "entra.apiClientId");
+        AssertEx.StringContains(errors, "customer.accountKey");
+        AssertEx.StringContains(errors, "customer.tenantName");
+        AssertEx.StringContains(errors, "azure.environment");
+
+        var duplicateIdentityConfig = CreateConfig();
+        duplicateIdentityConfig.Entra.ApiClientId = duplicateIdentityConfig.Entra.PortalClientId;
+        var duplicateIdentityResult = new CustomerConfigService().Validate(duplicateIdentityConfig);
+        AssertEx.False(duplicateIdentityResult.IsValid, "Identical portal and API client IDs were accepted.");
+        AssertEx.StringContains(string.Join(" ", duplicateIdentityResult.Errors), "distinct applications");
+        return Task.CompletedTask;
+    }
+
     private static Task CustomerConfigServiceRejectsPackageMissingRequiredContractFields()
     {
         var json = """
             {
               "contractVersion": "0.2",
-              "customer": { "tenantName": "Example", "tenantId": "tenant-001" },
+              "customer": { "tenantName": "Example", "tenantId": "11111111-1111-4111-8111-111111111111" },
               "azure": { "subscriptionId": "sub-001", "location": "eastus", "resourceGroupName": "rg-test" },
               "sharePoint": { "siteUrl": "https://example.sharepoint.com/sites/intranet" },
               "app": { "appName": "PageMaker365" },
@@ -1915,7 +2023,7 @@ internal static class Program
     {
         var json = """
             {
-              "customer": { "tenantName": "Example", "tenantId": "tenant-001" },
+              "customer": { "tenantName": "Example", "tenantId": "11111111-1111-4111-8111-111111111111" },
               "azure": { "subscriptionId": "sub-001", "location": "eastus", "resourceGroupName": "rg-test" },
               "sharePoint": { "siteUrl": "https://example.sharepoint.com/sites/intranet" },
               "app": { "appName": "PageMaker365" },
@@ -2371,10 +2479,10 @@ internal static class Program
     {
         var definition = new RuntimeSecretInfo
         {
-            KeyVaultSecretName = "API-SESSION-SECRET",
-            AppSettingName = "API_SESSION_SECRET",
-            Label = "Runtime session signing secret",
-            Purpose = "Signs runtime sessions.",
+            KeyVaultSecretName = "API-IMAGE-ASSET-CURSOR-SECRET",
+            AppSettingName = "API_IMAGE_ASSET_CURSOR_SECRET",
+            Label = "Image asset cursor signing secret",
+            Purpose = "Signs governed Image Assets cursors.",
             Source = RuntimeSecretSource.InstallerGenerated,
             Owner = RuntimeSecretOwner.Customer,
             TargetApp = RuntimeSecretTarget.Api,
@@ -2391,10 +2499,10 @@ internal static class Program
     {
         var definition = new RuntimeSecretInfo
         {
-            KeyVaultSecretName = "API-SESSION-SECRET",
-            AppSettingName = "API_SESSION_SECRET",
-            Label = "Runtime session signing secret",
-            Purpose = "Signs runtime sessions.",
+            KeyVaultSecretName = "API-IMAGE-ASSET-CURSOR-SECRET",
+            AppSettingName = "API_IMAGE_ASSET_CURSOR_SECRET",
+            Label = "Image asset cursor signing secret",
+            Purpose = "Signs governed Image Assets cursors.",
             Source = RuntimeSecretSource.InstallerGenerated,
             Owner = RuntimeSecretOwner.Customer,
             TargetApp = RuntimeSecretTarget.Api,
@@ -2696,10 +2804,10 @@ internal static class Program
               "status": "Passed",
               "code": "AzureSignInCompleted",
               "summary": "Azure sign-in completed.",
-              "details": "Current Azure context is tenant tenant-001, subscription sub-001.",
+              "details": "Current Azure context is tenant 11111111-1111-4111-8111-111111111111, subscription sub-001.",
               "retrySafe": true,
               "data": {
-                "tenantId": "tenant-001",
+                "tenantId": "11111111-1111-4111-8111-111111111111",
                 "subscriptionId": "sub-001",
                 "account": "admin@example.test"
               },
@@ -2763,6 +2871,44 @@ internal static class Program
 
             AssertEx.Equal(1, results.Count);
             AssertEx.Equal("ValidationGraphTokenReady", results[0].Code);
+            AssertEx.Equal(InstallStatus.Passed, results[0].Status);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static async Task InstallerEngineRequiresAndForwardsTrustedPackageBinding()
+    {
+        var workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var moduleDirectory = Path.Combine(workspaceRoot, "modules", "PageMaker365.Install");
+            Directory.CreateDirectory(moduleDirectory);
+            await File.WriteAllTextAsync(
+                Path.Combine(moduleDirectory, "PageMaker365.Install.psd1"),
+                "@{ RootModule = 'PageMaker365.Install.psm1'; ModuleVersion = '0.1.0'; FunctionsToExport = @('Invoke-PM365WhatIf') }");
+            await File.WriteAllTextAsync(
+                Path.Combine(moduleDirectory, "PageMaker365.Install.psm1"),
+                "function Invoke-PM365WhatIf { param([string] $ConfigPath, [string] $ExpectedPackagePayloadSha256) " +
+                "$received = $ExpectedPackagePayloadSha256 -ceq ('a' * 64); " +
+                "[pscustomobject]@{ status = if ($received) { 'Passed' } else { 'Failed' }; " +
+                "code = 'PackageBindingForwarded'; summary = 'Binding propagation checked.'; " +
+                "details = if ($received) { 'Binding received.' } else { 'Binding missing.' }; retrySafe = $true; requiresApproval = $false; data = @{} } }; " +
+                "Export-ModuleMember -Function Invoke-PM365WhatIf");
+            var configPath = Path.Combine(workspaceRoot, "customer.install.json");
+            await File.WriteAllTextAsync(configPath, "{}");
+
+            var engine = new InstallerEngine(new StructuredLogger(new RedactionService()));
+            var unboundSession = engine.CreateSession(CreateConfig(), workspaceRoot);
+            await AssertEx.ThrowsAsync<InvalidOperationException>(() =>
+                engine.RunWhatIfAsync(unboundSession, workspaceRoot, configPath));
+
+            var boundSession = engine.CreateSession(CreateConfig(), workspaceRoot, new string('a', 64));
+            var results = await engine.RunWhatIfAsync(boundSession, workspaceRoot, configPath);
+            AssertEx.Equal(1, results.Count);
+            AssertEx.Equal("PackageBindingForwarded", results[0].Code);
             AssertEx.Equal(InstallStatus.Passed, results[0].Status);
         }
         finally
@@ -2931,7 +3077,7 @@ internal static class Program
             var result = await new AzureDiscoveryService().DiscoverAsync(workspaceRoot, CreateConfig());
 
             AssertEx.Equal("AzureDiscoveryFallback", result.Source);
-            AssertEx.Equal("tenant-001", result.TenantId);
+            AssertEx.Equal("11111111-1111-4111-8111-111111111111", result.TenantId);
             AssertEx.Equal("sub-001", result.SelectedSubscriptionId);
             AssertEx.Equal("eastus", result.RecommendedLocation);
             AssertEx.Equal("rg-pm365-example", result.TargetResourceGroupName);
@@ -3007,7 +3153,7 @@ internal static class Program
                 allowSharePointDiscovery: true);
 
             AssertEx.Equal("GraphDiscoveryFallback", result.Source);
-            AssertEx.Equal("tenant-001", result.TenantId);
+            AssertEx.Equal("11111111-1111-4111-8111-111111111111", result.TenantId);
             AssertEx.Equal("https://example.sharepoint.com/sites/intranet", result.SiteUrl);
             AssertEx.Equal("example.sharepoint.com", result.TenantHostname);
             AssertEx.Equal("Documents", result.DefaultDocumentLibrary);
@@ -3196,7 +3342,7 @@ internal static class Program
         {
             SessionId = "onb_test_001",
             CustomerName = "Example Customer",
-            ExpectedTenantId = "tenant-001",
+            ExpectedTenantId = "11111111-1111-4111-8111-111111111111",
             PortalBaseUrl = "https://localhost:5444",
             ApiBaseUrl = "https://localhost:5443",
             OneTimeCode = "TEST-CODE-001",
@@ -3273,7 +3419,7 @@ internal static class Program
             DataPolicy = "InstallReadinessOnly",
             Customer =
             {
-                TenantId = "tenant-001",
+                TenantId = "11111111-1111-4111-8111-111111111111",
                 TenantName = "Example Customer",
                 PrimaryContact = "owner@example.test",
                 VerifiedDomains = ["example.test"]
@@ -3281,7 +3427,7 @@ internal static class Program
             Azure =
             {
                 AccountId = "azure-admin@example.test",
-                TenantId = "tenant-001",
+                TenantId = "11111111-1111-4111-8111-111111111111",
                 SelectedSubscriptionId = "sub-001",
                 SelectedSubscriptionName = "Example Subscription",
                 SelectedSubscriptionState = "Enabled",
@@ -3304,20 +3450,21 @@ internal static class Program
     {
         return new CustomerInstallConfig
         {
-            ContractVersion = "0.3",
+            ContractVersion = "0.4",
             Customer =
             {
+                AccountKey = "example",
                 TenantName = "Example Customer",
-                TenantId = "tenant-001",
+                TenantId = "11111111-1111-4111-8111-111111111111",
                 PrimaryContact = "owner@example.test"
             },
             Azure =
             {
-                TenantId = "tenant-001",
+                TenantId = "11111111-1111-4111-8111-111111111111",
                 SubscriptionId = "sub-001",
                 Location = "eastus",
                 ResourceGroupName = "rg-pm365-example",
-                Environment = "test"
+                Environment = "staging"
             },
             SharePoint =
             {
@@ -3333,6 +3480,8 @@ internal static class Program
             Entra =
             {
                 AppRegistrationMode = "Create",
+                PortalClientId = "22222222-2222-4222-8222-222222222222",
+                ApiClientId = "33333333-3333-4333-8333-333333333333",
                 PermissionMode = "SitesSelected",
                 RequiredApplicationPermissions = ["Sites.Selected"],
                 RequiredDelegatedScopes = ["openid", "profile", "email"]
@@ -3342,9 +3491,11 @@ internal static class Program
                 ContractVersion = "1.0",
                 ReleaseId = "pm365-runtime-1.0.0+test",
                 RuntimeVersion = "1.0.0",
+                SourceCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 Api = new RuntimeArtifactInfo
                 {
                     FileName = "pagemaker365-api-1.0.0.zip",
+                    SizeBytes = 123_456,
                     DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-api-1.0.0.zip",
                     Sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                     StartupCommand = "node dist/index.js"
@@ -3352,9 +3503,10 @@ internal static class Program
                 Portal = new RuntimeArtifactInfo
                 {
                     FileName = "pagemaker365-portal-1.0.0.zip",
+                    SizeBytes = 654_321,
                     DownloadUrl = "https://downloads.pagemaker365.com/runtime/1.0.0/pagemaker365-portal-1.0.0.zip",
                     Sha256 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-                    StartupCommand = "pm2 serve /home/site/wwwroot --no-daemon --spa"
+                    StartupCommand = "node .pm365/start-portal-runtime.mjs"
                 }
             },
             ControlPlane =
@@ -3376,7 +3528,7 @@ internal static class Program
             Secrets =
             {
                 KeyVaultName = "kv-pm365-example",
-                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-SESSION-SECRET"],
+                RequiredSecretNames = ["DATABASE-URL", "API-ENTRA-CLIENT-SECRET", "API-IMAGE-ASSET-CURSOR-SECRET"],
                 PromptForSecrets =
                 [
                     new SecretPromptInfo
@@ -3395,8 +3547,8 @@ internal static class Program
                     },
                     new SecretPromptInfo
                     {
-                        Name = "API-SESSION-SECRET",
-                        Label = "Runtime session signing secret",
+                        Name = "API-IMAGE-ASSET-CURSOR-SECRET",
+                        Label = "Image asset cursor signing secret",
                         Required = true,
                         GeneratedByInstaller = true
                     }
@@ -3436,10 +3588,10 @@ internal static class Program
             },
             new RuntimeSecretInfo
             {
-                KeyVaultSecretName = "API-SESSION-SECRET",
-                AppSettingName = "API_SESSION_SECRET",
-                Label = "Runtime session signing secret",
-                Purpose = "Signs customer runtime session state.",
+                KeyVaultSecretName = "API-IMAGE-ASSET-CURSOR-SECRET",
+                AppSettingName = "API_IMAGE_ASSET_CURSOR_SECRET",
+                Label = "Image asset cursor signing secret",
+                Purpose = "Signs governed Image Assets cursors.",
                 Source = RuntimeSecretSource.InstallerGenerated,
                 Owner = RuntimeSecretOwner.Customer,
                 TargetApp = RuntimeSecretTarget.Api,
