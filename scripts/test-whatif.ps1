@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $moduleRoot = Join-Path $repoRoot 'modules\PageMaker365.Install'
-$configPath = Join-Path $repoRoot 'samples\contoso.customer.install.json'
+$sampleConfigPath = Join-Path $repoRoot 'samples\contoso.customer.install.json'
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "pm365-whatif-tests\$([guid]::NewGuid().ToString('N'))"
 
 function Assert-True {
@@ -33,6 +33,8 @@ function Assert-Equal {
 New-Item -Path $tempRoot -ItemType Directory -Force | Out-Null
 
 try {
+    $configPath = Join-Path $tempRoot 'customer.install.json'
+    Copy-Item -LiteralPath $sampleConfigPath -Destination $configPath
     Get-ChildItem -Path (Join-Path $moduleRoot 'Private') -Filter '*.ps1' -File |
         ForEach-Object { . $_.FullName }
     Get-ChildItem -Path (Join-Path $moduleRoot 'Public') -Filter '*.ps1' -File |
@@ -181,7 +183,11 @@ try {
     }
 
     $artifactPath = Join-Path $tempRoot 'azure-whatif.json'
-    $result = Invoke-PM365WhatIf -ConfigPath $configPath -OutputPath $artifactPath
+    $expectedPayloadSha256 = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $result = Invoke-PM365WhatIf `
+        -ConfigPath $configPath `
+        -ExpectedPackagePayloadSha256 $expectedPayloadSha256 `
+        -OutputPath $artifactPath
 
     Assert-Equal 'Warning' $result.status 'Structured failure fallback should return a warning.'
     Assert-Equal 'AzureWhatIfReady' $result.code 'Structured failure fallback should preserve the ready result code.'
@@ -194,6 +200,12 @@ try {
     Assert-Equal 'rg-pagemaker365-contoso-prod' $script:lastDeploymentArguments.TemplateParameterObject.resourceGroupName 'Fallback used the wrong resource group.'
     Assert-True $script:lastDeploymentArguments.WhatIf 'Fallback did not pass -WhatIf.'
     Assert-Equal 'pagemaker365-contoso' $script:lastDeploymentArguments.TemplateParameterObject.appName 'Fallback used the wrong template parameters.'
+    Assert-Equal '22222222-2222-4222-8222-222222222222' $script:lastDeploymentArguments.TemplateParameterObject.portalClientId 'Fallback omitted the signed portal client ID.'
+    Assert-Equal '33333333-3333-4333-8333-333333333333' $script:lastDeploymentArguments.TemplateParameterObject.apiClientId 'Fallback omitted the signed API client ID.'
+    Assert-Equal 'Contoso Intranet' $script:lastDeploymentArguments.TemplateParameterObject.customerDisplayName 'Fallback omitted the signed customer display name.'
+    Assert-Equal 'contoso' $script:lastDeploymentArguments.TemplateParameterObject.customerShortName 'Fallback omitted the signed customer short name.'
+    Assert-Equal 'production' $script:lastDeploymentArguments.TemplateParameterObject.webRuntimeEnvironment 'Fallback omitted the signed hosted runtime environment.'
+    Assert-Equal 'https://contoso.sharepoint.com' $script:lastDeploymentArguments.TemplateParameterObject.filePreviewAllowedFrameOrigins 'Fallback did not derive the exact SharePoint frame origin.'
 
     $artifact = Get-Content -LiteralPath $artifactPath -Raw | ConvertFrom-Json
     Assert-Equal 'Warning' $artifact.status 'Fallback artifact should be warning status.'
@@ -203,6 +215,19 @@ try {
     Assert-True (($artifact.output -join "`n") -like '*Resource changes: 9 to create*') 'Fallback artifact should preserve unstructured output.'
     Assert-Equal 1 $artifact.risk.unknownCount 'Fallback risk should mark one unknown count.'
     Assert-Equal 1 $artifact.risk.warningCount 'Fallback risk should mark one warning count.'
+
+    $tampered = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $tampered.azure.resourceGroupName = 'rg-pm365-after-preview-tamper'
+    $tampered | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $configPath -Encoding utf8
+    try {
+        Invoke-PM365WhatIf `
+            -ConfigPath $configPath `
+            -ExpectedPackagePayloadSha256 $expectedPayloadSha256 | Out-Null
+        throw 'What-if accepted a package changed after the trusted preview payload was approved.'
+    } catch [System.IO.InvalidDataException] {
+        Assert-Equal 1 $script:structuredCallCount 'Post-preview tampering reached structured Azure what-if.'
+        Assert-Equal 1 $script:unstructuredCallCount 'Post-preview tampering reached fallback Azure what-if.'
+    }
 
     Write-Host 'What-if fallback tests passed.'
 }

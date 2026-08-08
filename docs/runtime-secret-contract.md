@@ -6,7 +6,7 @@ Tracking issue: [#7](https://github.com/cloudbossdev/pagemaker365-installer/issu
 
 ## Purpose
 
-Customer install package contract `0.3` defines the runtime values that the installer must provision without placing raw values in the package, resumable state, command line, environment, logs, callbacks, reports, or support bundles.
+Customer install package contract `0.4` defines the runtime values that the installer must provision without placing raw values in the package, resumable state, command line, environment, logs, callbacks, reports, or support bundles.
 
 ## Required Package Metadata
 
@@ -16,11 +16,11 @@ Customer install package contract `0.3` defines the runtime values that the inst
 | --- | --- | --- | --- | --- |
 | `DATABASE_URL` | Package-defined Azure Key Vault name | `operator` | `customer` | `api` |
 | `API_ENTRA_CLIENT_SECRET` | Package-defined Azure Key Vault name | `operator` | `customer` | `api` |
-| `API_SESSION_SECRET` | Package-defined Azure Key Vault name | `installerGenerated` | `customer` | `api` |
+| `API_IMAGE_ASSET_CURSOR_SECRET` | Package-defined Azure Key Vault name | `installerGenerated` | `customer` | `api` |
 
 Each entry also supplies a customer-facing label, purpose, required flag, and minimum length. App-setting names and Key Vault secret names must be unique. The package-level `secrets.keyVaultName` must match `azure.resourceNames.keyVaultName`.
 
-Raw values are prohibited. A package that omits this metadata, declares another setting, uses an unsupported source/owner/target, or uses a contract version other than `0.3` fails before Azure mutation.
+Raw values are prohibited. A package that omits this metadata, declares another setting, uses an unsupported source/owner/target, or uses a contract version other than `0.4` fails before Azure mutation.
 
 ## Protected Data Flow
 
@@ -60,7 +60,7 @@ The runtime configuration artifact contains secret names, app-setting names, dep
 
 Automated verification covers:
 
-- `0.3` schema and exact runtime setting validation
+- `0.4` schema and exact runtime setting validation
 - rejection of legacy or incomplete contracts
 - operator/generated UI separation
 - saved-session non-persistence
@@ -70,4 +70,4 @@ Automated verification covers:
 - App Service managed-identity Key Vault references
 - final-evidence inclusion of the sanitized runtime configuration artifact
 
-Live acceptance still requires a freshly generated and signed `0.3` staging package, an Azure deployment, reference resolution, runtime smoke tests, callback review, and a scan of all generated local and portal evidence.
+Live acceptance still requires a freshly generated and signed `0.4` staging package, an Azure deployment, reference resolution, runtime smoke tests, callback review, and a scan of all generated local and portal evidence.

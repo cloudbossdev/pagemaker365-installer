@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory)]
     [string] $Config,
 
+    [ValidatePattern('^[0-9a-f]{64}$')]
+    [string] $ExpectedPackagePayloadSha256 = '',
+
     [ValidateSet('Headless', 'AzureSignIn', 'GraphSignIn', 'WhatIfOnly', 'SmokeTests')]
     [string] $Mode = 'Headless',
 
@@ -27,7 +30,10 @@ $result = switch ($Mode) {
     'WhatIfOnly' {
         $previewDirectory = Join-Path $OutputRoot 'preview'
         $previewArtifactPath = Join-Path $previewDirectory 'azure-whatif.json'
-        Invoke-PM365WhatIf -ConfigPath $Config -OutputPath $previewArtifactPath
+        Invoke-PM365WhatIf `
+            -ConfigPath $Config `
+            -ExpectedPackagePayloadSha256 $ExpectedPackagePayloadSha256 `
+            -OutputPath $previewArtifactPath
     }
     'SmokeTests' { Test-PM365SmokeTests -ConfigPath $Config -DeploymentArtifactPath $DeploymentArtifactPath }
 }

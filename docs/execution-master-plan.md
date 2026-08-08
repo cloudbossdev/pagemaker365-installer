@@ -57,7 +57,7 @@ The installer is not yet a production deployment tool. The remaining work is mai
 - Production signing-key rotation and customer distribution policy are not finalized.
 - Bicep is monolithic and the resource group creation contract is unclear.
 - Real sandbox what-if/deploy has not been proven.
-- Smoke tests consume deployment outputs and fail closed on mismatched runtime identity, but the API and portal application code still need to implement the required deployed health/content contract.
+- The issue #5 installer slice now validates immutable runtime artifact metadata, verifies and deploys ready-to-run API and portal ZIP files, records sanitized artifact evidence, and fails closed on mismatched release identity. Runtime release publication, signed portal package generation, and live staging proof remain cross-repository gates.
 - Entra app registration, admin consent, and `Sites.Selected` setup are not implemented end to end.
 - Protected runtime secret input, ARM-based Key Vault writes, and managed-identity App Service references are implemented locally on issue #7; fresh portal package generation and live sandbox validation remain.
 - Assistant API lacks contract and safety tests.
@@ -352,6 +352,32 @@ Needs customer: sandbox Key Vault/RBAC validation.
 Goal: run a complete install path in a sandbox tenant and produce customer-supportable evidence.
 
 Owner pattern: coordinator drives sandbox run; subagents can harden smoke tests and evidence parser.
+
+#### Slice 5.0 - Immutable Runtime Artifact Delivery
+
+Status: installer implementation in progress on issue #5; runtime and portal
+handoffs tracked in `cloudbossdev/spo-ui#121` and
+`cloudbossdev/pagemaker365#1`.
+
+Scope:
+
+- Bind the signed package to immutable API and portal release artifacts.
+- Validate trusted endpoints, SHA-256, ZIP safety, expected contents, and fixed
+  startup commands before Azure publish.
+- Deploy both ready-to-run ZIP files with `Publish-AzWebApp`.
+- Expose export, release, and runtime version identity through API health and a
+  portal release marker.
+- Show only the URL returned by successful exact-release validation.
+
+Acceptance criteria:
+
+- Infrastructure-only deployment cannot be reported as install success.
+- Tampered, untrusted, stale, or partial runtime delivery fails closed.
+- Evidence contains artifact identity and outcomes without credentials, query
+  strings, temporary paths, or package bytes.
+
+Needs customer: durable runtime release artifacts, a signed staging package,
+and a live CloudBoss staging install.
 
 #### Slice 5.1 - Deployment Output Bridge
 

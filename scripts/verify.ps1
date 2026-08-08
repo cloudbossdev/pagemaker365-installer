@@ -189,6 +189,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Deployment artifact contract tests failed with exit code $LASTEXITCODE."
 }
 
+Write-Host 'Testing immutable runtime artifact contracts...'
+& (Join-Path $repoRoot 'scripts\test-runtime-artifacts.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "Runtime artifact contract tests failed with exit code $LASTEXITCODE."
+}
+
 Write-Host 'Testing partial-install cleanup safety contracts...'
 & (Join-Path $repoRoot 'scripts\test-partial-cleanup.ps1')
 if ($LASTEXITCODE -ne 0) {
@@ -254,7 +260,11 @@ if ($IncludeLiveCloudChecks) {
         Remove-Item -LiteralPath $whatIfArtifactPath -Force
     }
 
-    Invoke-PM365WhatIf -ConfigPath $configPath -OutputPath $whatIfArtifactPath | ConvertTo-Json -Depth 12 | Out-Null
+    $expectedPackagePayloadSha256 = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Invoke-PM365WhatIf `
+        -ConfigPath $configPath `
+        -ExpectedPackagePayloadSha256 $expectedPackagePayloadSha256 `
+        -OutputPath $whatIfArtifactPath | ConvertTo-Json -Depth 12 | Out-Null
     if (-not (Test-Path -LiteralPath $whatIfArtifactPath)) {
         throw "What-if artifact was not written: $whatIfArtifactPath"
     }
