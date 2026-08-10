@@ -14,7 +14,7 @@ public sealed class CustomerConfigService
     {
         "DATABASE_URL",
         "API_ENTRA_CLIENT_SECRET",
-        "API_SESSION_SECRET"
+        "API_IMAGE_ASSET_CURSOR_SECRET"
     };
 
     private static readonly HashSet<string> BlockedSecretProperties = new(StringComparer.OrdinalIgnoreCase)
@@ -42,6 +42,11 @@ public sealed class CustomerConfigService
     public async Task<CustomerInstallConfig> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         var packageJson = await File.ReadAllTextAsync(path, cancellationToken);
+        return LoadJson(packageJson);
+    }
+
+    public CustomerInstallConfig LoadJson(string packageJson)
+    {
         var contractValidation = RuntimeContractValidator.ValidateCustomerInstallPackageJson(packageJson);
         if (!contractValidation.IsValid)
         {
@@ -57,11 +62,13 @@ public sealed class CustomerConfigService
         CustomerInstallConfig config,
         string packageJson = "",
         PackageProvenanceContext? provenanceContext = null,
-        PackageTrustOptions? trustOptions = null)
+        PackageTrustOptions? trustOptions = null,
+        ReadOnlyMemory<byte> exactUtf8Payload = default)
     {
         var result = new ConfigValidationResult();
 
         Require(config.Customer.TenantName, "Customer tenant name is required.", result);
+        Require(config.Customer.AccountKey, "Customer account key is required.", result);
         Require(config.Customer.TenantId, "Customer tenant ID is required.", result);
         Require(config.Customer.PrimaryContact, "Customer primary contact is required.", result);
         Require(config.Azure.SubscriptionId, "Azure subscription ID is required.", result);
@@ -73,19 +80,43 @@ public sealed class CustomerConfigService
         Require(config.App.AppName, "Application name is required.", result);
         Require(config.App.SupportEmail, "Support email is required.", result);
 
+        ValidateSafeText(config.Customer.TenantName, 128, "customer.tenantName", result);
+        ValidateSafeText(config.Customer.AccountKey, 64, "customer.accountKey", result);
+        ValidateNonEmptyGuid(config.Customer.TenantId, "customer.tenantId", result);
+        ValidateNonEmptyGuid(config.Entra.PortalClientId, "entra.portalClientId", result);
+        ValidateNonEmptyGuid(config.Entra.ApiClientId, "entra.apiClientId", result);
+        if (!string.IsNullOrWhiteSpace(config.Entra.PortalClientId) &&
+            config.Entra.PortalClientId.Equals(config.Entra.ApiClientId, StringComparison.OrdinalIgnoreCase))
+        {
+            result.Errors.Add("entra.portalClientId and entra.apiClientId must identify distinct applications.");
+        }
+        if (config.Azure.Environment is not ("dev" or "staging" or "production"))
+        {
+            result.Errors.Add("azure.environment must be dev, staging, or production.");
+        }
+
         if (string.IsNullOrWhiteSpace(config.ContractVersion))
         {
-            result.Errors.Add("contractVersion 0.3 is required for protected runtime configuration. Generate a new customer package.");
+            result.Errors.Add("contractVersion 0.4 is required for protected runtime configuration. Generate a new customer package.");
         }
-        else if (!config.ContractVersion.Equals("0.3", StringComparison.Ordinal))
+        else if (!config.ContractVersion.Equals("0.4", StringComparison.Ordinal))
         {
-            result.Errors.Add("contractVersion 0.3 is required for protected runtime configuration. Generate a new customer package.");
+            result.Errors.Add("contractVersion 0.4 is required for protected runtime configuration. Generate a new customer package.");
         }
 
         if (!string.IsNullOrWhiteSpace(config.SharePoint.SiteUrl) &&
             !Uri.TryCreate(config.SharePoint.SiteUrl, UriKind.Absolute, out _))
         {
             result.Errors.Add("SharePoint site URL must be an absolute URL.");
+        }
+        else if (!string.IsNullOrWhiteSpace(config.SharePoint.SiteUrl) &&
+            (!Uri.TryCreate(config.SharePoint.SiteUrl, UriKind.Absolute, out var sharePointUri) ||
+             sharePointUri.Scheme != Uri.UriSchemeHttps ||
+             !sharePointUri.IsDefaultPort ||
+             !string.IsNullOrWhiteSpace(sharePointUri.UserInfo) ||
+             !sharePointUri.Host.EndsWith(".sharepoint.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            result.Errors.Add("SharePoint site URL must use the customer's exact default-port HTTPS SharePoint host.");
         }
 
         if (!string.IsNullOrWhiteSpace(packageJson))
@@ -102,6 +133,8 @@ public sealed class CustomerConfigService
 
         ValidateRequiredPackageProperties(packageJson, result);
         ValidateRuntimeSecretContract(config, result);
+        ValidateRuntimeArtifactContract(config, result);
+        ValidateDeploymentExportId(config.ControlPlane.DeploymentExportId, result);
         ValidatePackageTrust(config, packageJson, result, trustOptions ?? PackageTrustOptions.FromEnvironment());
 
         if (provenanceContext is not null)
@@ -109,7 +142,128 @@ public sealed class CustomerConfigService
             ValidatePackageProvenance(config, provenanceContext, result);
         }
 
+        if (result.IsValid &&
+            result.PackageTrustStatus.Equals("Verified", StringComparison.Ordinal) &&
+            !string.IsNullOrEmpty(packageJson))
+        {
+            result.ValidatedPayloadSha256 = ComputePayloadSha256(
+                exactUtf8Payload.IsEmpty ? Encoding.UTF8.GetBytes(packageJson) : exactUtf8Payload.Span);
+        }
+
         return result;
+    }
+
+    public static string ComputePayloadSha256(ReadOnlySpan<byte> payload)
+    {
+        return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+    }
+
+    private static void ValidateRuntimeArtifactContract(CustomerInstallConfig config, ConfigValidationResult result)
+    {
+        var contract = config.RuntimeArtifacts;
+        if (!contract.ContractVersion.Equals("1.0", StringComparison.Ordinal))
+        {
+            result.Errors.Add("runtimeArtifacts.contractVersion must be 1.0.");
+        }
+
+        if (string.IsNullOrWhiteSpace(contract.ReleaseId) ||
+            contract.ReleaseId.Length > 128 ||
+            contract.ReleaseId.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not '.' and not '+' and not '-' and not '_'))
+        {
+            result.Errors.Add("runtimeArtifacts.releaseId must be a safe immutable release identifier.");
+        }
+
+        var versionParts = contract.RuntimeVersion.Split('.');
+        if (versionParts.Length != 3 || versionParts.Any(part =>
+            string.IsNullOrWhiteSpace(part) ||
+            (part.Length > 1 && part[0] == '0') ||
+            !part.All(char.IsAsciiDigit) ||
+            !int.TryParse(part, out _)))
+        {
+            result.Errors.Add("runtimeArtifacts.runtimeVersion must be a stable major.minor.patch version.");
+        }
+
+        if (contract.SourceCommit.Length != 40 ||
+            contract.SourceCommit.Any(character => !char.IsAsciiHexDigit(character) || char.IsAsciiLetterUpper(character)))
+        {
+            result.Errors.Add("runtimeArtifacts.sourceCommit must be exactly 40 lowercase hexadecimal characters.");
+        }
+
+        ValidateRuntimeArtifact(
+            contract.Api,
+            "runtimeArtifacts.api",
+            "node dist/index.js",
+            AllowLocalRuntimeArtifacts(config),
+            result);
+        ValidateRuntimeArtifact(
+            contract.Portal,
+            "runtimeArtifacts.portal",
+            "node .pm365/start-portal-runtime.mjs",
+            AllowLocalRuntimeArtifacts(config),
+            result);
+
+        var allowLocalDevelopment = AllowLocalRuntimeArtifacts(config);
+        if (TrustedPageMaker365EndpointPolicy.TryValidateArtifactUrl(
+                contract.Api.DownloadUrl,
+                allowLocalDevelopment,
+                out var apiUri,
+                out _) &&
+            TrustedPageMaker365EndpointPolicy.TryValidateArtifactUrl(
+                contract.Portal.DownloadUrl,
+                allowLocalDevelopment,
+                out var portalUri,
+                out _) &&
+            !new Uri(apiUri!, ".").AbsoluteUri.Equals(
+                new Uri(portalUri!, ".").AbsoluteUri,
+                StringComparison.Ordinal))
+        {
+            result.Errors.Add("runtimeArtifacts API and portal download URLs must use the exact same approved release directory.");
+        }
+    }
+
+    private static void ValidateRuntimeArtifact(
+        RuntimeArtifactInfo artifact,
+        string path,
+        string expectedStartupCommand,
+        bool allowLocalDevelopment,
+        ConfigValidationResult result)
+    {
+        if (artifact.SizeBytes is < 1 or > 268_435_456)
+        {
+            result.Errors.Add($"{path}.sizeBytes must be between 1 byte and 256 MiB.");
+        }
+
+        if (string.IsNullOrWhiteSpace(artifact.FileName) ||
+            !artifact.FileName.EndsWith(".zip", StringComparison.Ordinal) ||
+            !artifact.FileName.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '+' or '-' or '_'))
+        {
+            result.Errors.Add($"{path}.fileName must be a simple ZIP file name.");
+        }
+
+        if (!TrustedPageMaker365EndpointPolicy.TryValidateArtifactUrl(
+            artifact.DownloadUrl,
+            allowLocalDevelopment,
+            out var artifactUri,
+            out var urlError))
+        {
+            result.Errors.Add($"{path}.downloadUrl {urlError}");
+        }
+        else if (!Uri.UnescapeDataString(artifactUri!.Segments[^1]).Equals(artifact.FileName, StringComparison.Ordinal))
+        {
+            result.Errors.Add($"{path}.downloadUrl must end in the exact artifact fileName.");
+        }
+
+        if (artifact.Sha256.Length != 64 ||
+            artifact.Sha256.Any(character => !char.IsAsciiHexDigit(character) || char.IsAsciiLetterUpper(character)))
+        {
+            result.Errors.Add($"{path}.sha256 must contain exactly 64 lowercase hexadecimal characters.");
+        }
+
+        if (!artifact.StartupCommand.Equals(expectedStartupCommand, StringComparison.Ordinal))
+        {
+            result.Errors.Add($"{path}.startupCommand is not supported by runtime artifact contract 1.0.");
+        }
     }
 
     private static void ValidateRuntimeSecretContract(CustomerInstallConfig config, ConfigValidationResult result)
@@ -127,7 +281,7 @@ public sealed class CustomerConfigService
         if (config.Secrets.RuntimeSecrets.Count == 0)
         {
             result.Errors.Add(
-                "secrets.runtimeSecrets is required and must declare DATABASE_URL, API_ENTRA_CLIENT_SECRET, and API_SESSION_SECRET metadata. Generate a new package from the PageMaker365 portal.");
+                "secrets.runtimeSecrets is required and must declare DATABASE_URL, API_ENTRA_CLIENT_SECRET, and API_IMAGE_ASSET_CURSOR_SECRET metadata. Generate a new package from the PageMaker365 portal.");
             return;
         }
 
@@ -222,7 +376,7 @@ public sealed class CustomerConfigService
 
         var database = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "DATABASE_URL");
         var entra = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "API_ENTRA_CLIENT_SECRET");
-        var session = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "API_SESSION_SECRET");
+        var imageCursor = config.Secrets.RuntimeSecrets.FirstOrDefault(item => item.AppSettingName == "API_IMAGE_ASSET_CURSOR_SECRET");
         if (database?.Source != RuntimeSecretSource.Operator || database.MinimumLength < 12)
         {
             result.Errors.Add("DATABASE_URL must use source operator with minimumLength of at least 12 characters until a customer database provisioning contract is implemented.");
@@ -233,9 +387,9 @@ public sealed class CustomerConfigService
             result.Errors.Add("API_ENTRA_CLIENT_SECRET must use source operator with minimumLength of at least 16 characters; the installer must not invent an Entra application credential.");
         }
 
-        if (session?.Source != RuntimeSecretSource.InstallerGenerated || session.MinimumLength < 32)
+        if (imageCursor?.Source != RuntimeSecretSource.InstallerGenerated || imageCursor.MinimumLength < 32)
         {
-            result.Errors.Add("API_SESSION_SECRET must use source installerGenerated with minimumLength of at least 32 characters.");
+            result.Errors.Add("API_IMAGE_ASSET_CURSOR_SECRET must use source installerGenerated with minimumLength of at least 32 characters.");
         }
     }
 
@@ -265,6 +419,50 @@ public sealed class CustomerConfigService
         if (string.IsNullOrWhiteSpace(value))
         {
             result.Errors.Add(message);
+        }
+    }
+
+    private static void ValidateSafeText(string value, int maximumLength, string field, ConfigValidationResult result)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            value.Length > maximumLength ||
+            !value.Equals(value.Trim(), StringComparison.Ordinal) ||
+            value.Any(character =>
+                character <= '\u001f' ||
+                character is >= '\u007f' and <= '\u009f' ||
+                character is '\u2028' or '\u2029' ||
+                character is >= '\u202a' and <= '\u202e' ||
+                character is >= '\u2066' and <= '\u2069'))
+        {
+            result.Errors.Add($"{field} must be 1-{maximumLength} trimmed characters without controls, line separators, or bidi overrides.");
+        }
+    }
+
+    private static bool AllowLocalRuntimeArtifacts(CustomerInstallConfig config)
+    {
+        return config.Azure.Environment.Equals("dev", StringComparison.Ordinal) &&
+            string.Equals(
+                Environment.GetEnvironmentVariable("PM365_ALLOW_LOCAL_RUNTIME_ARTIFACTS"),
+                "true",
+                StringComparison.Ordinal);
+    }
+
+    private static void ValidateNonEmptyGuid(string value, string field, ConfigValidationResult result)
+    {
+        if (!Guid.TryParseExact(value, "D", out var guid) || guid == Guid.Empty)
+        {
+            result.Errors.Add($"{field} must be a non-empty canonical GUID.");
+        }
+    }
+
+    private static void ValidateDeploymentExportId(string value, ConfigValidationResult result)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            value.Length > 256 ||
+            !value.Equals(value.Trim(), StringComparison.Ordinal) ||
+            value.Any(character => character <= '\u001f' || character is >= '\u007f' and <= '\u009f'))
+        {
+            result.Errors.Add("controlPlane.deploymentExportId must be 1-256 trimmed characters without C0/C1 controls.");
         }
     }
 

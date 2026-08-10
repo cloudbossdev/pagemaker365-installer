@@ -74,6 +74,7 @@ public sealed class PersistedInstallerState
     public string ValidationStatusBrush { get; set; } = "";
     public string ValidationSummary { get; set; } = "";
     public string ValidationOutputPath { get; set; } = "";
+    public string VerifiedDeployedSiteUrl { get; set; } = "";
     public string FinishStatus { get; set; } = "";
     public string FinishStatusBrush { get; set; } = "";
     public string FinishSummary { get; set; } = "";

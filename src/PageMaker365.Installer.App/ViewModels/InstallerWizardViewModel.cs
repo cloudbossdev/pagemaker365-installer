@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -41,6 +42,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private RemovalEvidenceOutboxState _removalEvidenceOutbox = new();
     private AssistantWorkspaceWindow? _assistantWindow;
     private PackageTrustOptions _packageTrustOptions = PackageTrustOptions.FromEnvironment();
+    private string _validatedPackagePayloadSha256 = "";
     private string _stateId = InstallerStateStore.CreateStateId();
     private DateTimeOffset _stateCreatedAt = DateTimeOffset.UtcNow;
     private string _bootstrapSourcePath = "";
@@ -114,6 +116,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
     private string _validationStatusBrush = "#8290AA";
     private string _validationSummary = "Complete install before running validation.";
     private string _validationOutputPath = "Not saved";
+    private string _verifiedDeployedSiteUrl = "";
     private string _finishStatus = "Waiting for validation";
     private string _finishStatusBrush = "#8290AA";
     private string _finishSummary = "Complete validation before generating final evidence.";
@@ -868,16 +871,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ? "Complete validation before generating final evidence."
         : $"Validation evidence: {ValidationOutputPath}";
 
-    public string DeployedSiteUrl
-    {
-        get
-        {
-            var customDomain = NormalizeSiteUrl(_config?.App.CustomDomain ?? "");
-            return string.IsNullOrWhiteSpace(customDomain)
-                ? NormalizeSiteUrl(_config?.App.RuntimeBaseUrl ?? "")
-                : customDomain;
-        }
-    }
+    public string DeployedSiteUrl => NormalizeSiteUrl(_verifiedDeployedSiteUrl);
 
     public bool HasDeployedSiteUrl => !string.IsNullOrWhiteSpace(DeployedSiteUrl);
 
@@ -1946,13 +1940,16 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         string path,
         PackageProvenanceContext? provenanceContext = null)
     {
-        var packageJson = await File.ReadAllTextAsync(path);
+        var packageBytes = await File.ReadAllBytesAsync(path);
+        string packageJson;
         CustomerInstallConfig config;
         try
         {
-            config = await _configService.LoadAsync(path);
+            packageJson = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+                .GetString(packageBytes);
+            config = _configService.LoadJson(packageJson);
         }
-        catch (Exception exception) when (exception is InvalidDataException or JsonException)
+        catch (Exception exception) when (exception is InvalidDataException or JsonException or DecoderFallbackException)
         {
             var loadValidation = new ConfigValidationResult();
             loadValidation.Errors.Add(exception.Message);
@@ -1976,7 +1973,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             return false;
         }
 
-        var validation = _configService.Validate(config, packageJson, provenanceContext, trustOptions);
+        var validation = _configService.Validate(
+            config,
+            packageJson,
+            provenanceContext,
+            trustOptions,
+            packageBytes);
         if (!validation.IsValid)
         {
             ApplyPackageTrustReview(validation);
@@ -2209,6 +2211,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PackageExportId = validation.DeploymentExportId;
         PackageDeclaredHash = validation.DeclaredPackageHash;
         PackageComputedHash = validation.ComputedPackageHash;
+        _validatedPackagePayloadSha256 = validation.ValidatedPayloadSha256;
     }
 
     private void ClearPackageTrustReview()
@@ -2219,6 +2222,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         PackageExportId = "Not available";
         PackageDeclaredHash = "Not available";
         PackageComputedHash = "Not checked";
+        _validatedPackagePayloadSha256 = "";
     }
 
     private static string BrushForPackageTrust(string status)
@@ -2271,7 +2275,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         GraphVerificationUrl = "https://microsoft.com/devicelogin";
         _isPowerShellActionRunning = true;
         FooterStatus = "Starting Microsoft Graph sign-in. The installer will open the Microsoft device-login page and copy the sign-in code.";
-        _session ??= _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session ??= _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Graph sign-in running";
         SetCurrentStep(3);
@@ -2476,7 +2480,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             SetCurrentStep(4);
             SetStepStatus(4, "Running", "#19D8E9");
 
-            _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+            _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
             SessionId = _session.SessionId;
             SessionStatus = "Preflight running";
 
@@ -2611,7 +2615,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         SetAzureSignInState(false, "Signing in", "#19D8E9");
         _isPowerShellActionRunning = true;
         FooterStatus = startingStatus;
-        _session ??= _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session ??= _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = runningStatus;
         SetCurrentStep(3);
@@ -2847,6 +2851,20 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         TryOpenBrowser(url);
         FooterStatus = $"Opened deployed site: {url}";
         return Task.CompletedTask;
+    }
+
+    private void SetVerifiedDeployedSiteUrl(string value)
+    {
+        var normalized = NormalizeSiteUrl(value);
+        if (string.Equals(_verifiedDeployedSiteUrl, normalized, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _verifiedDeployedSiteUrl = normalized;
+        OnPropertyChanged(nameof(DeployedSiteUrl));
+        OnPropertyChanged(nameof(HasDeployedSiteUrl));
+        OpenDeployedSiteCommand?.RaiseCanExecuteChanged();
     }
 
     private static string NormalizeSiteUrl(string value)
@@ -3367,6 +3385,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ValidationStatusBrush = SavedOrDefault(state.ValidationStatusBrush, ValidationStatusBrush);
         ValidationSummary = SavedOrDefault(state.ValidationSummary, ValidationSummary);
         ValidationOutputPath = SavedOrDefault(state.ValidationOutputPath, ValidationOutputPath);
+        _verifiedDeployedSiteUrl = state.VerifiedDeployedSiteUrl;
         FinishStatus = SavedOrDefault(state.FinishStatus, FinishStatus);
         FinishStatusBrush = SavedOrDefault(state.FinishStatusBrush, FinishStatusBrush);
         FinishSummary = SavedOrDefault(state.FinishSummary, FinishSummary);
@@ -3547,6 +3566,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
             ValidationStatusBrush = ValidationStatusBrush,
             ValidationSummary = ValidationSummary,
             ValidationOutputPath = ValidationOutputPath,
+            VerifiedDeployedSiteUrl = DeployedSiteUrl,
             FinishStatus = FinishStatus,
             FinishStatusBrush = FinishStatusBrush,
             FinishSummary = FinishSummary,
@@ -3822,7 +3842,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = "Running read-only Azure removal inventory.";
         SetCurrentStep(4);
         SetStepStatus(4, "Running", "#19D8E9");
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Removal inventory running";
         if (CanUseRemovalEvidence(_config))
@@ -3971,7 +3991,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = "Running approved Azure-only removal. Key Vault purge is disabled.";
         SetCurrentStep(6);
         SetStepStatus(6, "Running", "#19D8E9");
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Removal running";
 
@@ -4083,7 +4103,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         FooterStatus = "Validating Azure cleanup.";
         SetCurrentStep(7);
         SetStepStatus(7, "Running", "#19D8E9");
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Cleanup validation running";
 
@@ -4297,7 +4317,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         _lastPreviewStatus = InstallStatus.Running;
         ClearDeploymentReview();
         FooterStatus = "Running Azure what-if deployment preview.";
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Deployment preview running";
         SetCurrentStep(5);
@@ -4920,7 +4940,7 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         DeploymentArtifactPath = deploymentArtifactOutputPath;
         RuntimeConfigurationArtifactPath = "Not created";
         FooterStatus = "Running approved PageMaker365 deployment.";
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Install running";
         SetCurrentStep(6);
@@ -5339,8 +5359,9 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         ValidationStatusBrush = "#19D8E9";
         ValidationSummary = "Running smoke tests against the deployed environment.";
         ValidationOutputPath = "Not saved";
+        SetVerifiedDeployedSiteUrl("");
         FooterStatus = "Running deployment validation.";
-        _session = _engine.CreateSession(_config, GetWorkspaceRoot());
+        _session = _engine.CreateSession(_config, GetWorkspaceRoot(), _validatedPackagePayloadSha256);
         SessionId = _session.SessionId;
         SessionStatus = "Validation running";
         SetCurrentStep(7);
@@ -5377,6 +5398,12 @@ public sealed class InstallerWizardViewModel : ViewModelBase
         }
 
         var validationStatus = GetPhaseStatus(validationResults);
+        var verifiedPortalResult = validationResults.FirstOrDefault(result =>
+            result.Code == "PortalAppReady" && result.Status == InstallStatus.Passed);
+        SetVerifiedDeployedSiteUrl(
+            verifiedPortalResult is not null && verifiedPortalResult.Data.TryGetValue("portalUrl", out var verifiedPortalUrl)
+                ? verifiedPortalUrl
+                : "");
         _lastValidationStatus = validationStatus;
         ValidationStatus = validationStatus.ToString();
         ValidationStatusBrush = BrushForStatus(validationStatus);

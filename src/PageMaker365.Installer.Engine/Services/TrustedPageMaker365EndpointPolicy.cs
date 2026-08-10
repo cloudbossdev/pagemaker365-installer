@@ -8,6 +8,8 @@ public static class TrustedPageMaker365EndpointPolicy
         "api.pagemaker365.com",
         "staging.pagemaker365.com",
         "api-staging.pagemaker365.com",
+        "downloads.pagemaker365.com",
+        "downloads-staging.pagemaker365.com",
         "localhost",
         "127.0.0.1",
         "::1"
@@ -60,6 +62,50 @@ public static class TrustedPageMaker365EndpointPolicy
         }
 
         return uri!;
+    }
+
+    public static bool TryValidateArtifactUrl(
+        string value,
+        bool allowLocalDevelopment,
+        out Uri? uri,
+        out string error)
+    {
+        if (string.IsNullOrEmpty(value) || !value.Equals(value.Trim(), StringComparison.Ordinal))
+        {
+            uri = null;
+            error = "must not contain surrounding whitespace.";
+            return false;
+        }
+
+        if (!TryValidateBaseUrl(value, out uri, out error))
+        {
+            return false;
+        }
+
+        if (IsLocalHost(uri!.Host) && !allowLocalDevelopment)
+        {
+            error = "must not use a local endpoint outside the explicit development mock path.";
+            uri = null;
+            return false;
+        }
+
+        if (!IsLocalHost(uri.Host) &&
+            !uri.Host.Equals("downloads.pagemaker365.com", StringComparison.OrdinalIgnoreCase) &&
+            !uri.Host.Equals("downloads-staging.pagemaker365.com", StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"host '{uri.Host}' is not an approved PageMaker365 runtime release endpoint.";
+            uri = null;
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            error = "must not contain a query string or fragment.";
+            uri = null;
+            return false;
+        }
+
+        return true;
     }
 
     public static bool IsLocalHost(string host)

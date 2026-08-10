@@ -5,6 +5,7 @@ function Test-PM365Prerequisites {
     $pwshVersion = $PSVersionTable.PSVersion.ToString()
     $bicepCommand = Get-PM365BicepCommand
     $azModule = Get-Module -ListAvailable -Name Az.Accounts | Select-Object -First 1
+    $azWebsitesModule = Get-Module -ListAvailable -Name Az.Websites | Select-Object -First 1
 
     $results = @()
     $results += New-PM365Result `
@@ -25,6 +26,21 @@ function Test-PM365Prerequisites {
             -Code 'AzAccountsMissing' `
             -Summary 'Az.Accounts is not installed.' `
             -Details 'Install Az.Accounts before running Azure sign-in or preflight.' `
+            -RetrySafe $true
+    }
+
+    if ($azWebsitesModule) {
+        $results += New-PM365Result `
+            -Status 'Passed' `
+            -Code 'AzWebsitesReady' `
+            -Summary "Az.Websites $($azWebsitesModule.Version) is available." `
+            -Details 'Ready-to-run API and portal ZIP files can be deployed to App Service.'
+    } else {
+        $results += New-PM365Result `
+            -Status 'Failed' `
+            -Code 'AzWebsitesMissing' `
+            -Summary 'Az.Websites is not installed.' `
+            -Details 'Install Az.Websites before running PageMaker365 deployment.' `
             -RetrySafe $true
     }
 

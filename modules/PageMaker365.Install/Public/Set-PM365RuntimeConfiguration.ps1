@@ -4,19 +4,34 @@ function Set-PM365RuntimeConfiguration {
         [Parameter(Mandatory)]
         [string] $ConfigPath,
 
+        [string] $ExpectedPackagePayloadSha256 = '',
+
         [string] $TemplateFile = (Get-PM365DefaultRuntimeConfigurationTemplateFile),
 
         [string] $OutputPath = ''
     )
 
-    $config = Get-PM365Config -ConfigPath $ConfigPath
+    if ($ExpectedPackagePayloadSha256 -cnotmatch '^[0-9a-f]{64}$') {
+        throw [System.IO.InvalidDataException]::new(
+            'A trusted exact-payload SHA-256 binding from successful package signature validation is required.')
+    }
+
+    $config = Get-PM365BoundConfig `
+        -ConfigPath $ConfigPath `
+        -ExpectedPackagePayloadSha256 $ExpectedPackagePayloadSha256
+    $parameterValidationIssues = @(Get-PM365TemplateParameterValidationIssue -Config $config)
+    if ($parameterValidationIssues.Count -gt 0) {
+        $details = @($parameterValidationIssues | ForEach-Object { "{0}: {1}" -f $_.field, $_.message }) -join [Environment]::NewLine
+        throw [System.IO.InvalidDataException]::new(
+            "The exact validated customer package no longer satisfies the deployment contract.$([Environment]::NewLine)$details")
+    }
     $runtimeItems = @()
     $referenceStatuses = @()
     $configuredAt = [DateTimeOffset]::UtcNow
 
     try {
         $declaredSecrets = @($config.secrets.runtimeSecrets)
-        $expectedAppSettings = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_SESSION_SECRET')
+        $expectedAppSettings = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_IMAGE_ASSET_CURSOR_SECRET')
         $declaredAppSettings = @($declaredSecrets | ForEach-Object { [string]$_.appSettingName })
         if ($declaredSecrets.Count -ne $expectedAppSettings.Count -or
             @($expectedAppSettings | Where-Object { $declaredAppSettings -cnotcontains $_ }).Count -gt 0 -or

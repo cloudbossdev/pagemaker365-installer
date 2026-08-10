@@ -10,6 +10,7 @@ public sealed class ConfigValidationResult
     public string PackageTrustSummary { get; set; } = "Package trust has not been checked.";
     public string DeclaredPackageHash { get; set; } = "";
     public string ComputedPackageHash { get; set; } = "";
+    public string ValidatedPayloadSha256 { get; set; } = "";
     public string DeploymentExportId { get; set; } = "";
     public string SigningKeyId { get; set; } = "";
     public string TrustMode { get; set; } = "";

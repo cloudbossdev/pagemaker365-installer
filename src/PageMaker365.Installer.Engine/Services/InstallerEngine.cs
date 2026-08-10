@@ -23,9 +23,12 @@ public sealed class InstallerEngine
         _graphAuthenticator = graphAuthenticator ?? new GraphDeviceCodeAuthenticator();
     }
 
-    public InstallerSession CreateSession(CustomerInstallConfig config, string workspaceRoot)
+    public InstallerSession CreateSession(
+        CustomerInstallConfig config,
+        string workspaceRoot,
+        string validatedPackagePayloadSha256 = "")
     {
-        var session = InstallerSession.Create(config, workspaceRoot);
+        var session = InstallerSession.Create(config, workspaceRoot, validatedPackagePayloadSha256);
         Directory.CreateDirectory(session.LogDirectory);
         return session;
     }
@@ -214,9 +217,7 @@ public sealed class InstallerEngine
         IProgress<InstallerStepResult>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var commandArguments = string.IsNullOrWhiteSpace(outputPath)
-            ? ""
-            : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        var commandArguments = BuildTrustedPackageArguments(session, outputPath);
 
         return await RunPowerShellModuleCommandAsync(
             session,
@@ -237,9 +238,7 @@ public sealed class InstallerEngine
         IProgress<InstallerStepResult>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var commandArguments = string.IsNullOrWhiteSpace(outputPath)
-            ? "-Confirm:$false"
-            : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}' -Confirm:$false";
+        var commandArguments = $"{BuildTrustedPackageArguments(session, outputPath)} -Confirm:$false";
 
         return await RunPowerShellModuleCommandAsync(
             session,
@@ -262,9 +261,7 @@ public sealed class InstallerEngine
         CancellationToken cancellationToken = default)
     {
         ValidateRuntimeSecretMaterials(session.Config, secretMaterials);
-        var commandArguments = string.IsNullOrWhiteSpace(outputPath)
-            ? ""
-            : $"-OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        var commandArguments = BuildTrustedPackageArguments(session, outputPath);
         var metadata = JsonSerializer.Serialize(new
         {
             contractVersion = "0.1",
@@ -625,6 +622,23 @@ public sealed class InstallerEngine
                      $"Import-Module '{escapedPath}' -Force; " +
                      $"{commandName} -ConfigPath '{escapedConfigPath}'{arguments} | ConvertTo-Json -Depth 12";
         return $"-NoProfile -ExecutionPolicy Bypass -Command \"{script}\"";
+    }
+
+    private static string BuildTrustedPackageArguments(InstallerSession session, string outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(session.ValidatedPackagePayloadSha256))
+        {
+            throw new InvalidOperationException(
+                "A trusted exact-payload binding is required before preview, deployment, or runtime configuration.");
+        }
+
+        var arguments = $"-ExpectedPackagePayloadSha256 '{EscapePowerShellSingleQuotedValue(session.ValidatedPackagePayloadSha256)}'";
+        if (!string.IsNullOrWhiteSpace(outputPath))
+        {
+            arguments += $" -OutputPath '{EscapePowerShellSingleQuotedValue(outputPath)}'";
+        }
+
+        return arguments;
     }
 
     private static string BuildModuleResultFileCommand(

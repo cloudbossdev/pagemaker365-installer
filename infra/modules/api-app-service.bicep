@@ -37,6 +37,39 @@ type RuntimeSecretReference = {
 @description('Secret-name-only runtime App Service references.')
 param runtimeSecretReferences RuntimeSecretReference[]
 
+@description('Customer Entra tenant ID used for token validation and Microsoft Graph OBO.')
+@minLength(36)
+@maxLength(36)
+param customerTenantId string
+
+@description('Customer-owned API Entra application client ID.')
+@minLength(36)
+@maxLength(36)
+param apiClientId string
+
+@description('Exact portal origin allowed by API CORS.')
+@minLength(1)
+param portalOrigin string
+
+@description('Exact customer SharePoint origin allowed for governed File Preview frames.')
+@minLength(1)
+param filePreviewAllowedFrameOrigins string
+
+@description('Immutable PageMaker365 runtime release identifier.')
+@minLength(1)
+@maxLength(128)
+param runtimeReleaseId string
+
+@description('Stable semantic PageMaker365 runtime version.')
+@minLength(5)
+@maxLength(32)
+param runtimeVersion string
+
+@description('Signed control-plane deployment export identifier.')
+@minLength(1)
+@maxLength(256)
+param deploymentExportId string
+
 var runtimeSecretAppSettings = [for secret in runtimeSecretReferences: {
   name: secret.appSettingName
   value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=${secret.keyVaultSecretName})'
@@ -60,6 +93,7 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       alwaysOn: true
       linuxFxVersion: 'NODE|22-lts'
+      appCommandLine: 'node dist/index.js'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       appSettings: concat([
@@ -68,16 +102,64 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'production'
         }
         {
+          name: 'API_ENV'
+          value: 'production'
+        }
+        {
           name: 'API_HOST'
           value: '0.0.0.0'
+        }
+        {
+          name: 'API_CORS_ORIGIN'
+          value: portalOrigin
+        }
+        {
+          name: 'API_ENTRA_TENANT_ID'
+          value: customerTenantId
+        }
+        {
+          name: 'API_ENTRA_AUDIENCE'
+          value: 'api://${apiClientId}'
+        }
+        {
+          name: 'API_ENTRA_CLIENT_ID'
+          value: apiClientId
+        }
+        {
+          name: 'API_AZURE_KEY_VAULT_URL'
+          value: keyVaultUri
+        }
+        {
+          name: 'API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
+          value: filePreviewAllowedFrameOrigins
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: applicationInsightsConnectionString
         }
         {
-          name: 'PM365_KEY_VAULT_URI'
-          value: keyVaultUri
+          name: 'PM365_PRODUCT'
+          value: 'PageMaker365'
+        }
+        {
+          name: 'PM365_DEPLOYMENT_EXPORT_ID'
+          value: deploymentExportId
+        }
+        {
+          name: 'PM365_RUNTIME_RELEASE_ID'
+          value: runtimeReleaseId
+        }
+        {
+          name: 'PM365_RUNTIME_VERSION'
+          value: runtimeVersion
+        }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'false'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'false'
         }
       ], runtimeSecretAppSettings)
     }
