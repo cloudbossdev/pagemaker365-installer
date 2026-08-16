@@ -20,8 +20,13 @@ namespace PageMaker365.Installer.Engine.Tests;
 
 internal static class Program
 {
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0)
+        {
+            return await InitialInstallLocalHarnessCommand.RunAsync(args);
+        }
+
         var tests = new (string Name, Func<Task> Run)[]
         {
             ("ConnectAsync sends expected session request and headers", ConnectAsyncSendsExpectedSessionRequestAndHeaders),
