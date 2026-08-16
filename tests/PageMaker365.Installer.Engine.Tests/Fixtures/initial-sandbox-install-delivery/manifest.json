@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "pagemaker365.initial-install-delivery-fixtures.v1",
+  "files": {
+    "canonical-payload.json": "a46b3d7d3ce0514b0bbd39ff66541a1f09bcf4fe27e9d8ed1f9147e09e25e425",
+    "positive-envelope.json": "f6456d4b2fd9308c5ac5a6b876013b3888ddc30254a2619b9e81bbe78a7e144e",
+    "public-key.pem": "603a82873fcef6ef7f6f1b443017f44fd4a7f4100a6d1ab3172cb1c760ecddf2"
+  }
+}

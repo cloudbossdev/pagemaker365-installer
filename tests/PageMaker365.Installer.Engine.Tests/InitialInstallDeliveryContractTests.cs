@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
 using PageMaker365.Installer.Engine.Models;
 using PageMaker365.Installer.Engine.Services;
 
@@ -7,7 +8,10 @@ namespace PageMaker365.Installer.Engine.Tests;
 
 internal static class InitialInstallDeliveryContractTests
 {
-    private static readonly DateTimeOffset FixtureNow = new(2040, 8, 16, 0, 5, 0, TimeSpan.Zero);
+    private const string NormativeFixtureKeyId = "fixture-ed25519-key";
+    private const string NormativeFixturePayloadSha256 = "fa88f61089937cd0d8cc255acf731566f2e4ffb27551294b8a4be61e1dc0ed04";
+    private const string NormativeFixtureSignature = "TITSeul8356Eq3wEjb5zsemv9bzK6gjCebZ9wpSddTPj03bWmTXpC1ZJpThNdc5WGaPlzcKvTeSXHzk6dqHSDA";
+    private static readonly DateTimeOffset FixtureNow = new(2026, 12, 31, 0, 1, 0, TimeSpan.Zero);
 
     public static Task ValidatesFixtureAndMatchesNodeCanonicalBytes()
     {
@@ -15,10 +19,13 @@ internal static class InitialInstallDeliveryContractTests
         var result = new InitialInstallDeliveryService().ValidateJson(fixture.DeliveryJson, fixture.TrustOptions, FixtureNow);
 
         AssertEx.Equal("11111111-1111-4111-8111-111111111111", result.ArtifactId);
-        AssertEx.Equal("22222222-2222-4222-8222-222222222222", result.CustomerId);
+        AssertEx.Equal("55555555-5555-4555-8555-555555555555", result.CustomerId);
         AssertEx.Equal("sandbox", result.EnvironmentKey);
         AssertEx.Equal("initial_sandbox_install", result.AllowedOperation);
         AssertEx.Equal(fixture.ExpectedPayloadSha256, result.Delivery.Package.PayloadSha256);
+        AssertEx.Equal(NormativeFixturePayloadSha256, result.Delivery.Package.PayloadSha256);
+        AssertEx.Equal(NormativeFixtureKeyId, result.Delivery.Package.SigningKeyId);
+        AssertEx.Equal(NormativeFixtureSignature, result.Delivery.Package.Signature);
         AssertEx.Equal(fixture.ExpectedCanonicalPayload, Encoding.UTF8.GetString(result.CanonicalPayloadUtf8));
         AssertEx.Equal(InitialInstallDeliveryEnvelope.ContractVersionValue, result.Delivery.ContractVersion);
         return Task.CompletedTask;
@@ -43,7 +50,7 @@ internal static class InitialInstallDeliveryContractTests
                 FixtureNow));
         AssertEx.Throws<InvalidDataException>(() =>
             new InitialInstallDeliveryService().ValidateJson(
-                fixture.DeliveryJson.Replace("ttAA\"", "ttAB\"", StringComparison.Ordinal),
+                fixture.DeliveryJson.Replace("\"signature\":\"TIT", "\"signature\":\"UIT", StringComparison.Ordinal),
                 fixture.TrustOptions,
                 FixtureNow));
         return Task.CompletedTask;
@@ -53,15 +60,15 @@ internal static class InitialInstallDeliveryContractTests
     {
         var fixture = LoadFixture();
         var duplicateRoot = fixture.DeliveryJson.Replace(
-            "\"contractVersion\": \"pagemaker365.initial-install-delivery.v1\",",
-            "\"contractVersion\": \"pagemaker365.initial-install-delivery.v1\", \"contractVersion\": \"pagemaker365.initial-install-delivery.v1\",",
+            "\"contractVersion\":\"pagemaker365.initial-install-delivery.v1\",",
+            "\"contractVersion\":\"pagemaker365.initial-install-delivery.v1\",\"contractVersion\":\"pagemaker365.initial-install-delivery.v1\",",
             StringComparison.Ordinal);
         AssertEx.Throws<InvalidDataException>(() =>
             new InitialInstallDeliveryService().ValidateJson(duplicateRoot, fixture.TrustOptions, FixtureNow));
 
         var payloadWithWorkspace = fixture.DeliveryJson.Replace(
-            "\"technicalFacts\": {",
-            "\"workspace\": {}, \"technicalFacts\": {",
+            "\"technicalFacts\":{",
+            "\"workspace\":{},\"technicalFacts\":{",
             StringComparison.Ordinal);
         AssertEx.Throws<InvalidDataException>(() =>
             new InitialInstallDeliveryService().ValidateJson(payloadWithWorkspace, fixture.TrustOptions, FixtureNow));
@@ -73,17 +80,17 @@ internal static class InitialInstallDeliveryContractTests
         var fixture = LoadFixture();
         AssertEx.Throws<InvalidDataException>(() =>
             new InitialInstallDeliveryService().ValidateJson(
-                fixture.DeliveryJson.Replace("\"environmentKey\": \"sandbox\"", "\"environmentKey\": \"production\"", StringComparison.Ordinal),
+                fixture.DeliveryJson.Replace("\"environmentKey\":\"sandbox\"", "\"environmentKey\":\"production\"", StringComparison.Ordinal),
                 fixture.TrustOptions,
                 FixtureNow));
         AssertEx.Throws<InvalidDataException>(() =>
             new InitialInstallDeliveryService().ValidateJson(
-                fixture.DeliveryJson.Replace("2040-08-16T01:00:00.000Z", "2039-08-16T01:00:00.000Z", StringComparison.Ordinal),
+                fixture.DeliveryJson.Replace("2027-01-01T00:00:00.000Z", "2025-01-01T00:00:00.000Z", StringComparison.Ordinal),
                 fixture.TrustOptions,
                 FixtureNow));
         AssertEx.Throws<InvalidDataException>(() =>
             new InitialInstallDeliveryService().ValidateJson(
-                fixture.DeliveryJson.Replace("\"version\": 1", "\"version\": 1e0", StringComparison.Ordinal),
+                fixture.DeliveryJson.Replace("\"version\":1", "\"version\":1e0", StringComparison.Ordinal),
                 fixture.TrustOptions,
                 FixtureNow));
         return Task.CompletedTask;
@@ -159,20 +166,30 @@ internal static class InitialInstallDeliveryContractTests
     private static Fixture LoadFixture()
     {
         var root = FindRepositoryRoot();
-        var fixtureDirectory = Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "Fixtures");
-        var deliveryJson = File.ReadAllText(Path.Combine(fixtureDirectory, "initial-install-delivery-v1.json"));
-        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtureDirectory, "initial-install-delivery-v1.manifest.json")));
+        var fixtureDirectory = Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "Fixtures", "initial-sandbox-install-delivery");
+        var deliveryPath = Path.Combine(fixtureDirectory, "positive-envelope.json");
+        var canonicalPayloadPath = Path.Combine(fixtureDirectory, "canonical-payload.json");
+        var publicKeyPath = Path.Combine(fixtureDirectory, "public-key.pem");
+        var manifestPath = Path.Combine(fixtureDirectory, "manifest.json");
+        var deliveryJson = File.ReadAllText(deliveryPath);
+        using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
         var manifestRoot = manifest.RootElement;
-        var trusted = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var key in manifestRoot.GetProperty("trustedPublicKeys").EnumerateObject())
+        foreach (var expectedFile in manifestRoot.GetProperty("files").EnumerateObject())
         {
-            trusted.Add(key.Name, key.Value.GetString() ?? "");
+            var actualPath = Path.Combine(fixtureDirectory, expectedFile.Name);
+            var actualHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(actualPath))).ToLowerInvariant();
+            AssertEx.Equal(expectedFile.Value.GetString(), actualHash, $"Portal fixture byte lock failed for {expectedFile.Name}.");
         }
+        using var envelope = JsonDocument.Parse(deliveryJson);
+        var package = envelope.RootElement.GetProperty("package");
+        AssertEx.Equal(NormativeFixtureKeyId, package.GetProperty("signingKeyId").GetString());
+        AssertEx.Equal(NormativeFixturePayloadSha256, package.GetProperty("payloadSha256").GetString());
+        AssertEx.Equal(NormativeFixtureSignature, package.GetProperty("signature").GetString());
         return new Fixture(
             deliveryJson,
-            new InitialInstallTrustOptions { TrustedPublicKeysById = trusted },
-            manifestRoot.GetProperty("expectedPayloadSha256").GetString() ?? "",
-            manifestRoot.GetProperty("expectedCanonicalPayload").GetString() ?? "");
+            new InitialInstallTrustOptions { TrustedPublicKeysById = new Dictionary<string, string>(StringComparer.Ordinal) { [NormativeFixtureKeyId] = File.ReadAllText(publicKeyPath) } },
+            NormativeFixturePayloadSha256,
+            File.ReadAllText(canonicalPayloadPath).TrimEnd('\n'));
     }
 
     private static string FindRepositoryRoot()
