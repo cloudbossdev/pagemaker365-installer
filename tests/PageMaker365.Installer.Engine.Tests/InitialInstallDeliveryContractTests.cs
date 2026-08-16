@@ -124,6 +124,36 @@ internal static class InitialInstallDeliveryContractTests
             SafeError = new InitialInstallSafeError { Code = "validation_failed", Message = "Package token leaked" }
         };
         await AssertEx.ThrowsAsync<InvalidDataException>(() => client.SubmitAsync(unsafeFailure));
+
+        var missingMessage = new InitialInstallValidationReceipt
+        {
+            DeliverySessionId = validation.Delivery.DeliverySessionId,
+            ArtifactId = validation.ArtifactId,
+            PayloadSha256 = validation.Delivery.Package.PayloadSha256,
+            EventId = "00000000-0000-4000-8000-000000000002",
+            IdempotencyKey = "initial-install-validation:missing-message",
+            EventType = "package_validation_failed",
+            Outcome = "blocked",
+            OccurredAt = FixtureNow,
+            InstallerVersion = "1.2.3",
+            SafeError = new InitialInstallSafeError { Code = "validation_blocked" }
+        };
+        await AssertEx.ThrowsAsync<InvalidDataException>(() => client.SubmitAsync(missingMessage));
+
+        var successfulReceiptWithError = new InitialInstallValidationReceipt
+        {
+            DeliverySessionId = validation.Delivery.DeliverySessionId,
+            ArtifactId = validation.ArtifactId,
+            PayloadSha256 = validation.Delivery.Package.PayloadSha256,
+            EventId = "00000000-0000-4000-8000-000000000003",
+            IdempotencyKey = "initial-install-validation:unexpected-error",
+            EventType = "package_validated",
+            Outcome = "passed",
+            OccurredAt = FixtureNow,
+            InstallerVersion = "1.2.3",
+            SafeError = new InitialInstallSafeError { Code = "validation_failed", Message = "Validation failed." }
+        };
+        await AssertEx.ThrowsAsync<InvalidDataException>(() => client.SubmitAsync(successfulReceiptWithError));
     }
 
     private static Fixture LoadFixture()

@@ -89,8 +89,7 @@ public sealed class InitialInstallSafeError
     [JsonPropertyName("code")]
     public string Code { get; init; } = "";
     [JsonPropertyName("message")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Message { get; init; }
+    public string Message { get; init; } = "";
 }
 
 public interface IInitialInstallReceiptClient
@@ -170,6 +169,11 @@ public static class InitialInstallValidationReceiptFactory
             throw new InvalidDataException("A validated package receipt must have a passed outcome.");
         }
 
+        if (receipt.EventType == "package_validated" && receipt.SafeError is not null)
+        {
+            throw new InvalidDataException("A validated package receipt cannot include a safeError.");
+        }
+
         if (receipt.EventType == "package_validation_failed" && receipt.Outcome == "passed")
         {
             throw new InvalidDataException("A failed package validation receipt cannot have a passed outcome.");
@@ -180,13 +184,14 @@ public static class InitialInstallValidationReceiptFactory
             throw new InvalidDataException("Initial-install receipt occurredAt must be a UTC timestamp.");
         }
 
+        if (receipt.EventType == "package_validation_failed" && receipt.SafeError is null)
+        {
+            throw new InvalidDataException("A failed package validation receipt requires a safeError.");
+        }
+
         if (receipt.SafeError is not null)
         {
             RequireSafeError(receipt.SafeError);
-        }
-        else if (receipt.EventType == "package_validation_failed")
-        {
-            throw new InvalidDataException("A failed package validation receipt requires a safeError.");
         }
     }
 
@@ -263,10 +268,9 @@ public static class InitialInstallValidationReceiptFactory
     {
         if (string.IsNullOrWhiteSpace(value.Code) ||
             !System.Text.RegularExpressions.Regex.IsMatch(value.Code, "^[a-z0-9_]{1,64}$") ||
-            (value.Message is not null &&
-             (value.Message.Length > 240 || value.Message != value.Message.Trim() ||
-              System.Text.RegularExpressions.Regex.IsMatch(value.Message, "(?:secret|token|password|private.?key|connection.?string|authorization|credential|endpoint|tenant|resource|raw.?body|stack|file.?path|https?://|[A-Za-z]:[\\\\/]|(?:^|\\s)/[^\\s]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
-              value.Message.Any(character => char.IsControl(character) || character is '\u2028' or '\u2029'))))
+            string.IsNullOrWhiteSpace(value.Message) || value.Message.Length > 240 || value.Message != value.Message.Trim() ||
+            System.Text.RegularExpressions.Regex.IsMatch(value.Message, "(?:secret|token|password|private.?key|connection.?string|authorization|credential|endpoint|tenant|resource|raw.?body|stack|file.?path|https?://|[A-Za-z]:[\\\\/]|(?:^|\\s)/[^\\s]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+            value.Message.Any(character => char.IsControl(character) || character is '\u2028' or '\u2029'))
         {
             throw new InvalidDataException("Initial-install receipt safeError is invalid.");
         }
