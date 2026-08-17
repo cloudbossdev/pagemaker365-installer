@@ -24,7 +24,12 @@ internal static class Program
     {
         if (args.Length > 0)
         {
-            return await InitialInstallLocalHarnessCommand.RunAsync(args);
+            return args[0] switch
+            {
+                "--initial-install-local-harness" => await InitialInstallLocalHarnessCommand.RunAsync(args),
+                "--private-runtime-loopback-harness" => await PrivateRuntimeLoopbackHarnessCommand.RunAsync(args),
+                _ => await InitialInstallLocalHarnessCommand.RunAsync(args)
+            };
         }
 
         var tests = new (string Name, Func<Task> Run)[]
