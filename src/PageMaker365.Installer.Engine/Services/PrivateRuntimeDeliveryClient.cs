@@ -19,7 +19,6 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
     public const string DeliveryReferenceHeader = "X-PM365-Runtime-Delivery-Ref";
     public const string DeliverySessionHeader = "X-PM365-Runtime-Delivery-Session";
     public const string PackageHashHeader = "X-PM365-Package-Hash";
-    private const string RuntimeDeliveryReceiptResponseContract = "pagemaker365.runtime-delivery-receipt.v1";
     private const int BufferSize = 81_920;
     private static readonly HashSet<string> PrivateControlPlaneApiHosts = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -88,7 +87,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
                 verified.Add(await AcquireArtifactAsync(package, deliverySession, onboardingSession, controlPlaneBase, artifactRoot, artifactKind, cancellationToken));
             }
 
-            var receipt = CreateReceipt(package, deliverySession, installerVersion, "passed", verified, null);
+            var receipt = CreateReceipt(package, deliverySession, installerVersion, "passed", verified);
             var receiptResult = await SubmitOrStageReceiptAsync(package, onboardingSession, controlPlaneBase, artifactRoot, receipt, cancellationToken);
             return new PrivateRuntimeDeliveryResult
             {
@@ -118,7 +117,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
                 };
             }
 
-            var receipt = CreateReceipt(package, deliverySession, installerVersion, "failed", verified, error);
+            var receipt = CreateReceipt(package, deliverySession, installerVersion, "failed", verified);
             var receiptResult = await TrySubmitOrStageFailureReceiptAsync(package, onboardingSession, controlPlaneBase, artifactRoot, receipt, cancellationToken);
             return new PrivateRuntimeDeliveryResult
             {
@@ -140,18 +139,12 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         CancellationToken cancellationToken)
     {
         var endpoint = BuildRelativeEndpoint(controlPlaneBase, PrivateRuntimeDeliveryPackage.SessionPathValue);
-        var requestBody = new
-        {
-            contractVersion = PrivateRuntimeDeliveryPackage.AcquisitionContractVersionValue,
-            packageHash = package.PackageHash,
-            onboardingSessionId = package.OnboardingSessionId,
-            deploymentExportId = package.DeploymentExportId,
-            installerCapability = PrivateRuntimeDeliveryPackage.CapabilityValue,
-            manifestSha256 = package.ManifestSha256
-        };
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+            // The portal validates the canonical signed package itself. Do not
+            // derive a second, partial session-binding document in the client:
+            // it would give two authorities for the same delivery session.
+            Content = CreateSessionRequestContent(package)
         };
         ApplyInstallerSessionAuthorization(request, onboardingSession);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -184,7 +177,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         request.Headers.TryAddWithoutValidation(DeliveryReferenceHeader, package.DeliveryReference(artifactKind));
         request.Headers.TryAddWithoutValidation(DeliverySessionHeader, deliverySession.DeliverySessionId);
         request.Headers.TryAddWithoutValidation(PackageHashHeader, package.PackageHash);
-        request.Headers.IfMatch.Add(new EntityTagHeaderValue($"\"{artifact.Sha256}\""));
+        request.Headers.IfMatch.Add(new EntityTagHeaderValue($"\"sha256:{artifact.Sha256}\""));
         if (isRangeRequest)
         {
             request.Headers.Range = new RangeHeaderValue(existingLength, artifact.SizeBytes - 1);
@@ -298,7 +291,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         var endpoint = BuildRelativeEndpoint(controlPlaneBase, PrivateRuntimeDeliveryPackage.ReceiptPathValue);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = new StringContent(JsonSerializer.Serialize(receipt), Encoding.UTF8, "application/json")
+            Content = new StringContent(SerializeReceipt(receipt), Encoding.UTF8, "application/json")
         };
         ApplyInstallerSessionAuthorization(request, onboardingSession);
         request.Headers.TryAddWithoutValidation(DeliverySessionHeader, receipt.DeliverySessionId);
@@ -318,10 +311,9 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         PrivateRuntimeDeliverySession session,
         string installerVersion,
         string outcome,
-        IReadOnlyCollection<PrivateRuntimeDeliveryArtifactResult> artifacts,
-        PrivateRuntimeDeliverySafeError? error)
+        IReadOnlyCollection<PrivateRuntimeDeliveryArtifactResult> artifacts)
     {
-        var receiptArtifacts = new[] { "api", "portal" }.Select(kind =>
+        PrivateRuntimeDeliveryReceiptArtifact ArtifactReceipt(string kind)
         {
             var matched = artifacts.FirstOrDefault(item => item.ArtifactKind.Equals(kind, StringComparison.Ordinal));
             var contract = package.Artifact(kind);
@@ -330,11 +322,17 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
                 ArtifactKind = kind,
                 Sha256 = contract.Sha256,
                 SizeBytes = contract.SizeBytes,
-                BytesReceived = matched?.BytesReceived ?? 0,
-                RangeRequestCount = matched?.RangeRequestCount ?? 0,
-                VerificationStatus = matched?.VerificationStatus ?? "not_verified"
+                VerificationOutcome = matched?.VerificationStatus == "passed" ? "verified" : "not_attempted",
+                FullStreamCount = matched?.VerificationStatus == "passed" ? 1 : 0,
+                RangeRetryCount = matched?.RangeRequestCount ?? 0,
+                // A verified partial download has been verified as the full
+                // signed artifact. The receipt records that bounded total,
+                // not the bytes from only its final range request.
+                BytesReceived = matched?.VerificationStatus == "passed" ? contract.SizeBytes : 0
             };
-        }).ToArray();
+        }
+
+        var portalOutcome = outcome == "passed" ? "completed" : "failed";
         var idempotencySource = $"{session.DeliverySessionId}:{package.PackageHash}:{outcome}";
         var idempotencyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(idempotencySource))).ToLowerInvariant();
         var receipt = new PrivateRuntimeDeliveryReceipt
@@ -342,13 +340,22 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
             DeliverySessionId = session.DeliverySessionId,
             PackageHash = package.PackageHash,
             ReleaseId = package.ReleaseId,
+            ManifestSha256 = package.ManifestSha256,
             EventId = Guid.NewGuid().ToString("D"),
             IdempotencyKey = $"runtime-delivery:{idempotencyHash}",
-            Outcome = outcome,
-            OccurredAt = DateTimeOffset.UtcNow,
+            Outcome = portalOutcome,
+            OccurredAt = CanonicalUtcNow(),
             InstallerVersion = installerVersion,
-            Artifacts = receiptArtifacts,
-            SafeError = error
+            Artifacts = new PrivateRuntimeDeliveryReceiptArtifacts
+            {
+                Api = ArtifactReceipt("api"),
+                Portal = ArtifactReceipt("portal")
+            },
+            SafeResult = new PrivateRuntimeDeliverySafeResult
+            {
+                Code = portalOutcome == "completed" ? "runtime_artifacts_verified" : "runtime_artifacts_failed",
+                State = portalOutcome
+            }
         };
         ValidateReceipt(receipt);
         return receipt;
@@ -412,7 +419,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
     }
 
     private static bool IsExpectedEtag(string? tag, string sha256) => tag is not null &&
-        (tag.Equals($"\"{sha256}\"", StringComparison.Ordinal) || tag.Equals($"\"sha256:{sha256}\"", StringComparison.Ordinal));
+        tag.Equals($"\"sha256:{sha256}\"", StringComparison.Ordinal);
 
     private static PrivateRuntimeDeliverySession ParseDeliverySession(string body, PrivateRuntimeDeliveryPackage package, DateTimeOffset now)
     {
@@ -420,15 +427,18 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         {
             using var document = JsonDocument.Parse(body, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 8 });
             var root = document.RootElement;
-            RequireExactProperties(root, ["contractVersion", "deliverySessionId", "expiresAt", "artifactReferences"]);
-            RequireString(root, "contractVersion", PrivateRuntimeDeliveryPackage.AcquisitionContractVersionValue);
-            var deliverySessionId = RequireString(root, "deliverySessionId");
-            if (!Regex.IsMatch(deliverySessionId, "^rds_[A-Za-z0-9_-]{24,96}$", RegexOptions.CultureInvariant)) throw new InvalidDataException();
-            var expiresAt = RequireDate(root, "expiresAt");
+            RequireExactProperties(root, ["ok", "created", "deliverySession"]);
+            if (!RequireBoolean(root, "ok") || !IsBoolean(root, "created")) throw new InvalidDataException();
+            var deliverySession = RequireObject(root, "deliverySession");
+            RequireExactProperties(deliverySession, ["contractVersion", "deliverySessionId", "expiresAt", "artifactKinds", "status"]);
+            RequireString(deliverySession, "contractVersion", "pagemaker365.runtime-delivery-session.v1");
+            var deliverySessionId = RequireString(deliverySession, "deliverySessionId");
+            if (!Regex.IsMatch(deliverySessionId, "^rds_[A-Za-z0-9_-]{24,64}$", RegexOptions.CultureInvariant)) throw new InvalidDataException();
+            var expiresAt = RequireDate(deliverySession, "expiresAt");
             if (expiresAt <= now || expiresAt > package.ExpiresAt) throw new InvalidDataException();
-            var references = RequireObject(root, "artifactReferences");
-            RequireExactProperties(references, ["api", "portal"]);
-            if (!FixedTimeEquals(RequireString(references, "api"), package.ApiDeliveryReference) || !FixedTimeEquals(RequireString(references, "portal"), package.PortalDeliveryReference)) throw new InvalidDataException();
+            if (RequireString(deliverySession, "status") != "active") throw new InvalidDataException();
+            if (!deliverySession.TryGetProperty("artifactKinds", out var artifactKinds) || artifactKinds.ValueKind != JsonValueKind.Array ||
+                !artifactKinds.EnumerateArray().Select(item => item.ValueKind == JsonValueKind.String ? item.GetString() : null).SequenceEqual(["api", "portal"], StringComparer.Ordinal)) throw new InvalidDataException();
             return new PrivateRuntimeDeliverySession { DeliverySessionId = deliverySessionId, ExpiresAt = expiresAt };
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or FormatException)
@@ -443,16 +453,95 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         {
             using var document = JsonDocument.Parse(body, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 8 });
             var root = document.RootElement;
-            RequireExactProperties(root, ["contractVersion", "status", "deliverySessionId", "idempotencyKey"]);
-            return RequireString(root, "contractVersion", RuntimeDeliveryReceiptResponseContract) == RuntimeDeliveryReceiptResponseContract &&
-                RequireString(root, "status") == "accepted" &&
-                FixedTimeEquals(RequireString(root, "deliverySessionId"), receipt.DeliverySessionId) &&
-                FixedTimeEquals(RequireString(root, "idempotencyKey"), receipt.IdempotencyKey);
+            RequireExactProperties(root, ["ok", "created", "receipt"]);
+            if (!RequireBoolean(root, "ok") || !IsBoolean(root, "created")) return false;
+            var accepted = RequireObject(root, "receipt");
+            RequireExactProperties(accepted, ["deliverySessionId", "packageHash", "releaseId", "eventId", "occurredAt", "installerVersion", "outcome", "artifacts", "safeResult", "createdAt"]);
+            return FixedTimeEquals(RequireString(accepted, "deliverySessionId"), receipt.DeliverySessionId) &&
+                FixedTimeEquals(RequireString(accepted, "packageHash"), receipt.PackageHash) &&
+                FixedTimeEquals(RequireString(accepted, "releaseId"), receipt.ReleaseId) &&
+                FixedTimeEquals(RequireString(accepted, "eventId"), receipt.EventId) &&
+                FixedTimeEquals(RequireString(accepted, "installerVersion"), receipt.InstallerVersion) &&
+                FixedTimeEquals(RequireString(accepted, "outcome"), receipt.Outcome) &&
+                RequireDate(accepted, "occurredAt") == receipt.OccurredAt &&
+                RequireDate(accepted, "createdAt") <= DateTimeOffset.UtcNow.AddMinutes(5) &&
+                MatchesAcceptedReceiptArtifact(RequireObject(accepted, "artifacts"), "api", receipt.Artifacts.Api) &&
+                MatchesAcceptedReceiptArtifact(RequireObject(accepted, "artifacts"), "portal", receipt.Artifacts.Portal) &&
+                MatchesAcceptedSafeResult(RequireObject(accepted, "safeResult"), receipt.SafeResult);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException)
         {
             return false;
         }
+    }
+
+    private static bool MatchesAcceptedReceiptArtifact(JsonElement artifacts, string artifactKind, PrivateRuntimeDeliveryReceiptArtifact expected)
+    {
+        RequireExactProperties(artifacts, ["api", "portal"]);
+        var actual = RequireObject(artifacts, artifactKind);
+        RequireExactProperties(actual, ["artifactKind", "sha256", "sizeBytes", "verificationOutcome", "fullStreamCount", "rangeRetryCount", "bytesReceived"]);
+        return FixedTimeEquals(RequireString(actual, "artifactKind"), expected.ArtifactKind) &&
+            FixedTimeEquals(RequireString(actual, "sha256"), expected.Sha256) &&
+            RequireInt64(actual, "sizeBytes") == expected.SizeBytes &&
+            FixedTimeEquals(RequireString(actual, "verificationOutcome"), expected.VerificationOutcome) &&
+            RequireInt64(actual, "fullStreamCount") == expected.FullStreamCount &&
+            RequireInt64(actual, "rangeRetryCount") == expected.RangeRetryCount &&
+            RequireInt64(actual, "bytesReceived") == expected.BytesReceived;
+    }
+
+    private static bool MatchesAcceptedSafeResult(JsonElement actual, PrivateRuntimeDeliverySafeResult expected)
+    {
+        RequireExactProperties(actual, ["code", "state"]);
+        return FixedTimeEquals(RequireString(actual, "code"), expected.Code) &&
+            FixedTimeEquals(RequireString(actual, "state"), expected.State);
+    }
+
+    private static StringContent CreateSessionRequestContent(PrivateRuntimeDeliveryPackage package)
+    {
+        if (string.IsNullOrWhiteSpace(package.CanonicalPackageJson))
+        {
+            throw new InvalidDataException("The canonical customer-install package is required for private delivery.");
+        }
+
+        try
+        {
+            using var packageDocument = JsonDocument.Parse(package.CanonicalPackageJson, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 32
+            });
+            var requestBody = JsonSerializer.Serialize(new { package = packageDocument.RootElement });
+            return new StringContent(requestBody, Encoding.UTF8, "application/json");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("The canonical customer-install package could not be encoded for private delivery.", exception);
+        }
+    }
+
+    private static string SerializeReceipt(PrivateRuntimeDeliveryReceipt receipt)
+    {
+        ValidateReceipt(receipt);
+        return JsonSerializer.Serialize(new
+        {
+            contractVersion = receipt.ContractVersion,
+            deliverySessionId = receipt.DeliverySessionId,
+            packageHash = receipt.PackageHash,
+            releaseId = receipt.ReleaseId,
+            manifestSha256 = receipt.ManifestSha256,
+            eventId = receipt.EventId,
+            idempotencyKey = receipt.IdempotencyKey,
+            occurredAt = receipt.OccurredAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture),
+            installerVersion = receipt.InstallerVersion,
+            outcome = receipt.Outcome,
+            artifacts = new
+            {
+                api = receipt.Artifacts.Api,
+                portal = receipt.Artifacts.Portal
+            },
+            safeResult = receipt.SafeResult
+        });
     }
 
     private static async Task<string> ReadBoundedJsonAsync(HttpResponseMessage response, int maximumBytes, CancellationToken cancellationToken)
@@ -562,28 +651,34 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
     private static void ValidateReceipt(PrivateRuntimeDeliveryReceipt receipt)
     {
         if (receipt.ContractVersion != PrivateRuntimeDeliveryReceipt.ContractVersionValue ||
-            !Regex.IsMatch(receipt.DeliverySessionId, "^rds_[A-Za-z0-9_-]{24,96}$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(receipt.DeliverySessionId, "^rds_[A-Za-z0-9_-]{24,64}$", RegexOptions.CultureInvariant) ||
             !Regex.IsMatch(receipt.PackageHash, "^sha256:[0-9a-f]{64}$", RegexOptions.CultureInvariant) ||
             !Regex.IsMatch(receipt.ReleaseId, "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$", RegexOptions.CultureInvariant) ||
-            !Guid.TryParseExact(receipt.EventId, "D", out _) ||
-            !Regex.IsMatch(receipt.IdempotencyKey, "^runtime-delivery:[0-9a-f]{64}$", RegexOptions.CultureInvariant) ||
-            receipt.Outcome is not ("passed" or "failed") || receipt.OccurredAt.Offset != TimeSpan.Zero ||
-            string.IsNullOrWhiteSpace(receipt.InstallerVersion) || receipt.Artifacts.Count != 2)
+            !Regex.IsMatch(receipt.ManifestSha256, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(receipt.EventId, "^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(receipt.IdempotencyKey, "^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$", RegexOptions.CultureInvariant) ||
+            receipt.Outcome is not ("completed" or "failed") || receipt.OccurredAt.Offset != TimeSpan.Zero ||
+            !IsCanonicalUtcDate(receipt.OccurredAt) ||
+            !Regex.IsMatch(receipt.InstallerVersion, "^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$", RegexOptions.CultureInvariant))
         {
             throw new InvalidDataException("Private runtime delivery receipt is invalid.");
         }
-        foreach (var artifact in receipt.Artifacts)
+        foreach (var artifact in new[] { receipt.Artifacts.Api, receipt.Artifacts.Portal })
         {
-            if (artifact.ArtifactKind is not ("api" or "portal") || !Regex.IsMatch(artifact.Sha256, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) || artifact.SizeBytes < 1 || artifact.BytesReceived < 0 || artifact.BytesReceived > artifact.SizeBytes || artifact.RangeRequestCount < 0 || artifact.VerificationStatus is not ("passed" or "not_verified"))
+            if (artifact.ArtifactKind is not ("api" or "portal") || !Regex.IsMatch(artifact.Sha256, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) || artifact.SizeBytes < 1 || artifact.BytesReceived < 0 || artifact.BytesReceived > artifact.SizeBytes * 1000 || artifact.FullStreamCount is < 0 or > 1000 || artifact.RangeRetryCount is < 0 or > 1000 || artifact.VerificationOutcome is not ("verified" or "failed" or "not_attempted"))
             {
                 throw new InvalidDataException("Private runtime delivery receipt artifact is invalid.");
             }
+            if (artifact.VerificationOutcome == "verified" && (artifact.FullStreamCount < 1 || artifact.BytesReceived < artifact.SizeBytes)) throw new InvalidDataException("Private runtime delivery receipt artifact verification is invalid.");
         }
-        if (receipt.SafeError is not null && (!Regex.IsMatch(receipt.SafeError.Code, "^[a-z0-9_]{1,64}$", RegexOptions.CultureInvariant) || string.IsNullOrWhiteSpace(receipt.SafeError.Message) || receipt.SafeError.Message.Length > 240 || receipt.SafeError.Message.Contains("http", StringComparison.OrdinalIgnoreCase) || receipt.SafeError.Message.Contains("token", StringComparison.OrdinalIgnoreCase)))
+        if (receipt.Artifacts.Api.ArtifactKind != "api" || receipt.Artifacts.Portal.ArtifactKind != "portal" ||
+            receipt.SafeResult.Code is not ("runtime_artifacts_verified" or "runtime_artifacts_failed") ||
+            receipt.SafeResult.State is not ("completed" or "failed") || receipt.SafeResult.State != receipt.Outcome)
         {
-            throw new InvalidDataException("Private runtime delivery receipt error is invalid.");
+            throw new InvalidDataException("Private runtime delivery receipt result is invalid.");
         }
-        if (receipt.Outcome == "passed" && receipt.SafeError is not null || receipt.Outcome == "failed" && receipt.SafeError is null) throw new InvalidDataException("Private runtime delivery receipt outcome is invalid.");
+        if ((receipt.Outcome == "completed" && (receipt.SafeResult.Code != "runtime_artifacts_verified" || new[] { receipt.Artifacts.Api, receipt.Artifacts.Portal }.Any(artifact => artifact.VerificationOutcome != "verified"))) ||
+            (receipt.Outcome == "failed" && receipt.SafeResult.Code != "runtime_artifacts_failed")) throw new InvalidDataException("Private runtime delivery receipt outcome is invalid.");
     }
 
     private static async Task<string> StageReceiptAsync(string artifactRoot, PrivateRuntimeDeliveryReceipt receipt, CancellationToken cancellationToken)
@@ -593,7 +688,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         Directory.CreateDirectory(outboxRoot);
         var path = GetContainedPath(outboxRoot, $"{receipt.EventId}.json");
         var temporaryPath = path + ".tmp";
-        var json = JsonSerializer.Serialize(receipt);
+        var json = SerializeReceipt(receipt);
         await File.WriteAllTextAsync(temporaryPath, json, new UTF8Encoding(false), cancellationToken);
         File.Move(temporaryPath, path, overwrite: true);
         return path;
@@ -659,6 +754,15 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         return value;
     }
 
+    private static bool IsBoolean(JsonElement parent, string property) => parent.TryGetProperty(property, out var value) &&
+        (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False);
+
+    private static bool RequireBoolean(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw new InvalidDataException();
+        return value.GetBoolean();
+    }
+
     private static string RequireString(JsonElement parent, string property, string? expected = null)
     {
         if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString())) throw new InvalidDataException();
@@ -667,12 +771,26 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         return text;
     }
 
+    private static long RequireInt64(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var number)) throw new InvalidDataException();
+        return number;
+    }
+
     private static DateTimeOffset RequireDate(JsonElement parent, string property)
     {
         var text = RequireString(parent, property);
         if (!Regex.IsMatch(text, "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$", RegexOptions.CultureInvariant) || !DateTimeOffset.TryParseExact(text, "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var date)) throw new InvalidDataException();
         return date;
     }
+
+    private static DateTimeOffset CanonicalUtcNow()
+    {
+        var current = DateTimeOffset.UtcNow;
+        return new DateTimeOffset(current.Ticks - current.Ticks % TimeSpan.TicksPerMillisecond, TimeSpan.Zero);
+    }
+
+    private static bool IsCanonicalUtcDate(DateTimeOffset value) => value.Offset == TimeSpan.Zero && value.Ticks % TimeSpan.TicksPerMillisecond == 0;
 
     private static bool FixedTimeEquals(string left, string right)
     {

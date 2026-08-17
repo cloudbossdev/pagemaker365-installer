@@ -44,8 +44,12 @@ internal static class PrivateRuntimeDeliveryContractTests
                 {
                     AssertEx.Equal(HttpMethod.Post, request.Method);
                     var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                    AssertEx.False(body.Contains("ard_", StringComparison.Ordinal), "Delivery references must not be sent in session JSON.");
-                    AssertEx.False(body.Contains("download", StringComparison.OrdinalIgnoreCase));
+                    using var sessionRequest = JsonDocument.Parse(body);
+                    var sessionFields = sessionRequest.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name).ToArray();
+                    AssertEx.True(sessionFields.SequenceEqual(["package"], StringComparer.Ordinal));
+                    var canonicalPackage = PrivateRuntimeDeliveryPackageService.FormatCanonicalPackage(sessionRequest.RootElement.GetProperty("package"));
+                    AssertEx.Equal(fixture.Json, canonicalPackage);
+                    AssertEx.True(body.Contains(ApiReference, StringComparison.Ordinal), "The signed package is the only session authority.");
                     return JsonResponse(SessionResponse());
                 }
 
@@ -56,8 +60,14 @@ internal static class PrivateRuntimeDeliveryContractTests
                     AssertEx.False(body.Contains(ApiReference, StringComparison.Ordinal));
                     AssertEx.False(body.Contains(PortalReference, StringComparison.Ordinal));
                     using var receipt = JsonDocument.Parse(body);
-                    var idempotencyKey = receipt.RootElement.GetProperty("idempotencyKey").GetString();
-                    return JsonResponse(ReceiptResponse(idempotencyKey!));
+                    AssertEx.True(receipt.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name).SequenceEqual(
+                        ["artifacts", "contractVersion", "deliverySessionId", "eventId", "idempotencyKey", "installerVersion", "manifestSha256", "occurredAt", "outcome", "packageHash", "releaseId", "safeResult"], StringComparer.Ordinal));
+                    AssertEx.Equal("completed", receipt.RootElement.GetProperty("outcome").GetString());
+                    AssertEx.Equal("runtime_artifacts_verified", receipt.RootElement.GetProperty("safeResult").GetProperty("code").GetString());
+                    AssertEx.Equal("completed", receipt.RootElement.GetProperty("safeResult").GetProperty("state").GetString());
+                    AssertEx.Equal("verified", receipt.RootElement.GetProperty("artifacts").GetProperty("api").GetProperty("verificationOutcome").GetString());
+                    AssertEx.Equal("verified", receipt.RootElement.GetProperty("artifacts").GetProperty("portal").GetProperty("verificationOutcome").GetString());
+                    return JsonResponse(ReceiptResponse(receipt.RootElement));
                 }
 
                 AssertEx.Equal(HttpMethod.Get, request.Method);
@@ -69,6 +79,7 @@ internal static class PrivateRuntimeDeliveryContractTests
                 var expectedReference = kind == "api" ? ApiReference : PortalReference;
                 AssertEx.Contains(request.Headers.GetValues(PrivateRuntimeDeliveryClient.DeliveryReferenceHeader), expectedReference);
                 AssertEx.False(request.Headers.TryGetValues("Location", out _));
+                AssertEx.Contains(request.Headers.GetValues("If-Match"), $"\"sha256:{package.Artifact(kind).Sha256}\"");
 
                 if (kind == "api")
                 {
@@ -110,6 +121,43 @@ internal static class PrivateRuntimeDeliveryContractTests
         return Task.CompletedTask;
     }
 
+    public static async Task RejectsMismatchedReceiptAcknowledgementAndStagesOutbox()
+    {
+        var apiZip = CreateRuntimeArchive("api");
+        var portalZip = CreateRuntimeArchive("portal");
+        var fixture = CreatePackage(apiZip, portalZip);
+        var outputRoot = CreateTemporaryDirectory();
+        try
+        {
+            using var delivery = new PrivateRuntimeDeliveryClient(new PrivateRuntimeDeliveryOptions { Timeout = TimeSpan.FromMinutes(1) }, new ScriptedHandler(request =>
+            {
+                if (request.RequestUri!.AbsolutePath == PrivateRuntimeDeliveryPackage.SessionPathValue) return JsonResponse(SessionResponse());
+                if (request.RequestUri!.AbsolutePath == PrivateRuntimeDeliveryPackage.ReceiptPathValue)
+                {
+                    using var receipt = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    return JsonResponse(MismatchedReceiptResponse(receipt.RootElement));
+                }
+
+                var kind = request.RequestUri!.AbsolutePath.EndsWith("/api", StringComparison.Ordinal) ? "api" : "portal";
+                return kind == "api"
+                    ? ArtifactResponse(HttpStatusCode.OK, apiZip, new PrivateRuntimeDeliveryPackageService().ValidateJson(fixture.Json, fixture.TrustOptions).Api, null)
+                    : ArtifactResponse(HttpStatusCode.OK, portalZip, new PrivateRuntimeDeliveryPackageService().ValidateJson(fixture.Json, fixture.TrustOptions).Portal, null);
+            }));
+            var result = await delivery.AcquireAsync(fixture.Json, fixture.TrustOptions, CreateOnboardingSession(), outputRoot, "0.1.0");
+
+            AssertEx.Equal("verified_receipt_pending", result.Outcome);
+            AssertEx.Equal("outbox_pending", result.ReceiptStatus);
+            AssertEx.True(File.Exists(result.ReceiptOutboxPath));
+            var staged = await File.ReadAllTextAsync(result.ReceiptOutboxPath);
+            AssertEx.True(staged.Contains("\"runtime_artifacts_verified\"", StringComparison.Ordinal));
+            AssertEx.False(staged.Contains("runtime_artifacts_failed", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(outputRoot, recursive: true);
+        }
+    }
+
     public static async Task RejectsRedirectAndStagesOnlySanitizedFailureReceipt()
     {
         var fixture = CreatePackage(CreateRuntimeArchive("api"), CreateRuntimeArchive("portal"));
@@ -141,6 +189,13 @@ internal static class PrivateRuntimeDeliveryContractTests
             AssertEx.False(receipt.Contains("downloads.pagemaker365.com", StringComparison.OrdinalIgnoreCase));
             AssertEx.False(receipt.Contains(ApiReference, StringComparison.Ordinal));
             AssertEx.False(receipt.Contains("OneTime", StringComparison.OrdinalIgnoreCase));
+            using var stagedReceipt = JsonDocument.Parse(receipt);
+            AssertEx.True(stagedReceipt.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name).SequenceEqual(
+                ["artifacts", "contractVersion", "deliverySessionId", "eventId", "idempotencyKey", "installerVersion", "manifestSha256", "occurredAt", "outcome", "packageHash", "releaseId", "safeResult"], StringComparer.Ordinal));
+            AssertEx.Equal("failed", stagedReceipt.RootElement.GetProperty("outcome").GetString());
+            AssertEx.Equal("runtime_artifacts_failed", stagedReceipt.RootElement.GetProperty("safeResult").GetProperty("code").GetString());
+            AssertEx.Equal("failed", stagedReceipt.RootElement.GetProperty("safeResult").GetProperty("state").GetString());
+            AssertEx.Equal("not_attempted", stagedReceipt.RootElement.GetProperty("artifacts").GetProperty("api").GetProperty("verificationOutcome").GetString());
             AssertEx.Equal(0, redirectedEndpointRequests);
             AssertEx.False(redirectedEndpointReceivedDeliveryHeader);
         }
@@ -284,7 +339,7 @@ internal static class PrivateRuntimeDeliveryContractTests
             Content = new ByteArrayContent(bytes)
         };
         response.Headers.CacheControl = new CacheControlHeaderValue { Private = true, NoStore = true };
-        response.Headers.ETag = new EntityTagHeaderValue($"\"{artifact.Sha256}\"");
+        response.Headers.ETag = new EntityTagHeaderValue($"\"sha256:{artifact.Sha256}\"");
         response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
         response.Content.Headers.ContentLength = bytes.Length;
         response.Content.Headers.ContentRange = range;
@@ -292,10 +347,43 @@ internal static class PrivateRuntimeDeliveryContractTests
     }
 
     private static string SessionResponse() =>
-        "{\"contractVersion\":\"pagemaker365.protected-acquisition.v1\",\"deliverySessionId\":\"rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ\",\"expiresAt\":\"2029-12-31T23:59:59.000Z\",\"artifactReferences\":{\"api\":\"" + ApiReference + "\",\"portal\":\"" + PortalReference + "\"}}";
+        "{\"ok\":true,\"created\":true,\"deliverySession\":{\"contractVersion\":\"pagemaker365.runtime-delivery-session.v1\",\"deliverySessionId\":\"rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ\",\"expiresAt\":\"2029-12-31T23:59:59.000Z\",\"artifactKinds\":[\"api\",\"portal\"],\"status\":\"active\"}}";
 
-    private static string ReceiptResponse(string idempotencyKey) =>
-        "{\"contractVersion\":\"pagemaker365.runtime-delivery-receipt.v1\",\"status\":\"accepted\",\"deliverySessionId\":\"rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ\",\"idempotencyKey\":\"" + idempotencyKey + "\"}";
+    private static string ReceiptResponse(JsonElement requestReceipt)
+    {
+        var accepted = new
+        {
+            deliverySessionId = requestReceipt.GetProperty("deliverySessionId").GetString(),
+            packageHash = requestReceipt.GetProperty("packageHash").GetString(),
+            releaseId = requestReceipt.GetProperty("releaseId").GetString(),
+            eventId = requestReceipt.GetProperty("eventId").GetString(),
+            occurredAt = requestReceipt.GetProperty("occurredAt").GetString(),
+            installerVersion = requestReceipt.GetProperty("installerVersion").GetString(),
+            outcome = requestReceipt.GetProperty("outcome").GetString(),
+            artifacts = requestReceipt.GetProperty("artifacts"),
+            safeResult = requestReceipt.GetProperty("safeResult"),
+            createdAt = "2026-08-17T00:00:00.000Z"
+        };
+        return JsonSerializer.Serialize(new { ok = true, created = true, receipt = accepted });
+    }
+
+    private static string MismatchedReceiptResponse(JsonElement requestReceipt)
+    {
+        var accepted = new
+        {
+            deliverySessionId = requestReceipt.GetProperty("deliverySessionId").GetString(),
+            packageHash = requestReceipt.GetProperty("packageHash").GetString(),
+            releaseId = requestReceipt.GetProperty("releaseId").GetString(),
+            eventId = requestReceipt.GetProperty("eventId").GetString(),
+            occurredAt = requestReceipt.GetProperty("occurredAt").GetString(),
+            installerVersion = requestReceipt.GetProperty("installerVersion").GetString(),
+            outcome = requestReceipt.GetProperty("outcome").GetString(),
+            artifacts = requestReceipt.GetProperty("artifacts"),
+            safeResult = new { code = "runtime_artifacts_failed", state = "failed" },
+            createdAt = "2026-08-17T00:00:00.000Z"
+        };
+        return JsonSerializer.Serialize(new { ok = true, created = true, receipt = accepted });
+    }
 
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 

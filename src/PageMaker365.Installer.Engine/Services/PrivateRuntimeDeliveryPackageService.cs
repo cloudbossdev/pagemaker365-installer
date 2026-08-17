@@ -177,6 +177,7 @@ public sealed class PrivateRuntimeDeliveryPackageService
             Portal = portal,
             ApiDeliveryReference = apiReference,
             PortalDeliveryReference = portalReference,
+            CanonicalPackageJson = packageJson,
             CanonicalSigningPayloadUtf8 = canonicalSigningPayload
         };
     }

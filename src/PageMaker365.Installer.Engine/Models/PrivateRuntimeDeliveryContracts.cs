@@ -34,6 +34,13 @@ public sealed class PrivateRuntimeDeliveryPackage
     public PrivateRuntimeArtifact Portal { get; init; } = new();
     public string ApiDeliveryReference { get; init; } = "";
     public string PortalDeliveryReference { get; init; } = "";
+    /// <summary>
+    /// The producer's canonical, signed package document. It is retained so
+    /// the installer can send the exact signed authority to the PageMaker365
+    /// API when creating a delivery session; it is never written to a URL,
+    /// an artifact request, or a receipt outbox.
+    /// </summary>
+    public string CanonicalPackageJson { get; init; } = "";
     public byte[] CanonicalSigningPayloadUtf8 { get; init; } = [];
 
     public PrivateRuntimeArtifact Artifact(string artifactKind) => artifactKind switch
@@ -110,6 +117,8 @@ public sealed class PrivateRuntimeDeliveryReceipt
     public string PackageHash { get; init; } = "";
     [JsonPropertyName("releaseId")]
     public string ReleaseId { get; init; } = "";
+    [JsonPropertyName("manifestSha256")]
+    public string ManifestSha256 { get; init; } = "";
     [JsonPropertyName("eventId")]
     public string EventId { get; init; } = "";
     [JsonPropertyName("idempotencyKey")]
@@ -121,10 +130,17 @@ public sealed class PrivateRuntimeDeliveryReceipt
     [JsonPropertyName("installerVersion")]
     public string InstallerVersion { get; init; } = "";
     [JsonPropertyName("artifacts")]
-    public IReadOnlyList<PrivateRuntimeDeliveryReceiptArtifact> Artifacts { get; init; } = [];
-    [JsonPropertyName("safeError")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public PrivateRuntimeDeliverySafeError? SafeError { get; init; }
+    public PrivateRuntimeDeliveryReceiptArtifacts Artifacts { get; init; } = new();
+    [JsonPropertyName("safeResult")]
+    public PrivateRuntimeDeliverySafeResult SafeResult { get; init; } = new();
+}
+
+public sealed class PrivateRuntimeDeliveryReceiptArtifacts
+{
+    [JsonPropertyName("api")]
+    public PrivateRuntimeDeliveryReceiptArtifact Api { get; init; } = new();
+    [JsonPropertyName("portal")]
+    public PrivateRuntimeDeliveryReceiptArtifact Portal { get; init; } = new();
 }
 
 public sealed class PrivateRuntimeDeliveryReceiptArtifact
@@ -135,12 +151,22 @@ public sealed class PrivateRuntimeDeliveryReceiptArtifact
     public string Sha256 { get; init; } = "";
     [JsonPropertyName("sizeBytes")]
     public long SizeBytes { get; init; }
+    [JsonPropertyName("verificationOutcome")]
+    public string VerificationOutcome { get; init; } = "not_attempted";
+    [JsonPropertyName("fullStreamCount")]
+    public int FullStreamCount { get; init; }
+    [JsonPropertyName("rangeRetryCount")]
+    public int RangeRetryCount { get; init; }
     [JsonPropertyName("bytesReceived")]
     public long BytesReceived { get; init; }
-    [JsonPropertyName("rangeRequestCount")]
-    public int RangeRequestCount { get; init; }
-    [JsonPropertyName("verificationStatus")]
-    public string VerificationStatus { get; init; } = "not_verified";
+}
+
+public sealed class PrivateRuntimeDeliverySafeResult
+{
+    [JsonPropertyName("code")]
+    public string Code { get; init; } = "";
+    [JsonPropertyName("state")]
+    public string State { get; init; } = "";
 }
 
 public sealed class PrivateRuntimeDeliverySafeError
