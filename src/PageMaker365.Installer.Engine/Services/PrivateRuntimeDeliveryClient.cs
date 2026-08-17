@@ -18,7 +18,6 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
 {
     public const string DeliveryReferenceHeader = "X-PM365-Runtime-Delivery-Ref";
     public const string DeliverySessionHeader = "X-PM365-Runtime-Delivery-Session";
-    public const string PackageHashHeader = "X-PM365-Package-Hash";
     private const int BufferSize = 81_920;
     private static readonly HashSet<string> PrivateControlPlaneApiHosts = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -176,7 +175,6 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         ApplyInstallerSessionAuthorization(request, onboardingSession);
         request.Headers.TryAddWithoutValidation(DeliveryReferenceHeader, package.DeliveryReference(artifactKind));
         request.Headers.TryAddWithoutValidation(DeliverySessionHeader, deliverySession.DeliverySessionId);
-        request.Headers.TryAddWithoutValidation(PackageHashHeader, package.PackageHash);
         request.Headers.IfMatch.Add(new EntityTagHeaderValue($"\"sha256:{artifact.Sha256}\""));
         if (isRangeRequest)
         {
@@ -291,11 +289,10 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         var endpoint = BuildRelativeEndpoint(controlPlaneBase, PrivateRuntimeDeliveryPackage.ReceiptPathValue);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = new StringContent(SerializeReceipt(receipt), Encoding.UTF8, "application/json")
+            Content = CreateJsonContent(SerializeReceipt(receipt))
         };
         ApplyInstallerSessionAuthorization(request, onboardingSession);
         request.Headers.TryAddWithoutValidation(DeliverySessionHeader, receipt.DeliverySessionId);
-        request.Headers.TryAddWithoutValidation(PackageHashHeader, package.PackageHash);
         request.Headers.TryAddWithoutValidation("Idempotency-Key", receipt.IdempotencyKey);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         RejectRedirectOrOriginChange(response, endpoint);
@@ -496,7 +493,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
             FixedTimeEquals(RequireString(actual, "state"), expected.State);
     }
 
-    private static StringContent CreateSessionRequestContent(PrivateRuntimeDeliveryPackage package)
+    private static HttpContent CreateSessionRequestContent(PrivateRuntimeDeliveryPackage package)
     {
         if (string.IsNullOrWhiteSpace(package.CanonicalPackageJson))
         {
@@ -512,7 +509,7 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
                 MaxDepth = 32
             });
             var requestBody = JsonSerializer.Serialize(new { package = packageDocument.RootElement });
-            return new StringContent(requestBody, Encoding.UTF8, "application/json");
+            return CreateJsonContent(requestBody);
         }
         catch (JsonException exception)
         {
@@ -542,6 +539,13 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
             },
             safeResult = receipt.SafeResult
         });
+    }
+
+    private static ByteArrayContent CreateJsonContent(string json)
+    {
+        var content = new ByteArrayContent(new UTF8Encoding(false, true).GetBytes(json));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        return content;
     }
 
     private static async Task<string> ReadBoundedJsonAsync(HttpResponseMessage response, int maximumBytes, CancellationToken cancellationToken)

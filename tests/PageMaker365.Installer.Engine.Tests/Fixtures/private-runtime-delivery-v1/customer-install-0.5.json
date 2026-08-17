@@ -1,0 +1,76 @@
+{
+  "contractVersion": "0.5",
+  "customer": {
+    "customerId": "11111111-1111-4111-8111-111111111111"
+  },
+  "installation": {
+    "installationId": "22222222-2222-4222-8222-222222222222",
+    "environmentId": "33333333-3333-4333-8333-333333333333",
+    "tenantId": "44444444-4444-4444-8444-444444444444"
+  },
+  "deployment": {
+    "deploymentExportId": "55555555-5555-4555-8555-555555555555"
+  },
+  "controlPlane": {
+    "onboardingSessionId": "onb_1234567890abcdef",
+    "expiresAt": "2099-01-01T00:00:00.000Z",
+    "acceptedInstallerCapability": "pagemaker365.customer-install.0.5.protected-acquisition.v1",
+    "packageHash": "sha256:2f22a43f4252a1bbcc479db90e66a3ee3706c3f9e3584e4aaf820dfc94a78f40",
+    "packageHashAlgorithm": "SHA-256",
+    "canonicalization": "json-c14n-v1",
+    "signatureAlgorithm": "Ed25519",
+    "signingKeyId": "pm365-private-delivery-fixture-ed25519-20260817",
+    "signature": "9kFdDfFLArzPeuu4LlzOOzMbjIczwehFwQO0VNt9FkwOgjpCGSSARaLDq-_-anNf8LIHEtxz2h8Jf_pPiwooCQ"
+  },
+  "runtimeArtifacts": {
+    "manifestContractVersion": "2.0",
+    "manifestSha256": "110dcb0c8364529ed1546bf2e604b74fee49b2fed6bc8b40f9d8f3f8b804c12d",
+    "releaseId": "pm365-runtime-0.1.0+fixture.abcdef1",
+    "runtimeVersion": "0.1.0",
+    "sourceRepository": "cloudbossdev/spo-ui",
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "provenanceSchemaVersion": "pagemaker365.runtime-provenance.v1",
+    "api": {
+      "artifactKind": "api",
+      "fileName": "pagemaker365-api-pm365-runtime-0.1.0+fixture.abcdef1.zip",
+      "sizeBytes": 1234,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "startupCommand": "node dist/index.js"
+    },
+    "portal": {
+      "artifactKind": "portal",
+      "fileName": "pagemaker365-portal-pm365-runtime-0.1.0+fixture.abcdef1.zip",
+      "sizeBytes": 5678,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "startupCommand": "node .pm365/start-portal-runtime.mjs"
+    }
+  },
+  "protectedAcquisition": {
+    "contractVersion": "pagemaker365.protected-acquisition.v1",
+    "sessionPath": "/api/onboarding/installer/runtime-delivery-sessions",
+    "artifactPath": "/api/onboarding/installer/runtime-artifacts/{artifactKind}",
+    "receiptPath": "/api/onboarding/installer/runtime-delivery-receipts",
+    "authorizationMode": "installer-session-v1",
+    "expiresAt": "2099-01-01T00:00:00.000Z",
+    "artifactReferences": {
+      "api": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+      "portal": "ard_BBBBBBBBBBBBBBBBBBBBBBBB"
+    }
+  },
+  "runtimeConfiguration": {
+    "schemaVersion": "pagemaker365.runtime-configuration-projection.v1",
+    "projectionSha256": "06e69509a6ce274e7bd8ca1cae97892567a88b26a50633feed5cd7d2b8de2729",
+    "publicSettings": [
+      {
+        "targetApp": "api",
+        "name": "API_LOG_LEVEL",
+        "value": "info"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_PRODUCT_NAME",
+        "value": "PageMaker365"
+      }
+    ]
+  }
+}

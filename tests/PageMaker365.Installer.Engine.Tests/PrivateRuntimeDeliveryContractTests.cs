@@ -74,7 +74,6 @@ internal static class PrivateRuntimeDeliveryContractTests
                 AssertEx.False(request.RequestUri!.PathAndQuery.Contains("ard_", StringComparison.Ordinal));
                 AssertEx.False(request.RequestUri!.Query.Contains("delivery", StringComparison.OrdinalIgnoreCase));
                 AssertEx.Contains(request.Headers.GetValues(PrivateRuntimeDeliveryClient.DeliverySessionHeader), "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-                AssertEx.Contains(request.Headers.GetValues(PrivateRuntimeDeliveryClient.PackageHashHeader), package.PackageHash);
                 var kind = request.RequestUri.AbsolutePath.EndsWith("/api", StringComparison.Ordinal) ? "api" : "portal";
                 var expectedReference = kind == "api" ? ApiReference : PortalReference;
                 AssertEx.Contains(request.Headers.GetValues(PrivateRuntimeDeliveryClient.DeliveryReferenceHeader), expectedReference);

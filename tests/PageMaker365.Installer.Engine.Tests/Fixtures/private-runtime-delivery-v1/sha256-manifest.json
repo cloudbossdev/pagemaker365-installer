@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "pagemaker365.private-runtime-delivery-fixtures.v1",
+  "files": {
+    "customer-install-0.5.json": "6f18402fe88a2c8dec8ad6c271518a3b5a5af7f36ca3ed90839cff7cc88f031d",
+    "receipt-request.json": "da87e77f077a8841979f40bb58d85ce097a1e378031c6fb35d0412631d2abe50",
+    "receipt-response.json": "add52c4a2562dc36225e90b7493e58857523a0a8ae1a42f5a57e7cae1e58927f",
+    "runtime-delivery-http-vectors.json": "34d9bf8db9f7cbe0f7faa04a35b1df396f02c555d7f75c71b8a346b89981160f",
+    "session-response.json": "65a2a6fdb6ad8ee8ec2ea831d0ef5702ffb949ff8feef24fbec9c291d2285e3f",
+    "signing-public-key.pem": "c24b44f67369726c76f24e2824b9d46e3d91ec6476fdc023de9e692542956983",
+    "signing-trust.json": "f4eb6f8686a4e91a1feb1e777f6a3100a2f8c88ba0e8315ca83e2c6c0330fc5e",
+    "spo-runtime-manifest-v2.json": "110dcb0c8364529ed1546bf2e604b74fee49b2fed6bc8b40f9d8f3f8b804c12d"
+  }
+}

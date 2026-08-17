@@ -216,7 +216,10 @@ public sealed class PrivateRuntimeDeliveryPackageService
         {
             WritePackageObject(writer, root, "root");
         }
-        return Encoding.UTF8.GetString(stream.ToArray()) + "\n";
+        // The producer locks canonical package bytes with LF line endings.
+        // Utf8JsonWriter's indented mode follows the host newline convention,
+        // so normalize it before comparing or forwarding signed authority.
+        return Encoding.UTF8.GetString(stream.ToArray()).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
     }
 
     private static PrivateRuntimeArtifact ValidateArtifact(JsonElement artifact, string kind, string releaseId, string startupCommand)
