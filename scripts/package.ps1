@@ -12,19 +12,9 @@ param(
 
     [string] $ReleaseNotesPath = '',
 
-    [string] $CodeSigningCertificatePath = '',
+    [switch] $RequireCleanSource,
 
-    [string] $CodeSigningCertificateThumbprint = '',
-
-    [string] $CodeSigningCertificatePasswordEnvironmentVariable = 'PM365_CODESIGN_PFX_PASSWORD',
-
-    [string] $ExpectedPublisher = '',
-
-    [string] $ExpectedCertificateThumbprint = '',
-
-    [string] $TimestampServer = 'http://timestamp.digicert.com',
-
-    [switch] $RequireCleanSource
+    [switch] $PrepareForArtifactSigning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -147,6 +137,10 @@ Copy-Item `
     -LiteralPath (Join-Path $repoRoot 'distribution\Verify-PageMaker365Installer.ps1') `
     -Destination $OutputPath `
     -Force
+Copy-Item `
+    -LiteralPath (Join-Path $repoRoot 'distribution\ReleaseSignatureValidation.ps1') `
+    -Destination $OutputPath `
+    -Force
 
 $releaseNotes = (Get-Content -LiteralPath $ReleaseNotesPath -Raw).
     Replace('{{VERSION}}', $Version).
@@ -156,136 +150,21 @@ Set-Content `
     -Value $releaseNotes `
     -Encoding utf8NoBOM
 
-$signingRequested =
-    -not [string]::IsNullOrWhiteSpace($CodeSigningCertificatePath) -or
-    -not [string]::IsNullOrWhiteSpace($CodeSigningCertificateThumbprint)
-if (-not [string]::IsNullOrWhiteSpace($CodeSigningCertificatePath) -and
-    -not [string]::IsNullOrWhiteSpace($CodeSigningCertificateThumbprint)) {
-    throw 'Specify either CodeSigningCertificatePath or CodeSigningCertificateThumbprint, not both.'
+if ($PrepareForArtifactSigning) {
+    [pscustomobject]@{
+        outputPath = $OutputPath
+        appPath = $publishPath
+        version = $Version
+        sourceCommit = $sourceCommit
+        sourceCommittedAt = $sourceCommittedAt
+        sourceDirty = $sourceDirty
+        preparedForArtifactSigning = $true
+    }
+    return
 }
 
-$normalizedExpectedThumbprint = ([string]$ExpectedCertificateThumbprint).Replace(' ', '').ToUpperInvariant()
-if (-not [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint) -and
-    $normalizedExpectedThumbprint -notmatch '^[0-9A-F]{40}$') {
-    throw 'ExpectedCertificateThumbprint must contain exactly 40 hexadecimal characters.'
-}
-
-if ($RequireCleanSource -and $signingRequested -and
-    ([string]::IsNullOrWhiteSpace($ExpectedPublisher) -or
-        [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint))) {
-    throw 'A signed customer release requires ExpectedPublisher and ExpectedCertificateThumbprint.'
-}
-
-$certificate = $null
-$importedCertificateThumbprints = @()
-try {
-    if (-not [string]::IsNullOrWhiteSpace($CodeSigningCertificatePath)) {
-        if (-not (Test-Path -LiteralPath $CodeSigningCertificatePath -PathType Leaf)) {
-            throw "Code-signing certificate was not found: $CodeSigningCertificatePath"
-        }
-
-        $passwordText = [Environment]::GetEnvironmentVariable($CodeSigningCertificatePasswordEnvironmentVariable)
-        $password = if ([string]::IsNullOrEmpty($passwordText)) {
-            [System.Security.SecureString]::new()
-        } else {
-            ConvertTo-SecureString $passwordText -AsPlainText -Force
-        }
-
-        $existingThumbprints = @(Get-ChildItem Cert:\CurrentUser\My | ForEach-Object Thumbprint)
-        $importedCertificates = @(
-            Import-PfxCertificate `
-            -FilePath $CodeSigningCertificatePath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password $password
-        )
-        if ($importedCertificates.Count -eq 0) {
-            throw 'The code-signing certificate could not be imported.'
-        }
-
-        $importedCertificateThumbprints = @(
-            $importedCertificates |
-                ForEach-Object Thumbprint |
-                Where-Object { $_ -notin $existingThumbprints }
-        )
-        $codeSigningCertificates = @(
-            $importedCertificates |
-                Where-Object {
-                    $_.HasPrivateKey -and
-                    $_.EnhancedKeyUsageList.ObjectId.Value -contains '1.3.6.1.5.5.7.3.3'
-                }
-        )
-        if ($codeSigningCertificates.Count -ne 1) {
-            throw "The PFX must contain exactly one code-signing certificate with a private key; found $($codeSigningCertificates.Count)."
-        }
-        $certificate = $codeSigningCertificates[0]
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($CodeSigningCertificateThumbprint)) {
-        $normalizedThumbprint = $CodeSigningCertificateThumbprint.Replace(' ', '')
-        $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$normalizedThumbprint" -ErrorAction Stop
-    }
-
-    if ($signingRequested) {
-        if (-not $certificate.HasPrivateKey) {
-            throw 'The selected code-signing certificate does not have a private key.'
-        }
-        if ($certificate.EnhancedKeyUsageList.ObjectId.Value -notcontains '1.3.6.1.5.5.7.3.3') {
-            throw 'The selected certificate is not valid for code signing.'
-        }
-        $now = [DateTime]::UtcNow
-        if ($certificate.NotBefore.ToUniversalTime() -gt $now -or $certificate.NotAfter.ToUniversalTime() -lt $now) {
-            throw 'The selected code-signing certificate is outside its validity period.'
-        }
-
-        if (-not [string]::IsNullOrWhiteSpace($ExpectedPublisher) -and
-            $certificate.Subject -ne $ExpectedPublisher) {
-            throw "Certificate publisher '$($certificate.Subject)' does not match '$ExpectedPublisher'."
-        }
-        if (-not [string]::IsNullOrWhiteSpace($normalizedExpectedThumbprint) -and
-            $certificate.Thumbprint.ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
-            throw "Certificate thumbprint '$($certificate.Thumbprint)' does not match the approved signing certificate."
-        }
-
-        $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
-        if (-not $signtool) {
-            throw 'signtool.exe was not found. Install the Windows SDK before producing a signed release.'
-        }
-
-        $peFiles = @(
-            Get-ChildItem -LiteralPath $publishPath -File |
-                Where-Object { $_.Name -eq 'PageMaker365.Installer.exe' -or $_.Name -like 'PageMaker365.Installer*.dll' }
-        )
-        foreach ($file in $peFiles) {
-            & $signtool.Source sign `
-                /fd SHA256 `
-                /sha1 $certificate.Thumbprint `
-                /s My `
-                /tr $TimestampServer `
-                /td SHA256 `
-                $file.FullName
-            if ($LASTEXITCODE -ne 0) {
-                throw "signtool failed for $($file.FullName) with exit code $LASTEXITCODE."
-            }
-        }
-
-        $scriptFiles = @(
-            Get-ChildItem -LiteralPath $OutputPath -Recurse -File |
-                Where-Object Extension -In @('.ps1', '.psm1', '.psd1')
-        )
-        foreach ($file in $scriptFiles) {
-            $signature = Set-AuthenticodeSignature `
-                -LiteralPath $file.FullName `
-                -Certificate $certificate `
-                -HashAlgorithm SHA256 `
-                -TimestampServer $TimestampServer
-            if ($signature.Status -ne 'Valid') {
-                throw "PowerShell signing failed for $($file.FullName): $($signature.StatusMessage)"
-            }
-        }
-    }
-
-    $manifestPath = Join-Path $OutputPath 'release-manifest.json'
-    $manifestSignaturePath = "$manifestPath.p7s"
-    $checksumPath = Join-Path $OutputPath 'SHA256SUMS.txt'
+ $manifestPath = Join-Path $OutputPath 'release-manifest.json'
+ $checksumPath = Join-Path $OutputPath 'SHA256SUMS.txt'
     $manifestFiles = @(
         Get-ChildItem -LiteralPath $OutputPath -Recurse -File |
             Sort-Object FullName |
@@ -319,29 +198,16 @@ try {
             dirty = $sourceDirty
         }
         signing = [ordered]@{
-            status = if ($signingRequested) { 'Signed' } else { 'UnsignedDevelopment' }
+            status = 'UnsignedDevelopment'
             requiredForCustomerRelease = $true
-            publisher = if ($certificate) { $certificate.Subject } else { $null }
-            certificateThumbprint = if ($certificate) { $certificate.Thumbprint } else { $null }
-            timestampServer = if ($signingRequested) { $TimestampServer } else { $null }
+            publisher = $null
+            certificateThumbprint = $null
+            timestampServer = $null
         }
         files = $manifestFiles
     }
     $manifest | ConvertTo-Json -Depth 8 |
         Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
-
-    if ($signingRequested) {
-        Add-Type -AssemblyName System.Security.Cryptography.Pkcs
-        $manifestContent = [System.Security.Cryptography.Pkcs.ContentInfo]::new(
-            [System.IO.File]::ReadAllBytes($manifestPath))
-        $signedManifest = [System.Security.Cryptography.Pkcs.SignedCms]::new(
-            $manifestContent,
-            $true)
-        $manifestSigner = [System.Security.Cryptography.Pkcs.CmsSigner]::new($certificate)
-        $manifestSigner.IncludeOption = [System.Security.Cryptography.X509Certificates.X509IncludeOption]::EndCertOnly
-        $signedManifest.ComputeSignature($manifestSigner, $true)
-        [System.IO.File]::WriteAllBytes($manifestSignaturePath, $signedManifest.Encode())
-    }
 
     $checksumFiles = @(
         Get-ChildItem -LiteralPath $OutputPath -Recurse -File |
@@ -386,21 +252,15 @@ try {
         -Value "$archiveSha256  $([System.IO.Path]::GetFileName($archivePath))" `
         -Encoding ascii
 
-    [pscustomobject]@{
-        outputPath = $OutputPath
-        appPath = $publishPath
-        archivePath = $archivePath
-        archiveChecksumPath = $archiveChecksumPath
-        archiveSha256 = $archiveSha256
-        manifestPath = $manifestPath
-        manifestSignaturePath = if ($signingRequested) { $manifestSignaturePath } else { $null }
-        version = $Version
-        signed = $signingRequested
-        sourceDirty = $sourceDirty
-    }
-}
-finally {
-    foreach ($thumbprint in $importedCertificateThumbprints) {
-        Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue
-    }
-}
+ [pscustomobject]@{
+     outputPath = $OutputPath
+     appPath = $publishPath
+     archivePath = $archivePath
+     archiveChecksumPath = $archiveChecksumPath
+     archiveSha256 = $archiveSha256
+     manifestPath = $manifestPath
+     manifestSignaturePath = $null
+     version = $Version
+     signed = $false
+     sourceDirty = $sourceDirty
+ }
