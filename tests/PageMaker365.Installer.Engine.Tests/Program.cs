@@ -20,8 +20,13 @@ namespace PageMaker365.Installer.Engine.Tests;
 
 internal static class Program
 {
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0)
+        {
+            return await InitialInstallLocalHarnessCommand.RunAsync(args);
+        }
+
         var tests = new (string Name, Func<Task> Run)[]
         {
             ("ConnectAsync sends expected session request and headers", ConnectAsyncSendsExpectedSessionRequestAndHeaders),
@@ -50,6 +55,12 @@ internal static class Program
             ("PackageTrustKeyResolver rejects untrusted JWKS host", PackageTrustKeyResolverRejectsUntrustedJwksHost),
             ("DownloadPackageAsync sanitizes unsafe content disposition filename", DownloadPackageAsyncSanitizesUnsafeContentDispositionFilename),
             ("DownloadPackageAsync ignores external package download URL", DownloadPackageAsyncIgnoresExternalPackageDownloadUrl),
+            ("Initial-install v1 validates fixture and matches Node canonical bytes", InitialInstallDeliveryContractTests.ValidatesFixtureAndMatchesNodeCanonicalBytes),
+            ("Initial-install v1 rejects unknown trusted key", InitialInstallDeliveryContractTests.RejectsUnknownTrustedKey),
+            ("Initial-install v1 rejects payload hash and signature tampering", InitialInstallDeliveryContractTests.RejectsPayloadHashAndSignatureTampering),
+            ("Initial-install v1 rejects duplicate keys and unexpected payload authority", InitialInstallDeliveryContractTests.RejectsDuplicateKeysAndUnexpectedPayloadAuthority),
+            ("Initial-install v1 rejects non-Sandbox, expired, and noncanonical bindings", InitialInstallDeliveryContractTests.RejectsNonSandboxExpiredAndNonCanonicalBindings),
+            ("Initial-install v1 local receipt seam remains v1-only", InitialInstallDeliveryContractTests.LocalReceiptSeamUsesOnlyV1FieldsAndRejectsUnsafeError),
             ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
             ("OnboardingSessionService rejects expired bootstrap", OnboardingSessionServiceRejectsExpiredBootstrap),
             ("OnboardingSessionService rejects untrusted bootstrap endpoints", OnboardingSessionServiceRejectsUntrustedBootstrapEndpoints),
