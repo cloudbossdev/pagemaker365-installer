@@ -461,12 +461,39 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
                 FixedTimeEquals(RequireString(accepted, "packageHash"), receipt.PackageHash) &&
                 FixedTimeEquals(RequireString(accepted, "releaseId"), receipt.ReleaseId) &&
                 FixedTimeEquals(RequireString(accepted, "eventId"), receipt.EventId) &&
-                FixedTimeEquals(RequireString(accepted, "outcome"), receipt.Outcome);
+                FixedTimeEquals(RequireString(accepted, "installerVersion"), receipt.InstallerVersion) &&
+                FixedTimeEquals(RequireString(accepted, "outcome"), receipt.Outcome) &&
+                RequireDate(accepted, "occurredAt") == receipt.OccurredAt &&
+                RequireDate(accepted, "createdAt") <= DateTimeOffset.UtcNow.AddMinutes(5) &&
+                MatchesAcceptedReceiptArtifact(RequireObject(accepted, "artifacts"), "api", receipt.Artifacts.Api) &&
+                MatchesAcceptedReceiptArtifact(RequireObject(accepted, "artifacts"), "portal", receipt.Artifacts.Portal) &&
+                MatchesAcceptedSafeResult(RequireObject(accepted, "safeResult"), receipt.SafeResult);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException)
         {
             return false;
         }
+    }
+
+    private static bool MatchesAcceptedReceiptArtifact(JsonElement artifacts, string artifactKind, PrivateRuntimeDeliveryReceiptArtifact expected)
+    {
+        RequireExactProperties(artifacts, ["api", "portal"]);
+        var actual = RequireObject(artifacts, artifactKind);
+        RequireExactProperties(actual, ["artifactKind", "sha256", "sizeBytes", "verificationOutcome", "fullStreamCount", "rangeRetryCount", "bytesReceived"]);
+        return FixedTimeEquals(RequireString(actual, "artifactKind"), expected.ArtifactKind) &&
+            FixedTimeEquals(RequireString(actual, "sha256"), expected.Sha256) &&
+            RequireInt64(actual, "sizeBytes") == expected.SizeBytes &&
+            FixedTimeEquals(RequireString(actual, "verificationOutcome"), expected.VerificationOutcome) &&
+            RequireInt64(actual, "fullStreamCount") == expected.FullStreamCount &&
+            RequireInt64(actual, "rangeRetryCount") == expected.RangeRetryCount &&
+            RequireInt64(actual, "bytesReceived") == expected.BytesReceived;
+    }
+
+    private static bool MatchesAcceptedSafeResult(JsonElement actual, PrivateRuntimeDeliverySafeResult expected)
+    {
+        RequireExactProperties(actual, ["code", "state"]);
+        return FixedTimeEquals(RequireString(actual, "code"), expected.Code) &&
+            FixedTimeEquals(RequireString(actual, "state"), expected.State);
     }
 
     private static StringContent CreateSessionRequestContent(PrivateRuntimeDeliveryPackage package)
@@ -742,6 +769,12 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
         var text = value.GetString()!;
         if (expected is not null && !text.Equals(expected, StringComparison.Ordinal)) throw new InvalidDataException();
         return text;
+    }
+
+    private static long RequireInt64(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var number)) throw new InvalidDataException();
+        return number;
     }
 
     private static DateTimeOffset RequireDate(JsonElement parent, string property)
