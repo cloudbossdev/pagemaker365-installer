@@ -1,114 +1,277 @@
-name: Signed Release Candidate
+name: Internal Signed Release Candidate
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: SemVer release candidate version
+        description: Strict SemVer release-candidate version, for example 0.1.0-rc.1
         required: true
         type: string
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: internal-signed-release-candidate-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
   package:
-    name: Build Signed Release Candidate
-    runs-on: windows-latest
+    name: Build and sign internal release candidate
+    runs-on: windows-2025
     environment: production-signing
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      PM365_RELEASE_VERSION: ${{ inputs.version }}
+      PM365_PACKAGE_PATH: artifacts\pagemaker365-installer-${{ inputs.version }}
+      PM365_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.PM365_ARTIFACT_SIGNING_ENDPOINT }}
+      PM365_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.PM365_ARTIFACT_SIGNING_ACCOUNT }}
+      PM365_ARTIFACT_SIGNING_PROFILE: ${{ vars.PM365_ARTIFACT_SIGNING_PROFILE }}
+      PM365_ARTIFACT_SIGNING_AZURE_CLIENT_ID: ${{ vars.PM365_ARTIFACT_SIGNING_AZURE_CLIENT_ID }}
+      PM365_ARTIFACT_SIGNING_AZURE_TENANT_ID: ${{ vars.PM365_ARTIFACT_SIGNING_AZURE_TENANT_ID }}
+      PM365_ARTIFACT_SIGNING_AZURE_SUBSCRIPTION_ID: ${{ vars.PM365_ARTIFACT_SIGNING_AZURE_SUBSCRIPTION_ID }}
+      PM365_ARTIFACT_SIGNING_PUBLISHER: ${{ vars.PM365_ARTIFACT_SIGNING_PUBLISHER }}
+      PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT: ${{ vars.PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 8.0.x
 
-      - name: Validate release source and signing identity
+      - name: Validate release request before Azure authentication
         shell: pwsh
         env:
-          PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
-          PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ($env:GITHUB_REF -ne 'refs/heads/main') {
-            throw "Signed release candidates must be built from main. Selected ref: $env:GITHUB_REF"
+            throw "Internal release candidates must be built from main. Selected ref: $env:GITHUB_REF"
           }
-          if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PUBLISHER)) {
-            throw 'The production-signing environment is missing PM365_CODESIGN_PUBLISHER.'
+          $strictReleaseCandidatePattern = '^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-rc\.(?:0|[1-9]\d*)(?:\+(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
+          if ($env:PM365_RELEASE_VERSION -notmatch $strictReleaseCandidatePattern) {
+            throw 'The release version must be a strict SemVer release candidate such as 0.1.0-rc.1.'
           }
-          if ($env:PM365_CODESIGN_THUMBPRINT -notmatch '^[0-9A-Fa-f]{40}$') {
-            throw 'The production-signing environment must define PM365_CODESIGN_THUMBPRINT as exactly 40 hexadecimal characters.'
+          foreach ($name in @(
+            'PM365_ARTIFACT_SIGNING_AZURE_CLIENT_ID',
+            'PM365_ARTIFACT_SIGNING_AZURE_TENANT_ID',
+            'PM365_ARTIFACT_SIGNING_AZURE_SUBSCRIPTION_ID'
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name)) -or
+                [Environment]::GetEnvironmentVariable($name) -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+              throw "The production-signing environment is missing a valid $name value."
+            }
+          }
+          if ($env:PM365_ARTIFACT_SIGNING_ENDPOINT -notmatch '^https://[a-z0-9-]+\.codesigning\.azure\.net/?$') {
+            throw 'The Artifact Signing endpoint must be an HTTPS Azure Artifact Signing regional endpoint.'
+          }
+          $accountName = $env:PM365_ARTIFACT_SIGNING_ACCOUNT
+          if ([string]::IsNullOrWhiteSpace($accountName) -or
+              $accountName -notmatch '^(?!.*--)[A-Za-z][A-Za-z0-9-]{1,22}[A-Za-z0-9]$' -or
+              $accountName.StartsWith('one', [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The production-signing environment is missing a valid Azure Artifact Signing account name.'
+          }
+          $profileName = $env:PM365_ARTIFACT_SIGNING_PROFILE
+          if ([string]::IsNullOrWhiteSpace($profileName) -or
+              $profileName -notmatch '^(?!.*--)[A-Za-z][A-Za-z0-9-]{3,98}[A-Za-z0-9]$') {
+            throw 'The production-signing environment is missing a valid Artifact Signing certificate-profile name.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:PM365_ARTIFACT_SIGNING_PUBLISHER)) {
+            throw 'The production-signing environment is missing PM365_ARTIFACT_SIGNING_PUBLISHER.'
+          }
+          if ($env:PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT -notmatch '^[0-9A-Fa-f]{40}$') {
+            throw 'The production-signing environment must define PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT as exactly 40 hexadecimal characters.'
+          }
+          gh release view "v$env:PM365_RELEASE_VERSION" --json id 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            throw "A GitHub release already exists for v$env:PM365_RELEASE_VERSION. Release candidate versions are immutable."
+          }
+          if ($LASTEXITCODE -ne 1) {
+            throw 'Unable to determine whether this release-candidate version already exists. Azure authentication will not start.'
+          }
+          gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/v$env:PM365_RELEASE_VERSION" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            throw "The immutable tag v$env:PM365_RELEASE_VERSION already exists. Azure authentication will not start."
+          }
+          if ($LASTEXITCODE -ne 1) {
+            throw 'Unable to determine whether this release-candidate tag already exists. Azure authentication will not start.'
           }
 
       - name: Verify repository
         shell: pwsh
         run: .\scripts\verify.ps1
 
-      - name: Materialize signing certificate
+      - name: Prepare unsigned signing payload
         shell: pwsh
-        env:
-          PM365_CODESIGN_PFX_BASE64: ${{ secrets.PM365_CODESIGN_PFX_BASE64 }}
-          PM365_CODESIGN_PFX_PASSWORD: ${{ secrets.PM365_CODESIGN_PFX_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PFX_BASE64)) {
-            throw 'The production-signing environment is missing PM365_CODESIGN_PFX_BASE64.'
-          }
-          if ([string]::IsNullOrWhiteSpace($env:PM365_CODESIGN_PFX_PASSWORD)) {
-            throw 'The production-signing environment is missing PM365_CODESIGN_PFX_PASSWORD.'
-          }
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'pagemaker365-codesign.pfx'
-          [System.IO.File]::WriteAllBytes(
-            $certificatePath,
-            [Convert]::FromBase64String($env:PM365_CODESIGN_PFX_BASE64))
-
-      - name: Build and sign release candidate
-        shell: pwsh
-        env:
-          PM365_CODESIGN_PFX_PASSWORD: ${{ secrets.PM365_CODESIGN_PFX_PASSWORD }}
-          PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
-          PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}
-          PM365_RELEASE_VERSION: ${{ inputs.version }}
         run: |
           .\scripts\package.ps1 `
             -Configuration Release `
             -Version $env:PM365_RELEASE_VERSION `
-            -OutputPath .\artifacts\signed-release-candidate `
-            -CodeSigningCertificatePath (Join-Path $env:RUNNER_TEMP 'pagemaker365-codesign.pfx') `
-            -ExpectedPublisher $env:PM365_CODESIGN_PUBLISHER `
-            -ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT `
-            -RequireCleanSource
+            -OutputPath $env:PM365_PACKAGE_PATH `
+            -RequireCleanSource `
+            -PrepareForArtifactSigning
+
+      - name: Capture exact Artifact Signing targets
+        shell: pwsh
+        run: |
+          $packagePath = (Resolve-Path -LiteralPath $env:PM365_PACKAGE_PATH).Path
+          $targets = @(
+            Get-ChildItem -LiteralPath $packagePath -Recurse -File |
+              Where-Object {
+                $relativePath = [System.IO.Path]::GetRelativePath($packagePath, $_.FullName).Replace('\', '/')
+                $relativePath -eq 'app/PageMaker365.Installer.exe' -or
+                $relativePath -like 'app/PageMaker365.Installer*.dll' -or
+                $_.Extension -in @('.ps1', '.psm1', '.psd1')
+              } |
+              Sort-Object FullName
+          )
+          if ($targets.Count -eq 0) {
+            throw 'The signing payload contains no required Authenticode targets.'
+          }
+          $delimiter = 'PM365_ARTIFACT_SIGNING_FILES_EOF'
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "PM365_ARTIFACT_SIGNING_FILES<<$delimiter"
+          $targets.FullName | Add-Content -LiteralPath $env:GITHUB_ENV
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value $delimiter
+
+      - name: Azure login with GitHub OIDC
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48 # v3.0.0
+        with:
+          client-id: ${{ env.PM365_ARTIFACT_SIGNING_AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.PM365_ARTIFACT_SIGNING_AZURE_TENANT_ID }}
+          subscription-id: ${{ env.PM365_ARTIFACT_SIGNING_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Authenticode payload with Artifact Signing
+        uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
+        with:
+          endpoint: ${{ env.PM365_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.PM365_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.PM365_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ env.PM365_ARTIFACT_SIGNING_FILES }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: PageMaker365 Installer internal release candidate
+          description-url: https://github.com/cloudbossdev/pagemaker365-installer
+          cache-dependencies: false
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
+      - name: Create signed release manifest
+        shell: pwsh
+        run: |
+          .\scripts\complete-artifact-signing-package.ps1 `
+            -Stage CreateSignedManifest `
+            -OutputPath $env:PM365_PACKAGE_PATH `
+            -Version $env:PM365_RELEASE_VERSION `
+            -ExpectedSourceCommit $env:GITHUB_SHA `
+            -ExpectedPublisher $env:PM365_ARTIFACT_SIGNING_PUBLISHER `
+            -ExpectedCertificateThumbprint $env:PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT `
+            -TimestampServer http://timestamp.acs.microsoft.com
+
+      - name: Sign detached release manifest with Artifact Signing
+        uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
+        with:
+          endpoint: ${{ env.PM365_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.PM365_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.PM365_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\${{ env.PM365_PACKAGE_PATH }}\release-manifest.json
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          generate-pkcs7: true
+          pkcs7-options: DetachedSignedData
+          pkcs7-oid: 1.3.6.1.5.5.7.3.3
+          description: PageMaker365 Installer release manifest
+          description-url: https://github.com/cloudbossdev/pagemaker365-installer
+          cache-dependencies: false
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
+      - name: Adopt and verify detached release-manifest signature
+        shell: pwsh
+        run: |
+          $manifestPath = Join-Path $env:PM365_PACKAGE_PATH 'release-manifest.json'
+          $generatedSignaturePath = "$manifestPath.p7"
+          $expectedSignaturePath = "$manifestPath.p7s"
+          if (-not (Test-Path -LiteralPath $generatedSignaturePath -PathType Leaf)) {
+            throw "Artifact Signing did not produce the documented PKCS#7 output: $generatedSignaturePath"
+          }
+          Move-Item -LiteralPath $generatedSignaturePath -Destination $expectedSignaturePath -ErrorAction Stop
+          .\scripts\complete-artifact-signing-package.ps1 `
+            -Stage CompleteSignedArchive `
+            -OutputPath $env:PM365_PACKAGE_PATH `
+            -Version $env:PM365_RELEASE_VERSION `
+            -ExpectedSourceCommit $env:GITHUB_SHA `
+            -ExpectedPublisher $env:PM365_ARTIFACT_SIGNING_PUBLISHER `
+            -ExpectedCertificateThumbprint $env:PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT
 
       - name: Verify signed release evidence
         shell: pwsh
-        env:
-          PM365_RELEASE_VERSION: ${{ inputs.version }}
-          PM365_CODESIGN_PUBLISHER: ${{ vars.PM365_CODESIGN_PUBLISHER }}
-          PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}
         run: |
-          .\scripts\test-package-hygiene.ps1 `
-            -PackagePath .\artifacts\signed-release-candidate
+          .\scripts\test-package-hygiene.ps1 -PackagePath $env:PM365_PACKAGE_PATH
           .\scripts\test-release-package.ps1 `
-            -PackagePath .\artifacts\signed-release-candidate `
-            -ArchivePath .\artifacts\signed-release-candidate.zip `
+            -PackagePath $env:PM365_PACKAGE_PATH `
+            -ArchivePath "$env:PM365_PACKAGE_PATH.zip" `
             -ExpectedVersion $env:PM365_RELEASE_VERSION `
-            -ExpectedPublisher $env:PM365_CODESIGN_PUBLISHER `
-            -ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT `
+            -ExpectedPublisher $env:PM365_ARTIFACT_SIGNING_PUBLISHER `
+            -ExpectedCertificateThumbprint $env:PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT `
             -RequireSignature
 
-      - name: Remove temporary certificate file
-        if: always()
+      - name: Write durable release evidence
         shell: pwsh
-        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'pagemaker365-codesign.pfx') -Force -ErrorAction SilentlyContinue
+        run: |
+          .\scripts\new-release-evidence.ps1 `
+            -PackagePath $env:PM365_PACKAGE_PATH `
+            -ArchivePath "$env:PM365_PACKAGE_PATH.zip" `
+            -Version $env:PM365_RELEASE_VERSION `
+            -ExpectedPublisher $env:PM365_ARTIFACT_SIGNING_PUBLISHER `
+            -ExpectedCertificateThumbprint $env:PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT `
+            -EvidencePath "artifacts\pagemaker365-installer-$env:PM365_RELEASE_VERSION.evidence.json"
+          @"
+          # PageMaker365 Installer $env:PM365_RELEASE_VERSION
 
-      - name: Upload signed release candidate
-        uses: actions/upload-artifact@v7
-        with:
-          name: pagemaker365-installer-signed-release-candidate
-          path: |
-            artifacts/signed-release-candidate
-            artifacts/signed-release-candidate.zip
-            artifacts/signed-release-candidate.zip.sha256
-          if-no-files-found: error
-          retention-days: 30
+          **Internal release candidate. This draft is not approved for customer distribution.**
+
+          - Source commit: $env:GITHUB_SHA
+          - Expected publisher: $env:PM365_ARTIFACT_SIGNING_PUBLISHER
+          - Expected certificate thumbprint: $env:PM365_ARTIFACT_SIGNING_CERTIFICATE_THUMBPRINT
+          - Signing provider: Azure Artifact Signing with GitHub OIDC
+          - Required follow-up: clean Windows 11 acceptance and explicit release approval under issue #13.
+          "@ | Set-Content -LiteralPath "artifacts\pagemaker365-installer-$env:PM365_RELEASE_VERSION.release-notes.md" -Encoding utf8NoBOM
+
+      - name: Create durable draft GitHub release record
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$env:PM365_RELEASE_VERSION" `
+            "$env:PM365_PACKAGE_PATH.zip" `
+            "$env:PM365_PACKAGE_PATH.zip.sha256" `
+            "$env:PM365_PACKAGE_PATH\release-manifest.json" `
+            "$env:PM365_PACKAGE_PATH\release-manifest.json.p7s" `
+            "$env:PM365_PACKAGE_PATH\SHA256SUMS.txt" `
+            "artifacts\pagemaker365-installer-$env:PM365_RELEASE_VERSION.evidence.json" `
+            --draft `
+            --prerelease `
+            --target "$env:GITHUB_SHA" `
+            --title "PageMaker365 Installer $env:PM365_RELEASE_VERSION" `
+            --notes-file "artifacts\pagemaker365-installer-$env:PM365_RELEASE_VERSION.release-notes.md"

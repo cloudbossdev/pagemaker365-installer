@@ -11,6 +11,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $PackagePath = (Resolve-Path -LiteralPath $PackagePath).Path
+$signatureValidationPath = Join-Path $PSScriptRoot 'ReleaseSignatureValidation.ps1'
+if (-not (Test-Path -LiteralPath $signatureValidationPath -PathType Leaf)) {
+    throw "Required release signature validation helper is missing: $signatureValidationPath"
+}
+Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+. $signatureValidationPath
 $manifestPath = Join-Path $PackagePath 'release-manifest.json'
 $manifestSignaturePath = "$manifestPath.p7s"
 $checksumPath = Join-Path $PackagePath 'SHA256SUMS.txt'
@@ -48,7 +54,6 @@ if ($manifest.signing.status -eq 'Signed') {
         throw 'The signed package is missing its detached release-manifest signature.'
     }
 
-    Add-Type -AssemblyName System.Security.Cryptography.Pkcs
     $manifestContent = [System.Security.Cryptography.Pkcs.ContentInfo]::new(
         [System.IO.File]::ReadAllBytes($manifestPath))
     $signedManifest = [System.Security.Cryptography.Pkcs.SignedCms]::new(
@@ -69,12 +74,19 @@ if ($manifest.signing.status -eq 'Signed') {
         throw 'The detached release-manifest signer does not match the official PageMaker365 release identity.'
     }
 
+    Assert-PM365Rfc3161TimestampForSignerInfo `
+        -SignerInfo $signedManifest.SignerInfos[0] `
+        -Context 'the detached release-manifest signature' | Out-Null
+
     $verifierSignature = Get-AuthenticodeSignature -LiteralPath $PSCommandPath
     if ($verifierSignature.Status -ne 'Valid' -or
         $null -eq $verifierSignature.SignerCertificate -or
         $verifierSignature.SignerCertificate.Subject -ne $ExpectedPublisher -or
         $verifierSignature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $normalizedExpectedThumbprint) {
         throw 'The verification script is not signed by the official PageMaker365 release identity.'
+    }
+    if ($null -eq $verifierSignature.TimeStamperCertificate) {
+        throw 'The verification script does not contain a trusted timestamp.'
     }
 }
 
@@ -112,6 +124,9 @@ foreach ($file in $manifest.files) {
         $signature = Get-AuthenticodeSignature -LiteralPath $fullPath
         if ($signature.Status -ne 'Valid') {
             throw "Authenticode verification failed for ${relativePath}: $($signature.StatusMessage)"
+        }
+        if ($null -eq $signature.TimeStamperCertificate) {
+            throw "Authenticode timestamp verification failed for $relativePath."
         }
 
         if ($signature.SignerCertificate.Thumbprint -ne $manifest.signing.certificateThumbprint -or

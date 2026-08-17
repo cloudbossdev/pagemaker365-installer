@@ -1,7 +1,9 @@
 # PageMaker365 Installer Distribution Contract
 
-Status: implemented for pilot ZIP packaging; production certificate and
-clean-workstation acceptance remain open under issue #13.
+Status: pilot ZIP packaging is implemented. The source-only Azure Artifact
+Signing + GitHub OIDC release path is implemented, but Azure resource setup,
+the first internal release-candidate run, and clean-workstation acceptance
+remain open under issue #13.
 
 ## Decision
 
@@ -18,11 +20,15 @@ customer-specific setup, export, status, or handoff artifacts are prohibited.
 
 The distribution has three independent controls:
 
-1. Authenticode signs `PageMaker365.Installer.exe`, PageMaker365 first-party
-   libraries, and every shipped `.ps1`, `.psm1`, and `.psd1` file.
-2. A detached CMS signature authenticates `release-manifest.json` with the
-   approved signing certificate. The signed manifest, `SHA256SUMS.txt`, and the
-   sibling `.zip.sha256` record the exact payload and archive integrity.
+1. Azure Artifact Signing Authenticode-signs
+   `PageMaker365.Installer.exe`, PageMaker365 first-party libraries, and every
+   shipped `.ps1`, `.psm1`, and `.psd1` file. Every required file must have the
+   approved publisher, certificate thumbprint, and a trusted timestamp.
+2. Azure Artifact Signing creates a detached CMS signature for
+   `release-manifest.json`. The verifier requires its approved signer and
+   cryptographically validates the RFC 3161 timestamp token and its binding to
+   that signer. The signed manifest, `SHA256SUMS.txt`, and the sibling
+   `.zip.sha256` record the exact payload and archive integrity.
 3. The official release record supplies the expected publisher and certificate
    thumbprint independently of the ZIP. The verifier requires those external
    values, authenticates the detached manifest signature, checks its own
@@ -37,13 +43,13 @@ the archive and file hashes pass. Values read only from inside the ZIP are not
 an authenticity trust anchor. `UnsignedDevelopment` is permitted only in
 engineering CI and must be rejected by the customer verifier's default mode.
 
-Private keys and PFX passwords must not be passed on the command line, written
-to the package, or stored in logs. The package script accepts an installed
-certificate thumbprint or imports a PFX whose password is read from a named
-environment variable. The imported certificate is removed from the current
-user store when packaging finishes. Production CI completes repository
-verification before exposing the PFX/password to a step or materializing the
-temporary certificate file.
+The signing key remains managed by Azure Artifact Signing. Exportable
+certificates, private-key files, and certificate-password variables are
+prohibited in this repository, GitHub Actions, and release documentation.
+The workflow obtains a short-lived GitHub OIDC token only after version,
+source, release-immutability, and non-secret identity checks pass. The Azure
+identity receives only the Artifact Signing Certificate Profile Signer role on
+the selected certificate profile.
 
 ## Version And Source Identity
 
@@ -53,9 +59,9 @@ written to assembly informational metadata, the visible installer header,
 release notes, and the manifest. The manifest also records the repository,
 source commit, commit timestamp, and dirty-worktree state.
 
-A customer release requires `-RequireCleanSource`. The source commit is the
-authoritative link between the package, pull request checks, release notes, and
-retained CI evidence.
+A customer release candidate requires `-RequireCleanSource`. The source commit
+is the authoritative link between the package, pull request checks, release
+notes, and retained GitHub release evidence.
 
 ## Reproducibility
 
@@ -78,18 +84,23 @@ does not promise that independently timestamped signatures are byte-identical.
    `scripts/verify.ps1 -IncludeLiveCloudChecks` only as a separately authorized
    sandbox acceptance step; it is not part of the default or CI verification
    path.
-3. Package with an approved version, certificate, expected publisher, expected
-   certificate thumbprint, and `-RequireCleanSource`.
-4. Run `scripts/test-package-hygiene.ps1` against the extracted directory.
-5. Run `scripts/test-release-package.ps1 -RequireSignature`.
-6. Publish the ZIP, sibling checksum, version, publisher, certificate
-   thumbprint, source commit, and release notes in one GitHub release record.
-   Customers must obtain the expected publisher and thumbprint from this
-   record, not from files inside the ZIP.
+3. Run the protected `Internal Signed Release Candidate` workflow with an
+   unused strict SemVer RC version. It uses Azure Artifact Signing through
+   GitHub OIDC and rejects a request before Azure authentication if the version,
+   source ref, release identity variables, or immutability check is invalid.
+4. The workflow signs the exact required file inventory and creates a detached
+   PKCS#7/CMS manifest signature using `DetachedSignedData`.
+5. The workflow verifies package hygiene, signature validity, timestamps,
+   publisher, certificate thumbprint, detached manifest signature, file hashes,
+   and archive checksum.
+6. The workflow creates one durable draft GitHub release record containing the
+   ZIP, sibling checksum, manifest, detached signature, `SHA256SUMS.txt`, and
+   machine-readable evidence. It does not publish a customer release.
 7. Launch and execute the acceptance matrix on a clean supported Windows 11
-   workstation.
-8. Retain the exact package, CI run, acceptance evidence, and previous approved
-   release for rollback.
+   workstation, then obtain explicit release approval before changing the draft
+   or distributing the package.
+8. Retain the exact package, GitHub release evidence, acceptance evidence, and
+   previous approved release for rollback.
 
 ## Rollback
 

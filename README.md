@@ -182,32 +182,21 @@ exact release manifest, per-file SHA-256 checksums, release notes, and an
 offline verifier. An unsigned package is marked `UnsignedDevelopment` and is
 not a customer release.
 
-Production signing can use a certificate already installed in the current
-user certificate store:
+Signed release candidates are produced only by the protected manual workflow
+on `main`. It uses Azure Artifact Signing with GitHub OIDC; no exportable
+certificate or private key is accepted by repository scripts or GitHub Actions.
+The workflow first builds a clean unsigned payload, signs the exact executable,
+library, and PowerShell-script inventory remotely, creates and signs a detached
+CMS release manifest, cryptographically validates the RFC 3161 TSA signature
+and its binding to the manifest signer, then verifies publisher, hashes, and signatures,
+then creates a durable **draft** GitHub release with the ZIP, checksums, and
+evidence. A draft release candidate is not customer distribution.
 
-```powershell
-pwsh .\scripts\package.ps1 `
-  -Version 0.1.0 `
-  -OutputPath .\artifacts\pagemaker365-installer-0.1.0 `
-  -CodeSigningCertificateThumbprint '<certificate-thumbprint>' `
-  -ExpectedPublisher '<approved-certificate-subject>' `
-  -ExpectedCertificateThumbprint '<certificate-thumbprint>' `
-  -RequireCleanSource
-
-pwsh .\scripts\test-release-package.ps1 `
-  -PackagePath .\artifacts\pagemaker365-installer-0.1.0 `
-  -ArchivePath .\artifacts\pagemaker365-installer-0.1.0.zip `
-  -ExpectedVersion 0.1.0 `
-  -ExpectedPublisher '<approved-certificate-subject>' `
-  -ExpectedCertificateThumbprint '<certificate-thumbprint>' `
-  -RequireSignature
-```
-
-For PFX input, use `-CodeSigningCertificatePath` and provide its password only
-through the environment variable named by
-`-CodeSigningCertificatePasswordEnvironmentVariable`. See
-`docs/release/distribution-contract.md` and
-`docs/customer/installer-distribution-verification.md`.
+The Azure Artifact Signing account, certificate profile, GitHub OIDC federated
+credential, and protected `production-signing` environment must be configured
+and approved before the workflow can run. See
+`docs/release/artifact-signing-oidc-runbook.md` and
+`docs/release/distribution-contract.md`.
 
 ## First Desktop Flow
 

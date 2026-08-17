@@ -209,21 +209,78 @@ $signedWorkflow = Get-Content -LiteralPath $signedWorkflowPath -Raw
 foreach ($requiredPolicy in @(
     "environment: production-signing",
     "`$env:GITHUB_REF -ne 'refs/heads/main'",
-    'PM365_CODESIGN_THUMBPRINT: ${{ vars.PM365_CODESIGN_THUMBPRINT }}',
-    '-ExpectedCertificateThumbprint $env:PM365_CODESIGN_THUMBPRINT',
-    'actions/checkout@v7',
-    'actions/setup-dotnet@v6',
-    'actions/upload-artifact@v7'
+    'id-token: write',
+    'contents: write',
+    'azure/login@93381592711f247e165c389ebb30b596c84cdc48',
+    'Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba',
+    'exclude-environment-credential: true',
+    'exclude-azure-cli-credential: false',
+    'generate-pkcs7: true',
+    'pkcs7-options: DetachedSignedData',
+    'internal-signed-release-candidate-${{ inputs.version }}',
+    'git/ref/tags/v$env:PM365_RELEASE_VERSION',
+    'gh release create',
+    '--draft',
+    'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
+    'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68'
 )) {
     if (-not $signedWorkflow.Contains($requiredPolicy, [StringComparison]::Ordinal)) {
         throw "Signed release workflow policy is missing: $requiredPolicy"
     }
 }
 
-$verifyStepIndex = $signedWorkflow.IndexOf('- name: Verify repository', [StringComparison]::Ordinal)
-$certificateStepIndex = $signedWorkflow.IndexOf('- name: Materialize signing certificate', [StringComparison]::Ordinal)
-if ($verifyStepIndex -lt 0 -or $certificateStepIndex -lt 0 -or $verifyStepIndex -gt $certificateStepIndex) {
-    throw 'Repository verification must complete before the signing certificate is materialized.'
+$requestValidationStepIndex = $signedWorkflow.IndexOf('- name: Validate release request before Azure authentication', [StringComparison]::Ordinal)
+$azureLoginStepIndex = $signedWorkflow.IndexOf('- name: Azure login with GitHub OIDC', [StringComparison]::Ordinal)
+if ($requestValidationStepIndex -lt 0 -or $azureLoginStepIndex -lt 0 -or $requestValidationStepIndex -gt $azureLoginStepIndex) {
+    throw 'Release version and immutable-release validation must complete before Azure authentication.'
+}
+
+$releaseCandidatePatternMatch = [regex]::Match(
+    $signedWorkflow,
+    '\$strictReleaseCandidatePattern = ''([^'']+)''')
+if (-not $releaseCandidatePatternMatch.Success) {
+    throw 'The release workflow is missing its strict release-candidate SemVer validation pattern.'
+}
+$releaseCandidatePattern = $releaseCandidatePatternMatch.Groups[1].Value
+foreach ($validVersion in @('0.1.0-rc.1', '10.20.30-rc.0', '1.2.3-rc.4+build.01')) {
+    if ($validVersion -notmatch $releaseCandidatePattern) {
+        throw "Strict release-candidate SemVer validation rejected valid version: $validVersion"
+    }
+}
+foreach ($invalidVersion in @(
+    '01.1.0-rc.1',
+    '1.01.0-rc.1',
+    '1.1.00-rc.1',
+    '1.1.0-rc.01',
+    '1.1.0',
+    '1.1.0-beta.1'
+)) {
+    if ($invalidVersion -match $releaseCandidatePattern) {
+        throw "Pre-Azure release validation accepted invalid strict SemVer release candidate: $invalidVersion"
+    }
+}
+
+foreach ($forbiddenLegacyReference in @(
+    'PM365_CODESIGN_',
+    'PFX_BASE64',
+    'PFX_PASSWORD',
+    'Materialize signing certificate'
+)) {
+    if ($signedWorkflow.Contains($forbiddenLegacyReference, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Signed release workflow still contains forbidden legacy signing reference: $forbiddenLegacyReference"
+    }
+}
+
+$packageSource = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts\package.ps1') -Raw
+foreach ($forbiddenLegacyReference in @(
+    'Import-PfxCertificate',
+    'Set-AuthenticodeSignature',
+    'CodeSigningCertificatePath',
+    'CodeSigningCertificateThumbprint'
+)) {
+    if ($packageSource.Contains($forbiddenLegacyReference, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Package script still contains local private-key signing reference: $forbiddenLegacyReference"
+    }
 }
 
 Write-Host "Release package checks passed for PageMaker365 Installer $ExpectedVersion."
