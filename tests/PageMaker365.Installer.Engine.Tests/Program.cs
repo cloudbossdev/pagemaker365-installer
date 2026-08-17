@@ -62,6 +62,7 @@ internal static class Program
             ("Initial-install v1 rejects non-Sandbox, expired, and noncanonical bindings", InitialInstallDeliveryContractTests.RejectsNonSandboxExpiredAndNonCanonicalBindings),
             ("Initial-install v1 local receipt seam remains v1-only", InitialInstallDeliveryContractTests.LocalReceiptSeamUsesOnlyV1FieldsAndRejectsUnsafeError),
             ("Private runtime delivery v0.5 acquires control-plane streams with header-only references", PrivateRuntimeDeliveryContractTests.AcquiresPrivateStreamsWithHeaderOnlyReferencesAndRangeResume),
+            ("Private runtime delivery v0.5 rejects a mismatched receipt acknowledgement", PrivateRuntimeDeliveryContractTests.RejectsMismatchedReceiptAcknowledgementAndStagesOutbox),
             ("Private runtime delivery v0.5 rejects location-bearing and tampered packages before transport", PrivateRuntimeDeliveryContractTests.RejectsLocationBearingOrTamperedV05PackageBeforeTransport),
             ("Private runtime delivery v0.5 rejects redirects and stages a sanitized receipt", PrivateRuntimeDeliveryContractTests.RejectsRedirectAndStagesOnlySanitizedFailureReceipt),
             ("Private runtime delivery v0.5 accepts only a control-plane API origin", PrivateRuntimeDeliveryContractTests.RejectsNonApiControlPlaneOriginBeforeTransport),

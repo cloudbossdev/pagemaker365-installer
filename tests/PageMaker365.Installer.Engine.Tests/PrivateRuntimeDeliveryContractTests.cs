@@ -121,6 +121,43 @@ internal static class PrivateRuntimeDeliveryContractTests
         return Task.CompletedTask;
     }
 
+    public static async Task RejectsMismatchedReceiptAcknowledgementAndStagesOutbox()
+    {
+        var apiZip = CreateRuntimeArchive("api");
+        var portalZip = CreateRuntimeArchive("portal");
+        var fixture = CreatePackage(apiZip, portalZip);
+        var outputRoot = CreateTemporaryDirectory();
+        try
+        {
+            using var delivery = new PrivateRuntimeDeliveryClient(new PrivateRuntimeDeliveryOptions { Timeout = TimeSpan.FromMinutes(1) }, new ScriptedHandler(request =>
+            {
+                if (request.RequestUri!.AbsolutePath == PrivateRuntimeDeliveryPackage.SessionPathValue) return JsonResponse(SessionResponse());
+                if (request.RequestUri!.AbsolutePath == PrivateRuntimeDeliveryPackage.ReceiptPathValue)
+                {
+                    using var receipt = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    return JsonResponse(MismatchedReceiptResponse(receipt.RootElement));
+                }
+
+                var kind = request.RequestUri!.AbsolutePath.EndsWith("/api", StringComparison.Ordinal) ? "api" : "portal";
+                return kind == "api"
+                    ? ArtifactResponse(HttpStatusCode.OK, apiZip, new PrivateRuntimeDeliveryPackageService().ValidateJson(fixture.Json, fixture.TrustOptions).Api, null)
+                    : ArtifactResponse(HttpStatusCode.OK, portalZip, new PrivateRuntimeDeliveryPackageService().ValidateJson(fixture.Json, fixture.TrustOptions).Portal, null);
+            }));
+            var result = await delivery.AcquireAsync(fixture.Json, fixture.TrustOptions, CreateOnboardingSession(), outputRoot, "0.1.0");
+
+            AssertEx.Equal("verified_receipt_pending", result.Outcome);
+            AssertEx.Equal("outbox_pending", result.ReceiptStatus);
+            AssertEx.True(File.Exists(result.ReceiptOutboxPath));
+            var staged = await File.ReadAllTextAsync(result.ReceiptOutboxPath);
+            AssertEx.True(staged.Contains("\"runtime_artifacts_verified\"", StringComparison.Ordinal));
+            AssertEx.False(staged.Contains("runtime_artifacts_failed", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(outputRoot, recursive: true);
+        }
+    }
+
     public static async Task RejectsRedirectAndStagesOnlySanitizedFailureReceipt()
     {
         var fixture = CreatePackage(CreateRuntimeArchive("api"), CreateRuntimeArchive("portal"));
@@ -325,6 +362,24 @@ internal static class PrivateRuntimeDeliveryContractTests
             outcome = requestReceipt.GetProperty("outcome").GetString(),
             artifacts = requestReceipt.GetProperty("artifacts"),
             safeResult = requestReceipt.GetProperty("safeResult"),
+            createdAt = "2026-08-17T00:00:00.000Z"
+        };
+        return JsonSerializer.Serialize(new { ok = true, created = true, receipt = accepted });
+    }
+
+    private static string MismatchedReceiptResponse(JsonElement requestReceipt)
+    {
+        var accepted = new
+        {
+            deliverySessionId = requestReceipt.GetProperty("deliverySessionId").GetString(),
+            packageHash = requestReceipt.GetProperty("packageHash").GetString(),
+            releaseId = requestReceipt.GetProperty("releaseId").GetString(),
+            eventId = requestReceipt.GetProperty("eventId").GetString(),
+            occurredAt = requestReceipt.GetProperty("occurredAt").GetString(),
+            installerVersion = requestReceipt.GetProperty("installerVersion").GetString(),
+            outcome = requestReceipt.GetProperty("outcome").GetString(),
+            artifacts = requestReceipt.GetProperty("artifacts"),
+            safeResult = new { code = "runtime_artifacts_failed", state = "failed" },
             createdAt = "2026-08-17T00:00:00.000Z"
         };
         return JsonSerializer.Serialize(new { ok = true, created = true, receipt = accepted });
