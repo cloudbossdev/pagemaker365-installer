@@ -1,0 +1,6 @@
+{
+  "sourceRepository": "cloudbossdev/pagemaker365",
+  "sourceCommit": "c203283887f6be78c3224ea0c863bc42da1a4f0b",
+  "sourceFixturePath": "apps/api/test/fixtures/private-runtime-delivery-v1",
+  "sourceFixtureManifestSha256": "85bb5ce8af86c6fc01dd5dfa08c62c95fdadee118aa776e6596c38359da07f1c"
+}

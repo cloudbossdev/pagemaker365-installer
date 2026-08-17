@@ -1,0 +1,18 @@
+{
+  "contractVersion": "2.0",
+  "releaseId": "pm365-runtime-0.1.0+fixture.abcdef1",
+  "runtimeVersion": "0.1.0",
+  "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "api": {
+    "fileName": "pagemaker365-api-pm365-runtime-0.1.0+fixture.abcdef1.zip",
+    "sizeBytes": 1234,
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "startupCommand": "node dist/index.js"
+  },
+  "portal": {
+    "fileName": "pagemaker365-portal-pm365-runtime-0.1.0+fixture.abcdef1.zip",
+    "sizeBytes": 5678,
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "startupCommand": "node .pm365/start-portal-runtime.mjs"
+  }
+}

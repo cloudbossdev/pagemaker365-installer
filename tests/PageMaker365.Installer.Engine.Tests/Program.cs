@@ -67,6 +67,8 @@ internal static class Program
             ("Private runtime delivery v0.5 rejects redirects and stages a sanitized receipt", PrivateRuntimeDeliveryContractTests.RejectsRedirectAndStagesOnlySanitizedFailureReceipt),
             ("Private runtime delivery v0.5 accepts only a control-plane API origin", PrivateRuntimeDeliveryContractTests.RejectsNonApiControlPlaneOriginBeforeTransport),
             ("Private runtime delivery v0.5 is exposed through a non-deploying installer gate", PrivateRuntimeDeliveryContractTests.InstallerEngineExposesNonDeployingPrivateAcquisitionGate),
+            ("Private runtime delivery fixture locks P365 bytes and strict package parsing", PrivateRuntimeDeliveryFixtureTests.LocksP365OwnedBytesAndAcceptsTheStrictSignedPackage),
+            ("Private runtime delivery fixture accepts P365 session, artifact, and receipt vectors", PrivateRuntimeDeliveryFixtureTests.MockTransportAcceptsP365SessionArtifactAndReceiptVectorsWithoutLeakingReferences),
             ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
             ("OnboardingSessionService rejects expired bootstrap", OnboardingSessionServiceRejectsExpiredBootstrap),
             ("OnboardingSessionService rejects untrusted bootstrap endpoints", OnboardingSessionServiceRejectsUntrustedBootstrapEndpoints),

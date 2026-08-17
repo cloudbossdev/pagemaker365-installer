@@ -1,0 +1,233 @@
+{
+  "contractVersion": "pagemaker365.private-runtime-delivery-http-fixture.v1",
+  "corsOrigin": "https://installer.fixture.test",
+  "nonProductionResponseHeaders": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    "Pragma": "no-cache",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Permitted-Cross-Domain-Policies": "none",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    "Cross-Origin-Resource-Policy": "same-site",
+    "Access-Control-Allow-Origin": "https://installer.fixture.test",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+    "Access-Control-Max-Age": "86400"
+  },
+  "productionResponseHeaderAdditions": {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
+  },
+  "sessionCreate": {
+    "request": {
+      "method": "POST",
+      "path": "/api/onboarding/installer/runtime-delivery-sessions",
+      "headers": {
+        "Authorization": "Bearer fixture-installer-bearer-token",
+        "X-PM365-Onboarding-Session": "onb_1234567890abcdef",
+        "X-PM365-Onboarding-Code": "fixture-one-time-code",
+        "Content-Type": "application/json"
+      }
+    },
+    "response": {
+      "statusCode": 201,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Access-Control-Allow-Origin": "https://installer.fixture.test",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+        "Access-Control-Max-Age": "86400",
+        "Content-Type": "application/json; charset=utf-8"
+      }
+    }
+  },
+  "api": {
+    "request": {
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/api",
+      "headers": {
+        "Authorization": "Bearer fixture-installer-bearer-token",
+        "X-PM365-Onboarding-Session": "onb_1234567890abcdef",
+        "X-PM365-Onboarding-Code": "fixture-one-time-code",
+        "X-PM365-Runtime-Delivery-Session": "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "X-PM365-Runtime-Delivery-Ref": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+        "If-Match": "\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\""
+      }
+    },
+    "fullResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Access-Control-Allow-Origin": "https://installer.fixture.test",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+        "Access-Control-Max-Age": "86400",
+        "Content-Type": "application/zip",
+        "Content-Length": "1234",
+        "Content-Disposition": "attachment; filename=\"pagemaker365-api-pm365-runtime-0.1.0+fixture.abcdef1.zip\"",
+        "Accept-Ranges": "bytes",
+        "ETag": "\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\""
+      }
+    },
+    "rangeResponse": {
+      "requestHeaders": {
+        "Authorization": "Bearer fixture-installer-bearer-token",
+        "X-PM365-Onboarding-Session": "onb_1234567890abcdef",
+        "X-PM365-Onboarding-Code": "fixture-one-time-code",
+        "X-PM365-Runtime-Delivery-Session": "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "X-PM365-Runtime-Delivery-Ref": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+        "If-Match": "\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+        "Range": "bytes=100-199"
+      },
+      "statusCode": 206,
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Access-Control-Allow-Origin": "https://installer.fixture.test",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+        "Access-Control-Max-Age": "86400",
+        "Content-Type": "application/zip",
+        "Content-Length": "100",
+        "Content-Disposition": "attachment; filename=\"pagemaker365-api-pm365-runtime-0.1.0+fixture.abcdef1.zip\"",
+        "Accept-Ranges": "bytes",
+        "ETag": "\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+        "Content-Range": "bytes 100-199/1234"
+      }
+    }
+  },
+  "portal": {
+    "request": {
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/portal",
+      "headers": {
+        "Authorization": "Bearer fixture-installer-bearer-token",
+        "X-PM365-Onboarding-Session": "onb_1234567890abcdef",
+        "X-PM365-Onboarding-Code": "fixture-one-time-code",
+        "X-PM365-Runtime-Delivery-Session": "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "X-PM365-Runtime-Delivery-Ref": "ard_BBBBBBBBBBBBBBBBBBBBBBBB",
+        "If-Match": "\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\""
+      }
+    },
+    "fullResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Access-Control-Allow-Origin": "https://installer.fixture.test",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+        "Access-Control-Max-Age": "86400",
+        "Content-Type": "application/zip",
+        "Content-Length": "5678",
+        "Content-Disposition": "attachment; filename=\"pagemaker365-portal-pm365-runtime-0.1.0+fixture.abcdef1.zip\"",
+        "Accept-Ranges": "bytes",
+        "ETag": "\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\""
+      }
+    },
+    "rangeResponse": {
+      "requestHeaders": {
+        "Authorization": "Bearer fixture-installer-bearer-token",
+        "X-PM365-Onboarding-Session": "onb_1234567890abcdef",
+        "X-PM365-Onboarding-Code": "fixture-one-time-code",
+        "X-PM365-Runtime-Delivery-Session": "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "X-PM365-Runtime-Delivery-Ref": "ard_BBBBBBBBBBBBBBBBBBBBBBBB",
+        "If-Match": "\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"",
+        "Range": "bytes=500-999"
+      },
+      "statusCode": 206,
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Access-Control-Allow-Origin": "https://installer.fixture.test",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+        "Access-Control-Max-Age": "86400",
+        "Content-Type": "application/zip",
+        "Content-Length": "500",
+        "Content-Disposition": "attachment; filename=\"pagemaker365-portal-pm365-runtime-0.1.0+fixture.abcdef1.zip\"",
+        "Accept-Ranges": "bytes",
+        "ETag": "\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"",
+        "Content-Range": "bytes 500-999/5678"
+      }
+    }
+  },
+  "receipt": {
+    "request": {
+      "method": "POST",
+      "path": "/api/onboarding/installer/runtime-delivery-receipts",
+      "headers": {
+        "Authorization": "Bearer fixture-installer-bearer-token",
+        "X-PM365-Onboarding-Session": "onb_1234567890abcdef",
+        "X-PM365-Onboarding-Code": "fixture-one-time-code",
+        "X-PM365-Runtime-Delivery-Session": "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "Idempotency-Key": "fixture-runtime-delivery-receipt-001",
+        "Content-Type": "application/json"
+      }
+    },
+    "response": {
+      "statusCode": 201,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Access-Control-Allow-Origin": "https://installer.fixture.test",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Admin-API-Key,X-Customer-Portal-Email,X-Customer-Portal-Code,X-Scheduling-Token,X-PM365-Onboarding-Session,X-PM365-Onboarding-Code,X-PM365-Initial-Install-Code,X-PM365-Initial-Install-Receipt",
+        "Access-Control-Max-Age": "86400",
+        "Content-Type": "application/json; charset=utf-8"
+      }
+    }
+  }
+}
