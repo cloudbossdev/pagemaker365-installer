@@ -33,6 +33,45 @@ public sealed class InstallerEngine
         return session;
     }
 
+    /// <summary>
+    /// Production entry point for the customer-install 0.5 acquisition gate.
+    /// It returns only verified local artifact paths and never invokes a
+    /// PowerShell deployment, tenant write, or legacy 0.4 URL downloader.
+    /// A later, separately approved deployment stage must consume the returned
+    /// paths explicitly.
+    /// </summary>
+    public Task<PrivateRuntimeDeliveryResult> AcquirePrivateRuntimeAsync(
+        string customerInstallPackageJson,
+        OnboardingBootstrapSession onboardingSession,
+        string workspaceRoot,
+        string installerVersion,
+        CancellationToken cancellationToken = default) =>
+        AcquirePrivateRuntimeAsync(
+            customerInstallPackageJson,
+            PackageTrustOptions.FromEnvironment(),
+            onboardingSession,
+            workspaceRoot,
+            installerVersion,
+            cancellationToken);
+
+    public async Task<PrivateRuntimeDeliveryResult> AcquirePrivateRuntimeAsync(
+        string customerInstallPackageJson,
+        PackageTrustOptions trustOptions,
+        OnboardingBootstrapSession onboardingSession,
+        string workspaceRoot,
+        string installerVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var delivery = new PrivateRuntimeDeliveryClient();
+        return await delivery.AcquireAsync(
+            customerInstallPackageJson,
+            trustOptions,
+            onboardingSession,
+            workspaceRoot,
+            installerVersion,
+            cancellationToken);
+    }
+
     public async Task<IReadOnlyList<InstallerStepResult>> RunPreflightAsync(
         InstallerSession session,
         IProgress<InstallerStepResult>? progress = null,
