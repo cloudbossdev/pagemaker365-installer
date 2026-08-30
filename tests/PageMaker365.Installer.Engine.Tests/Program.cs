@@ -34,6 +34,7 @@ internal static class Program
 
         var tests = new (string Name, Func<Task> Run)[]
         {
+            ("Dynamic local runtime v0.6 consumes only the accepted closed external handoff", DynamicV06ExternalHandoffTests.RunFromEnvironmentAsync),
             ("ConnectAsync sends expected session request and headers", ConnectAsyncSendsExpectedSessionRequestAndHeaders),
             ("SubmitDiscoveryAsync sends install-readiness discovery payload", SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload),
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
