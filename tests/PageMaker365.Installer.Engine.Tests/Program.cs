@@ -34,6 +34,7 @@ internal static class Program
 
         var tests = new (string Name, Func<Task> Run)[]
         {
+            ("Dynamic local runtime v0.6 consumes only the accepted closed external handoff", DynamicV06ExternalHandoffTests.RunFromEnvironmentAsync),
             ("ConnectAsync sends expected session request and headers", ConnectAsyncSendsExpectedSessionRequestAndHeaders),
             ("SubmitDiscoveryAsync sends install-readiness discovery payload", SubmitDiscoveryAsyncSendsInstallReadinessDiscoveryPayload),
             ("GetOnboardingStatusAsync sends only sanitized package context", GetOnboardingStatusAsyncSendsOnlySanitizedPackageContext),
@@ -74,6 +75,14 @@ internal static class Program
             ("Private runtime delivery v0.5 is exposed through a non-deploying installer gate", PrivateRuntimeDeliveryContractTests.InstallerEngineExposesNonDeployingPrivateAcquisitionGate),
             ("Private runtime delivery fixture locks P365 bytes and strict package parsing", PrivateRuntimeDeliveryFixtureTests.LocksP365OwnedBytesAndAcceptsTheStrictSignedPackage),
             ("Private runtime delivery fixture accepts P365 session, artifact, and receipt vectors", PrivateRuntimeDeliveryFixtureTests.MockTransportAcceptsP365SessionArtifactAndReceiptVectorsWithoutLeakingReferences),
+            ("Private runtime delivery v0.6 locks accepted producer bytes and validates the rich-v3 pair", PrivateRuntimeDeliveryV06FixtureTests.LocksAcceptedProducerBytesAndValidatesV06V3Pair),
+            ("Private runtime delivery v0.6 rejects every mixed or unknown package-manifest pair", PrivateRuntimeDeliveryV06FixtureTests.RejectsEveryMixedOrUnknownPackageManifestPair),
+            ("Private runtime delivery v0.6 remains outside deployment and configuration", PrivateRuntimeDeliveryV06FixtureTests.ProvesV06HasNoDeploymentEngineBridgeOrConfigurationClaim),
+            ("Private runtime delivery v0.6 is disabled before validation or transport by default", PrivateRuntimeDeliveryContractTests.V06IsDefaultDeniedBeforeValidationOrTransport),
+            ("Private runtime delivery v0.6 binds canonical manifest bytes and exact v3 value rules", PrivateRuntimeDeliveryContractTests.V06BindsCanonicalManifestAndUsesExactV3ValueRules),
+            ("Private runtime delivery v0.6 rejects cacheable and invalid-range responses before verified output", PrivateRuntimeDeliveryContractTests.V06RejectsUnsafeResponseMetadataBeforeVerifiedOutput),
+            ("Private runtime delivery v0.6 rejects expiry, session mismatch, and invalid archive provenance", PrivateRuntimeDeliveryContractTests.V06RejectsExpirySessionMismatchAndInvalidArchiveProvenance),
+            ("Private runtime delivery v0.6 acquires full and resumed streams through explicit local transport", PrivateRuntimeDeliveryContractTests.AcquiresV06PrivateStreamsWithHeaderOnlyReferencesAndRangeResume),
             ("OnboardingSessionService rejects bootstrap missing required runtime fields", OnboardingSessionServiceRejectsBootstrapMissingRequiredRuntimeFields),
             ("OnboardingSessionService rejects expired bootstrap", OnboardingSessionServiceRejectsExpiredBootstrap),
             ("OnboardingSessionService rejects untrusted bootstrap endpoints", OnboardingSessionServiceRejectsUntrustedBootstrapEndpoints),

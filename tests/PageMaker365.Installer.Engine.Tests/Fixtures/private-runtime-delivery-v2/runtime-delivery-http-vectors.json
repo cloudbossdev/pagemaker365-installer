@@ -1,0 +1,51 @@
+{
+  "contractVersion": "pagemaker365.private-runtime-delivery-http-fixture.v2",
+  "session": {
+    "method": "POST",
+    "path": "/api/onboarding/installer/runtime-delivery-sessions",
+    "statusCode": 201
+  },
+  "api": {
+    "request": {
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/api",
+      "deliveryRef": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+      "ifMatch": "\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\""
+    },
+    "fullResponse": {
+      "statusCode": 200,
+      "contentLength": "1024",
+      "contentDisposition": "attachment; filename=\"pagemaker365-api-pm365-runtime-1.4.3+fixture.abc1234.zip\""
+    },
+    "rangeResponse": {
+      "requestRange": "bytes=100-199",
+      "statusCode": 206,
+      "contentLength": "100",
+      "contentRange": "bytes 100-199/1024"
+    }
+  },
+  "portal": {
+    "request": {
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/portal",
+      "deliveryRef": "ard_BBBBBBBBBBBBBBBBBBBBBBBB",
+      "ifMatch": "\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\""
+    },
+    "fullResponse": {
+      "statusCode": 200,
+      "contentLength": "2048",
+      "contentDisposition": "attachment; filename=\"pagemaker365-portal-pm365-runtime-1.4.3+fixture.abc1234.zip\""
+    },
+    "rangeResponse": {
+      "requestRange": "bytes=500-999",
+      "statusCode": 206,
+      "contentLength": "500",
+      "contentRange": "bytes 500-999/2048"
+    }
+  },
+  "receipt": {
+    "method": "POST",
+    "path": "/api/onboarding/installer/runtime-delivery-receipts",
+    "statusCode": 201
+  }
+}

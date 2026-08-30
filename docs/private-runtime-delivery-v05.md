@@ -1,8 +1,14 @@
 # Private runtime delivery — installer consumer
 
-`customer-install` `0.5` is the only installer package accepted by the
+Historical compatibility boundary. New rich-manifest protocol work uses the
+closed package `0.6` / manifest `3.0` consumer documented in
+`private-runtime-delivery-v06.md`. The accepted package `0.5` and simplified
+manifest `2.0` bytes and behavior remain unchanged.
+
+`customer-install` `0.5` remains the historical package accepted by its
 private runtime-acquisition consumer. It is separate from customer package
-`0.4` and the validation-only `initial-install` v1 handoff. Neither legacy
+`0.4`, the closed default-disabled `0.6` consumer, and the validation-only
+`initial-install` v1 handoff. Neither legacy
 path can invoke this consumer.
 
 The installer first verifies the strict signed package: the canonical payload

@@ -6,3 +6,4 @@
 
 # This is a raw byte-for-byte copy of the PageMaker365-owned wire fixture.
 /tests/PageMaker365.Installer.Engine.Tests/Fixtures/private-runtime-delivery-v1/** text eol=lf
+/tests/PageMaker365.Installer.Engine.Tests/Fixtures/private-runtime-delivery-v2/** text eol=lf

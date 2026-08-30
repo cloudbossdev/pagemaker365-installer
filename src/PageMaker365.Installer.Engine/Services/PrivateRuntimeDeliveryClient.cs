@@ -27,9 +27,10 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
 
     private readonly PrivateRuntimeDeliveryOptions _options;
     private readonly HttpClient _httpClient;
+    private readonly bool _usesExplicitTestTransport;
 
     public PrivateRuntimeDeliveryClient(PrivateRuntimeDeliveryOptions? options = null)
-        : this(options, new HttpClientHandler { AllowAutoRedirect = false })
+        : this(options, new HttpClientHandler { AllowAutoRedirect = false }, usesExplicitTestTransport: false)
     {
     }
 
@@ -37,8 +38,14 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
     // callers cannot supply a transport that might forward session credentials
     // or delivery references on a redirect.
     internal PrivateRuntimeDeliveryClient(PrivateRuntimeDeliveryOptions? options, HttpMessageHandler transport)
+        : this(options, transport, usesExplicitTestTransport: true)
+    {
+    }
+
+    private PrivateRuntimeDeliveryClient(PrivateRuntimeDeliveryOptions? options, HttpMessageHandler transport, bool usesExplicitTestTransport)
     {
         _options = options ?? new PrivateRuntimeDeliveryOptions();
+        _usesExplicitTestTransport = usesExplicitTestTransport;
         ArgumentNullException.ThrowIfNull(transport);
         if (_options.Timeout <= TimeSpan.Zero || _options.Timeout > TimeSpan.FromMinutes(15))
         {
@@ -61,6 +68,31 @@ public sealed class PrivateRuntimeDeliveryClient : IDisposable
             outputRoot,
             installerVersion,
             cancellationToken);
+
+    /// <summary>
+    /// Explicit package 0.6 / manifest 3.0 acquisition gate. The option is
+    /// false by default, and this path remains acquisition-only.
+    /// </summary>
+    public Task<PrivateRuntimeDeliveryResult> AcquireV06Async(
+        string packageJson,
+        PackageTrustOptions trustOptions,
+        OnboardingBootstrapSession onboardingSession,
+        string outputRoot,
+        string installerVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_options.EnablePackageV06 || !_usesExplicitTestTransport)
+        {
+            throw new InvalidOperationException("Package 0.6 private runtime acquisition is disabled outside its explicit test transport.");
+        }
+
+        return AcquireAsync(
+            new PrivateRuntimeDeliveryV06PackageService().ValidateJson(packageJson, trustOptions),
+            onboardingSession,
+            outputRoot,
+            installerVersion,
+            cancellationToken);
+    }
 
     internal async Task<PrivateRuntimeDeliveryResult> AcquireAsync(
         PrivateRuntimeDeliveryPackage package,
