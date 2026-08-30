@@ -1,0 +1,23 @@
+{
+  "contractVersion": "3.0",
+  "product": "PageMaker365",
+  "releaseId": "pm365-runtime-1.4.3+fixture.abc1234",
+  "runtimeVersion": "1.4.3",
+  "sourceRepository": "cloudbossdev/spo-ui",
+  "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "provenanceSchemaVersion": "pagemaker365.runtime-provenance.v1",
+  "api": {
+    "fileName": "pagemaker365-api-pm365-runtime-1.4.3+fixture.abc1234.zip",
+    "sizeBytes": 1024,
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "startupCommand": "node dist/index.js",
+    "artifactKind": "api"
+  },
+  "portal": {
+    "fileName": "pagemaker365-portal-pm365-runtime-1.4.3+fixture.abc1234.zip",
+    "sizeBytes": 2048,
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "startupCommand": "node .pm365/start-portal-runtime.mjs",
+    "artifactKind": "portal"
+  }
+}

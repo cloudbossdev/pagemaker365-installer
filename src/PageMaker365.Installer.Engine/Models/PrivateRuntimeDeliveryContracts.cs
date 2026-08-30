@@ -3,10 +3,10 @@ using System.Text.Json.Serialization;
 namespace PageMaker365.Installer.Engine.Models;
 
 /// <summary>
-/// Immutable, signed customer-install 0.5 package material. This model is
-/// deliberately separate from the legacy 0.4 customer configuration model:
-/// it does not carry an artifact URL, storage locator, or delegated storage
-/// credential.
+/// Immutable, signed location-free customer-install package material shared by
+/// the closed 0.5 and 0.6 validators. This model is deliberately separate from
+/// the legacy 0.4 customer configuration model: it does not carry an artifact
+/// URL, storage locator, or delegated storage credential.
 /// </summary>
 public sealed class PrivateRuntimeDeliveryPackage
 {
@@ -18,6 +18,9 @@ public sealed class PrivateRuntimeDeliveryPackage
     public const string ReceiptPathValue = "/api/onboarding/installer/runtime-delivery-receipts";
 
     public string PackageHash { get; init; } = "";
+    public string ContractVersion { get; init; } = ContractVersionValue;
+    public string ManifestContractVersion { get; init; } = "2.0";
+    public string Product { get; init; } = "PageMaker365";
     public string SigningKeyId { get; init; } = "";
     public string CustomerId { get; init; } = "";
     public string InstallationId { get; init; } = "";
@@ -103,6 +106,19 @@ public sealed class PrivateRuntimeDeliveryOptions
     public string ApiBaseUrl { get; init; } = "https://api.pagemaker365.com";
     public string ApiKeyEnvironmentVariable { get; init; } = "PM365_ONBOARDING_API_KEY";
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// Package 0.6 / manifest 3.0 acquisition remains disabled unless an
+    /// explicitly authorized caller enables the negotiated consumer. Package
+    /// 0.5 behavior is unaffected by this gate.
+    /// </summary>
+    public bool EnablePackageV06 { get; init; }
+}
+
+public static class PrivateRuntimeDeliveryPackageV06
+{
+    public const string ContractVersionValue = "0.6";
+    public const string CapabilityValue = "pagemaker365.customer-install.0.6.protected-acquisition.v1";
+    public const string ManifestContractVersionValue = "3.0";
 }
 
 public sealed class PrivateRuntimeDeliveryReceipt

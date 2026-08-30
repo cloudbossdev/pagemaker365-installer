@@ -1,5 +1,10 @@
 # PageMaker365 Runtime Artifact Contract
 
+> Historical URL-bearing package `0.4` deployment contract. The current
+> private, location-free package `0.6` / manifest `3.0` acquisition boundary is
+> documented in `private-runtime-delivery-v06.md`. That consumer does not yet
+> bridge acquired bytes into deployment.
+
 Status: aligned to `cloudbossdev/spo-ui@1a4aa8519456d1c59022b7f962331389c18e9f9e`; installer implementation in progress
 
 Tracking issue: [installer #5](https://github.com/cloudbossdev/pagemaker365-installer/issues/5)

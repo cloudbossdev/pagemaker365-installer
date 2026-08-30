@@ -29,33 +29,49 @@ public sealed class PrivateRuntimeDeliveryPackageService
     private static readonly Regex SigningKeyId = new("^[A-Za-z0-9._-]{1,128}$", RegexOptions.CultureInvariant);
     private static readonly Regex Base64Url = new("^[A-Za-z0-9_-]{40,256}$", RegexOptions.CultureInvariant);
     private static readonly Regex SettingName = new("^[A-Z][A-Z0-9_]{0,127}$", RegexOptions.CultureInvariant);
+    private static readonly Regex V06Uuid = new("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex SafeArtifactFileName = new("^[A-Za-z0-9][A-Za-z0-9._+-]*\\.zip$", RegexOptions.CultureInvariant);
     private static readonly Regex ForbiddenSettingName = new("(SECRET|TOKEN|PASSWORD|PRIVATE|CONNECTION|SAS|STORAGE|BLOB)", RegexOptions.CultureInvariant);
     private static readonly Regex ForbiddenLocationOrCredential = new("(blob\\.core\\.windows\\.net|[?&](?:sig|sv|se|sp)=|^https?://downloads\\.)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly string[] TopLevelFields = ["contractVersion", "customer", "installation", "deployment", "controlPlane", "runtimeArtifacts", "protectedAcquisition", "runtimeConfiguration"];
     private static readonly string[] ControlPlaneFields = ["onboardingSessionId", "expiresAt", "acceptedInstallerCapability", "packageHash", "packageHashAlgorithm", "canonicalization", "signatureAlgorithm", "signingKeyId", "signature"];
-    private static readonly string[] RuntimeFields = ["manifestContractVersion", "manifestSha256", "releaseId", "runtimeVersion", "sourceRepository", "sourceCommit", "provenanceSchemaVersion", "api", "portal"];
+    private static readonly string[] RuntimeV05Fields = ["manifestContractVersion", "manifestSha256", "releaseId", "runtimeVersion", "sourceRepository", "sourceCommit", "provenanceSchemaVersion", "api", "portal"];
+    private static readonly string[] RuntimeV06Fields = ["manifestContractVersion", "manifestSha256", "product", "releaseId", "runtimeVersion", "sourceRepository", "sourceCommit", "provenanceSchemaVersion", "api", "portal"];
     private static readonly string[] ArtifactFields = ["artifactKind", "fileName", "sizeBytes", "sha256", "startupCommand"];
     private static readonly string[] AcquisitionFields = ["contractVersion", "sessionPath", "artifactPath", "receiptPath", "authorizationMode", "expiresAt", "artifactReferences"];
 
     public PrivateRuntimeDeliveryPackage ValidateJson(
         string packageJson,
         PackageTrustOptions trustOptions,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null) =>
+        ValidateJson(packageJson, trustOptions, ContractProfile.V05, now);
+
+    internal static PrivateRuntimeDeliveryPackage ValidateV06Json(
+        string packageJson,
+        PackageTrustOptions trustOptions,
+        DateTimeOffset? now = null) =>
+        ValidateJson(packageJson, trustOptions, ContractProfile.V06, now);
+
+    private static PrivateRuntimeDeliveryPackage ValidateJson(
+        string packageJson,
+        PackageTrustOptions trustOptions,
+        ContractProfile profile,
+        DateTimeOffset? now)
     {
         ArgumentNullException.ThrowIfNull(trustOptions);
         if (string.IsNullOrWhiteSpace(packageJson))
         {
-            throw new InvalidDataException("Customer-install 0.5 package is required.");
+            throw new InvalidDataException($"Customer-install {profile.PackageVersion} package is required.");
         }
 
         var utf8 = new UTF8Encoding(false, true).GetBytes(packageJson);
         if (utf8.Length > MaximumPackageBytes)
         {
-            throw new InvalidDataException("Customer-install 0.5 package exceeds its approved size.");
+            throw new InvalidDataException($"Customer-install {profile.PackageVersion} package exceeds its approved size.");
         }
 
-        RejectDuplicateProperties(utf8);
+        RejectDuplicateProperties(utf8, profile.PackageVersion);
         using var document = JsonDocument.Parse(utf8, new JsonDocumentOptions
         {
             AllowTrailingCommas = false,
@@ -64,22 +80,22 @@ public sealed class PrivateRuntimeDeliveryPackageService
         });
 
         var root = document.RootElement;
-        RequireExactObject(root, TopLevelFields, "customer-install 0.5 package");
-        RequireString(root, "contractVersion", PrivateRuntimeDeliveryPackage.ContractVersionValue);
+        RequireExactObject(root, TopLevelFields, $"customer-install {profile.PackageVersion} package");
+        RequireString(root, "contractVersion", profile.PackageVersion);
 
         var customer = RequireObject(root, "customer");
         RequireExactObject(customer, ["customerId"], "customer-install customer");
-        var customerId = RequireUuid(customer, "customerId");
+        var customerId = RequireUuid(customer, "customerId", profile.IsV06);
 
         var installation = RequireObject(root, "installation");
         RequireExactObject(installation, ["installationId", "environmentId", "tenantId"], "customer-install installation");
-        var installationId = RequireUuid(installation, "installationId");
-        var environmentId = RequireUuid(installation, "environmentId");
-        var tenantId = RequireUuid(installation, "tenantId");
+        var installationId = RequireUuid(installation, "installationId", profile.IsV06);
+        var environmentId = RequireUuid(installation, "environmentId", profile.IsV06);
+        var tenantId = RequireUuid(installation, "tenantId", profile.IsV06);
 
         var deployment = RequireObject(root, "deployment");
         RequireExactObject(deployment, ["deploymentExportId"], "customer-install deployment");
-        var deploymentExportId = RequireUuid(deployment, "deploymentExportId");
+        var deploymentExportId = RequireUuid(deployment, "deploymentExportId", profile.IsV06);
 
         var controlPlane = RequireObject(root, "controlPlane");
         RequireExactObject(controlPlane, ControlPlaneFields, "customer-install control plane");
@@ -87,8 +103,8 @@ public sealed class PrivateRuntimeDeliveryPackageService
         if (!OnboardingSession.IsMatch(onboardingSessionId)) Fail("onboardingSessionId is invalid.");
         var expiresAt = RequireCanonicalUtcDate(controlPlane, "expiresAt");
         var utcNow = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
-        if (expiresAt <= utcNow) Fail("Customer-install 0.5 package has expired.");
-        RequireString(controlPlane, "acceptedInstallerCapability", PrivateRuntimeDeliveryPackage.CapabilityValue);
+        if (expiresAt <= utcNow) Fail($"Customer-install {profile.PackageVersion} package has expired.");
+        RequireString(controlPlane, "acceptedInstallerCapability", profile.Capability);
         var packageHash = RequireString(controlPlane, "packageHash");
         if (!PackageHash.IsMatch(packageHash)) Fail("packageHash is invalid.");
         RequireString(controlPlane, "packageHashAlgorithm", "SHA-256");
@@ -99,22 +115,31 @@ public sealed class PrivateRuntimeDeliveryPackageService
         var signature = RequireBase64Url(controlPlane, "signature", 64);
 
         var runtime = RequireObject(root, "runtimeArtifacts");
-        RequireExactObject(runtime, RuntimeFields, "customer-install runtime artifacts");
-        RequireString(runtime, "manifestContractVersion", "2.0");
+        RequireExactObject(runtime, profile.RuntimeFields, "customer-install runtime artifacts");
+        RequireString(runtime, "manifestContractVersion", profile.ManifestVersion);
         var manifestSha256 = RequireDigest(runtime, "manifestSha256");
+        if (profile.RequiresProduct) RequireString(runtime, "product", "PageMaker365");
         var releaseId = RequireString(runtime, "releaseId");
         if (!ReleaseId.IsMatch(releaseId)) Fail("runtimeArtifacts.releaseId is invalid.");
         var runtimeVersion = RequireString(runtime, "runtimeVersion");
-        if (!SemVer.IsMatch(runtimeVersion)) Fail("runtimeArtifacts.runtimeVersion is invalid.");
+        if (profile.IsV06 ? !IsSupportedV3RuntimeVersion(runtimeVersion) : !SemVer.IsMatch(runtimeVersion)) Fail("runtimeArtifacts.runtimeVersion is invalid.");
         RequireString(runtime, "sourceRepository", "cloudbossdev/spo-ui");
         var sourceCommit = RequireString(runtime, "sourceCommit");
         if (!SourceCommit.IsMatch(sourceCommit)) Fail("runtimeArtifacts.sourceCommit is invalid.");
         RequireString(runtime, "provenanceSchemaVersion", "pagemaker365.runtime-provenance.v1");
-        var api = ValidateArtifact(RequireObject(runtime, "api"), "api", releaseId, "node dist/index.js");
-        var portal = ValidateArtifact(RequireObject(runtime, "portal"), "portal", releaseId, "node .pm365/start-portal-runtime.mjs");
-        if (api.FileName.Equals(portal.FileName, StringComparison.Ordinal) || api.Sha256.Equals(portal.Sha256, StringComparison.Ordinal))
+        var api = ValidateArtifact(RequireObject(runtime, "api"), "api", releaseId, "node dist/index.js", profile.IsV06);
+        var portal = ValidateArtifact(RequireObject(runtime, "portal"), "portal", releaseId, "node .pm365/start-portal-runtime.mjs", profile.IsV06);
+        if (api.FileName.Equals(portal.FileName, StringComparison.Ordinal) || (!profile.IsV06 && api.Sha256.Equals(portal.Sha256, StringComparison.Ordinal)))
         {
             Fail("Runtime artifact identities must be distinct.");
+        }
+        if (profile.IsV06)
+        {
+            var computedManifestSha256 = Convert.ToHexString(SHA256.HashData(FormatCanonicalManifestV3(runtime))).ToLowerInvariant();
+            if (!FixedTimeEquals(manifestSha256, computedManifestSha256))
+            {
+                Fail("runtimeArtifacts.manifestSha256 does not bind the exact canonical manifest 3.0 identity.");
+            }
         }
 
         var acquisition = RequireObject(root, "protectedAcquisition");
@@ -135,31 +160,34 @@ public sealed class PrivateRuntimeDeliveryPackageService
         }
 
         ValidateRuntimeConfiguration(RequireObject(root, "runtimeConfiguration"));
-        RejectLocationOrCredentialMaterial(root);
-        if (!packageJson.Equals(FormatCanonicalPackage(root), StringComparison.Ordinal))
+        RejectLocationOrCredentialMaterial(root, profile.PackageVersion);
+        if (!packageJson.Equals(FormatCanonicalPackage(root, profile), StringComparison.Ordinal))
         {
-            Fail("Customer-install 0.5 package is not in its required canonical form.");
+            Fail($"Customer-install {profile.PackageVersion} package is not in its required canonical form.");
         }
 
         var canonicalSigningPayload = CanonicalizeSigningPayload(root);
         var computedPackageHash = "sha256:" + Convert.ToHexString(SHA256.HashData(canonicalSigningPayload)).ToLowerInvariant();
         if (!FixedTimeEquals(packageHash, computedPackageHash))
         {
-            Fail("Customer-install 0.5 packageHash does not match the canonical signed payload.");
+            Fail($"Customer-install {profile.PackageVersion} packageHash does not match the canonical signed payload.");
         }
 
         var trustedPublicKey = trustOptions.GetTrustedPublicKey(signingKeyId);
         if (string.IsNullOrWhiteSpace(trustedPublicKey))
         {
-            Fail("Customer-install 0.5 signingKeyId is not configured in the installer trust map.");
+            Fail($"Customer-install {profile.PackageVersion} signingKeyId is not configured in the installer trust map.");
         }
         if (!VerifyEd25519Signature(trustedPublicKey, canonicalSigningPayload, signature))
         {
-            Fail("Customer-install 0.5 signature verification failed.");
+            Fail($"Customer-install {profile.PackageVersion} signature verification failed.");
         }
 
         return new PrivateRuntimeDeliveryPackage
         {
+            ContractVersion = profile.PackageVersion,
+            ManifestContractVersion = profile.ManifestVersion,
+            Product = "PageMaker365",
             PackageHash = packageHash,
             SigningKeyId = signingKeyId,
             CustomerId = customerId,
@@ -204,7 +232,11 @@ public sealed class PrivateRuntimeDeliveryPackageService
     /// validation so whitespace or property-order variations cannot create a
     /// second representation of the same signed authority.
     /// </summary>
-    public static string FormatCanonicalPackage(JsonElement root)
+    public static string FormatCanonicalPackage(JsonElement root) => FormatCanonicalPackage(root, ContractProfile.V05);
+
+    internal static string FormatCanonicalV06Package(JsonElement root) => FormatCanonicalPackage(root, ContractProfile.V06);
+
+    private static string FormatCanonicalPackage(JsonElement root, ContractProfile profile)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -214,7 +246,7 @@ public sealed class PrivateRuntimeDeliveryPackageService
             SkipValidation = false
         }))
         {
-            WritePackageObject(writer, root, "root");
+            WritePackageObject(writer, root, "root", profile);
         }
         // The producer locks canonical package bytes with LF line endings.
         // Utf8JsonWriter's indented mode follows the host newline convention,
@@ -222,17 +254,68 @@ public sealed class PrivateRuntimeDeliveryPackageService
         return Encoding.UTF8.GetString(stream.ToArray()).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
     }
 
-    private static PrivateRuntimeArtifact ValidateArtifact(JsonElement artifact, string kind, string releaseId, string startupCommand)
+    private static PrivateRuntimeArtifact ValidateArtifact(JsonElement artifact, string kind, string releaseId, string startupCommand, bool isV06)
     {
         RequireExactObject(artifact, ArtifactFields, $"customer-install {kind} artifact");
         RequireString(artifact, "artifactKind", kind);
         var fileName = RequireString(artifact, "fileName");
-        if (!fileName.Equals($"pagemaker365-{kind}-{releaseId}.zip", StringComparison.Ordinal)) Fail($"runtimeArtifacts.{kind}.fileName is invalid.");
+        if (isV06)
+        {
+            if (fileName.Length > 255 || !SafeArtifactFileName.IsMatch(fileName)) Fail($"runtimeArtifacts.{kind}.fileName is invalid.");
+        }
+        else if (!fileName.Equals($"pagemaker365-{kind}-{releaseId}.zip", StringComparison.Ordinal))
+        {
+            Fail($"runtimeArtifacts.{kind}.fileName is invalid.");
+        }
         var sizeBytes = RequirePositiveInteger(artifact, "sizeBytes");
         if (sizeBytes > 268_435_456) Fail($"runtimeArtifacts.{kind}.sizeBytes exceeds the approved limit.");
         var sha256 = RequireDigest(artifact, "sha256");
         RequireString(artifact, "startupCommand", startupCommand);
         return new PrivateRuntimeArtifact { ArtifactKind = kind, FileName = fileName, SizeBytes = sizeBytes, Sha256 = sha256, StartupCommand = startupCommand };
+    }
+
+    private static byte[] FormatCanonicalManifestV3(JsonElement runtime)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+        {
+            Indented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            SkipValidation = false
+        }))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("contractVersion", "3.0");
+            writer.WriteString("product", "PageMaker365");
+            writer.WriteString("releaseId", runtime.GetProperty("releaseId").GetString());
+            writer.WriteString("runtimeVersion", runtime.GetProperty("runtimeVersion").GetString());
+            writer.WriteString("sourceRepository", "cloudbossdev/spo-ui");
+            writer.WriteString("sourceCommit", runtime.GetProperty("sourceCommit").GetString());
+            writer.WriteString("provenanceSchemaVersion", "pagemaker365.runtime-provenance.v1");
+            WriteManifestArtifact(writer, "api", runtime.GetProperty("api"));
+            WriteManifestArtifact(writer, "portal", runtime.GetProperty("portal"));
+            writer.WriteEndObject();
+        }
+        var canonical = Encoding.UTF8.GetString(stream.ToArray()).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
+        return Encoding.UTF8.GetBytes(canonical);
+    }
+
+    private static void WriteManifestArtifact(Utf8JsonWriter writer, string propertyName, JsonElement artifact)
+    {
+        writer.WritePropertyName(propertyName);
+        writer.WriteStartObject();
+        writer.WriteString("fileName", artifact.GetProperty("fileName").GetString());
+        writer.WriteNumber("sizeBytes", artifact.GetProperty("sizeBytes").GetInt64());
+        writer.WriteString("sha256", artifact.GetProperty("sha256").GetString());
+        writer.WriteString("startupCommand", artifact.GetProperty("startupCommand").GetString());
+        writer.WriteString("artifactKind", artifact.GetProperty("artifactKind").GetString());
+        writer.WriteEndObject();
+    }
+
+    private static bool IsSupportedV3RuntimeVersion(string value)
+    {
+        var match = Regex.Match(value, "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", RegexOptions.CultureInvariant);
+        return match.Success && match.Groups.Cast<Group>().Skip(1).All(group => int.TryParse(group.Value, NumberStyles.None, CultureInfo.InvariantCulture, out _));
     }
 
     private static void ValidateRuntimeConfiguration(JsonElement configuration)
@@ -291,11 +374,11 @@ public sealed class PrivateRuntimeDeliveryPackageService
         return stream.ToArray();
     }
 
-    private static void RejectLocationOrCredentialMaterial(JsonElement value)
+    private static void RejectLocationOrCredentialMaterial(JsonElement value, string packageVersion)
     {
         if (value.ValueKind == JsonValueKind.Array)
         {
-            foreach (var item in value.EnumerateArray()) RejectLocationOrCredentialMaterial(item);
+            foreach (var item in value.EnumerateArray()) RejectLocationOrCredentialMaterial(item, packageVersion);
             return;
         }
         if (value.ValueKind != JsonValueKind.Object) return;
@@ -303,13 +386,13 @@ public sealed class PrivateRuntimeDeliveryPackageService
         {
             if (property.Name is "downloadUrl" or "url" or "host" or "origin" or "objectLocator" or "objectRef" or "sas" or "storageAccount" or "blob" or "token")
             {
-                Fail("Customer-install 0.5 package contains a forbidden location or credential field.");
+                Fail($"Customer-install {packageVersion} package contains a forbidden location or credential field.");
             }
             if (property.Value.ValueKind == JsonValueKind.String && ForbiddenLocationOrCredential.IsMatch(property.Value.GetString() ?? ""))
             {
-                Fail("Customer-install 0.5 package contains a forbidden location or credential value.");
+                Fail($"Customer-install {packageVersion} package contains a forbidden location or credential value.");
             }
-            RejectLocationOrCredentialMaterial(property.Value);
+            RejectLocationOrCredentialMaterial(property.Value, packageVersion);
         }
     }
 
@@ -348,16 +431,16 @@ public sealed class PrivateRuntimeDeliveryPackageService
         }
     }
 
-    private static void WritePackageObject(Utf8JsonWriter writer, JsonElement element, string path)
+    private static void WritePackageObject(Utf8JsonWriter writer, JsonElement element, string path, ContractProfile profile)
     {
         writer.WriteStartObject();
-        foreach (var field in PackageFieldsForPath(path))
+        foreach (var field in PackageFieldsForPath(path, profile))
         {
             writer.WritePropertyName(field);
             var value = element.GetProperty(field);
             if (value.ValueKind == JsonValueKind.Object)
             {
-                WritePackageObject(writer, value, path == "root" ? field : $"{path}.{field}");
+                WritePackageObject(writer, value, path == "root" ? field : $"{path}.{field}", profile);
             }
             else if (value.ValueKind == JsonValueKind.Array)
             {
@@ -366,7 +449,7 @@ public sealed class PrivateRuntimeDeliveryPackageService
                 {
                     if (item.ValueKind == JsonValueKind.Object)
                     {
-                        WritePackageObject(writer, item, $"{path}.{field}[]");
+                        WritePackageObject(writer, item, $"{path}.{field}[]", profile);
                     }
                     else
                     {
@@ -383,14 +466,14 @@ public sealed class PrivateRuntimeDeliveryPackageService
         writer.WriteEndObject();
     }
 
-    private static IReadOnlyList<string> PackageFieldsForPath(string path) => path switch
+    private static IReadOnlyList<string> PackageFieldsForPath(string path, ContractProfile profile) => path switch
     {
         "root" => TopLevelFields,
         "customer" => ["customerId"],
         "installation" => ["installationId", "environmentId", "tenantId"],
         "deployment" => ["deploymentExportId"],
         "controlPlane" => ControlPlaneFields,
-        "runtimeArtifacts" => RuntimeFields,
+        "runtimeArtifacts" => profile.RuntimeFields,
         "runtimeArtifacts.api" or "runtimeArtifacts.portal" => ArtifactFields,
         "protectedAcquisition" => AcquisitionFields,
         "protectedAcquisition.artifactReferences" => ["api", "portal"],
@@ -399,7 +482,7 @@ public sealed class PrivateRuntimeDeliveryPackageService
         _ => throw new InvalidDataException("Customer-install 0.5 package contains an unsupported canonical object.")
     };
 
-    private static void RejectDuplicateProperties(ReadOnlySpan<byte> utf8)
+    private static void RejectDuplicateProperties(ReadOnlySpan<byte> utf8, string packageVersion)
     {
         var reader = new Utf8JsonReader(utf8, new JsonReaderOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 32 });
         var properties = new Stack<HashSet<string>>();
@@ -411,7 +494,7 @@ public sealed class PrivateRuntimeDeliveryPackageService
                     properties.Push(new HashSet<string>(StringComparer.Ordinal));
                     break;
                 case JsonTokenType.PropertyName:
-                    if (properties.Count == 0 || !properties.Peek().Add(reader.GetString() ?? "")) Fail("Customer-install 0.5 package contains a duplicate JSON property.");
+                    if (properties.Count == 0 || !properties.Peek().Add(reader.GetString() ?? "")) Fail($"Customer-install {packageVersion} package contains a duplicate JSON property.");
                     break;
                 case JsonTokenType.EndObject:
                     properties.Pop();
@@ -472,10 +555,16 @@ public sealed class PrivateRuntimeDeliveryPackageService
         return result;
     }
 
-    private static string RequireUuid(JsonElement parent, string property)
+    private static string RequireUuid(JsonElement parent, string property, bool requireV06Shape = false)
     {
         var value = RequireString(parent, property);
-        if (!Guid.TryParse(value, out var parsed) || parsed == Guid.Empty || !Regex.IsMatch(value, "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) Fail($"{property} must be a UUID.");
+        if (!Guid.TryParse(value, out var parsed) || parsed == Guid.Empty ||
+            (requireV06Shape
+                ? !V06Uuid.IsMatch(value)
+                : !Regex.IsMatch(value, "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)))
+        {
+            Fail($"{property} must be a UUID.");
+        }
         return value;
     }
 
@@ -534,4 +623,45 @@ public sealed class PrivateRuntimeDeliveryPackageService
     }
 
     private static void Fail(string message) => throw new InvalidDataException(message);
+
+    private sealed record ContractProfile(
+        string PackageVersion,
+        string Capability,
+        string ManifestVersion,
+        IReadOnlyList<string> RuntimeFields,
+        bool RequiresProduct,
+        bool IsV06)
+    {
+        public static readonly ContractProfile V05 = new(
+            PrivateRuntimeDeliveryPackage.ContractVersionValue,
+            PrivateRuntimeDeliveryPackage.CapabilityValue,
+            "2.0",
+            RuntimeV05Fields,
+            false,
+            false);
+
+        public static readonly ContractProfile V06 = new(
+            PrivateRuntimeDeliveryPackageV06.ContractVersionValue,
+            PrivateRuntimeDeliveryPackageV06.CapabilityValue,
+            PrivateRuntimeDeliveryPackageV06.ManifestContractVersionValue,
+            RuntimeV06Fields,
+            true,
+            true);
+    }
+}
+
+/// <summary>
+/// Closed package 0.6 / rich manifest 3.0 validator. It is intentionally
+/// separate from the historical package 0.5 entry point.
+/// </summary>
+public sealed class PrivateRuntimeDeliveryV06PackageService
+{
+    public PrivateRuntimeDeliveryPackage ValidateJson(
+        string packageJson,
+        PackageTrustOptions trustOptions,
+        DateTimeOffset? now = null) =>
+        PrivateRuntimeDeliveryPackageService.ValidateV06Json(packageJson, trustOptions, now);
+
+    public static string FormatCanonicalPackage(JsonElement root) =>
+        PrivateRuntimeDeliveryPackageService.FormatCanonicalV06Package(root);
 }

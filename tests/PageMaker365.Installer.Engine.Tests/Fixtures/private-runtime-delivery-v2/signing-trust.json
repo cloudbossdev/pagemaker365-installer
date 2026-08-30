@@ -1,0 +1,12 @@
+{
+  "contractVersion": "pagemaker365.customer-install-package-trust.v1",
+  "keys": [
+    {
+      "keyId": "pm365-private-delivery-v2-fixture-ed25519-20260830",
+      "algorithm": "Ed25519",
+      "publicKeyPemFile": "signing-public-key.pem",
+      "publicKeySha256": "820d38cf036e62855b62495f5c0ef9945ce4f460751d0b882eb4d09678e4f261",
+      "purpose": "test-fixture-only"
+    }
+  ]
+}

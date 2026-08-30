@@ -110,8 +110,18 @@ Start here before wiring the production payload:
 - `schemas/customer-install.schema.json`
 - `schemas/onboarding-bootstrap.schema.json`
 - `schemas/tenant-discovery.schema.json`
+- `docs/private-runtime-delivery-v06.md`
+- `docs/private-runtime-delivery-v05.md`
+- `schemas/customer-install-v0.6.schema.json`
 
 The controlled customer publication drafts are under `docs/customer/`. They remain explicitly marked as drafts until the customer-readiness traceability gates are satisfied.
+
+The private runtime consumer now has a distinct, default-disabled package
+`0.6` / rich manifest `3.0` acquisition path. It verifies accepted synthetic
+producer fixtures and returns local verified artifacts only. Package `0.5` /
+simplified manifest `2.0` remains historical compatibility. Private bytes are
+not connected to deployment, and the known runtime-configuration gaps remain
+open; see `docs/private-runtime-delivery-v06.md`.
 
 The control plane should first create an onboarding session, then use installer discovery results to pre-fill onboarding forms and generate customer install packages that match the install package schema. Portal mode is strict: API responses must include required session/correlation fields, status responses must include package readiness, and generated package downloads must be JSON that pass local package validation before the UI marks them downloaded. The installer accepts the older alpha package shape for now, but warns when export trust metadata is missing and fails when blocked raw secret containers or package hash mismatches are present.
 

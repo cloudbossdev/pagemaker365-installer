@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "pagemaker365.private-runtime-delivery-fixtures.v2",
+  "files": {
+    "customer-install-0.6.json": "813478259c24b8933e5b8a6ca2fe18148858f5b34669a5bd05680b6df3b2fe90",
+    "receipt-request.json": "9bb64c92f087e84679fa8bbc09b0a3f886c286dab931446f6a1f00c05d36944a",
+    "receipt-response.json": "175785d5a15a44d465ee7b8389e5ba1ec850c7998e712dfff1ba76e90de4e553",
+    "runtime-delivery-http-vectors.json": "997753ec4f0f968a6022eb2f5dfd61a107f2c913f122d260bf505af316046a2c",
+    "runtime-release-manifest-v3.schema.json": "4e78056803f5838acf21f5e0aebcad9201c7002cce3adf61b9908f277c3eff48",
+    "session-response.json": "65a2a6fdb6ad8ee8ec2ea831d0ef5702ffb949ff8feef24fbec9c291d2285e3f",
+    "signing-public-key.pem": "820d38cf036e62855b62495f5c0ef9945ce4f460751d0b882eb4d09678e4f261",
+    "signing-trust.json": "e0e8b214280a5bfc8ca6cf18404bc96a84bfe71758be83022f4fd9a40dcbe9eb",
+    "spo-runtime-manifest-v3.json": "f2c0deb8c2785df7e8136eb377cbcb7949750526fa654ecc3b28f59ea50c49e1"
+  }
+}

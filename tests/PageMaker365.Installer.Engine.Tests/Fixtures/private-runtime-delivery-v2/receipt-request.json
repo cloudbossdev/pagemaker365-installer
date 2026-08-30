@@ -1,0 +1,36 @@
+{
+  "contractVersion": "pagemaker365.runtime-delivery-receipt.v1",
+  "deliverySessionId": "rds_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  "packageHash": "sha256:f32e1b713a6010fa08e8144268371f0332d95f09cb71876f8ba32e968ec4d286",
+  "releaseId": "pm365-runtime-1.4.3+fixture.abc1234",
+  "manifestSha256": "f2c0deb8c2785df7e8136eb377cbcb7949750526fa654ecc3b28f59ea50c49e1",
+  "eventId": "fixture-runtime-delivery-v2-event-001",
+  "idempotencyKey": "fixture-runtime-delivery-v2-receipt-001",
+  "occurredAt": "2026-08-30T12:00:00.000Z",
+  "installerVersion": "0.2.0-fixture",
+  "outcome": "completed",
+  "artifacts": {
+    "api": {
+      "artifactKind": "api",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sizeBytes": 1024,
+      "verificationOutcome": "verified",
+      "fullStreamCount": 1,
+      "rangeRetryCount": 0,
+      "bytesReceived": 1024
+    },
+    "portal": {
+      "artifactKind": "portal",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sizeBytes": 2048,
+      "verificationOutcome": "verified",
+      "fullStreamCount": 1,
+      "rangeRetryCount": 1,
+      "bytesReceived": 2048
+    }
+  },
+  "safeResult": {
+    "code": "runtime_artifacts_verified",
+    "state": "completed"
+  }
+}
