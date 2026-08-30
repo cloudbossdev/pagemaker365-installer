@@ -24,6 +24,10 @@ internal static class DynamicV06ExternalHandoffTests
     private const string SyntheticTrust = "synthetic-test-only-never-production";
     private const string ExpectedKeyId = "test-only-w05-v06-ed25519";
     private const string ExpectedPublicKeySha256 = "7f2d9ed0b71b8e5a6c5cf30e647d6e20b5bca6dac8071f11abe3fef8014db610";
+    private const string ExpectedHandoffSha256 = "5da7a38492f36cbc092f5e9cc88f51ed0e6be1ba5a36f564823cf4e60a504034";
+    private const string ExpectedPackageSha256 = "d51408447537c4b90f65ca438b2c72573993611662b71b8ec6513eaff7aff81f";
+    private const string ExpectedApiSha256 = "f4f9c682a14dd3d8ea57d34873f2604d1f052c06864b1114f9e252a5e526797a";
+    private const string ExpectedPortalSha256 = "fb49f5059d7a4a9235619392502f3ef2831438e70a50e41e64a91a45bbc4f964";
     private const string ExpectedReleaseId = "pm365-runtime-1.4.3+c31427d";
     private const string ExpectedRuntimeVersion = "1.4.3";
     private const string ExpectedSourceCommit = "c31427d0027adb4fd03de142fde18c4209ca44ce";
@@ -83,6 +87,14 @@ internal static class DynamicV06ExternalHandoffTests
         var packagePath = RequireRegularFile(root, "customer-install.v0.6.json");
         var apiPath = RequireRegularFile(artifactDirectory, "api.zip");
         var portalPath = RequireRegularFile(artifactDirectory, "portal.zip");
+
+        // The retained CP-002 output is an immutable accepted evidence set,
+        // not merely any internally consistent v0.6 handoff. Pin its four
+        // files before parsing the envelope or establishing package trust.
+        RequirePinnedFile(handoffPath, "handoff.json", ExpectedHandoffSha256);
+        RequirePinnedFile(packagePath, "customer-install.v0.6.json", ExpectedPackageSha256);
+        RequirePinnedFile(apiPath, "artifacts/api.zip", ExpectedApiSha256);
+        RequirePinnedFile(portalPath, "artifacts/portal.zip", ExpectedPortalSha256);
 
         var handoffBytes = File.ReadAllBytes(handoffPath);
         var envelope = ParseCanonicalEnvelope(handoffBytes);
@@ -266,6 +278,14 @@ internal static class DynamicV06ExternalHandoffTests
 
     private static void AssertNegativeHandoffs(string acceptedRoot)
     {
+        Mutated("accepted-file-pin", root =>
+        {
+            RewriteEnvelope(root, envelope =>
+            {
+                var final = envelope.OneTimeCode[^1];
+                envelope.OneTimeCode = envelope.OneTimeCode[..^1] + (final == 'A' ? 'B' : 'A');
+            });
+        }, root => ExpectPinnedFileDenied(root, "handoff.json"));
         Mutated("extra-file", root => File.WriteAllText(Path.Combine(root, "unexpected.txt"), "denied", StrictUtf8), root => ExpectLoadDenied(root));
         Mutated("trust-file", root => File.WriteAllText(Path.Combine(root, "signing-trust.pem"), "untrusted", StrictUtf8), root => ExpectLoadDenied(root));
         Mutated("missing-file", root => File.Delete(Path.Combine(root, "artifacts", "api.zip")), root => ExpectLoadDenied(root));
@@ -371,6 +391,20 @@ internal static class DynamicV06ExternalHandoffTests
         Require(denied, "Mutated dynamic handoff was not denied.");
     }
 
+    private static void ExpectPinnedFileDenied(string root, string relativeName)
+    {
+        try
+        {
+            _ = LoadClosedHandoff(root);
+        }
+        catch (PinnedFileMismatchException exception)
+        {
+            Require(exception.RelativeName == relativeName, "Dynamic handoff failed at the wrong accepted-file pin.");
+            return;
+        }
+        throw new InvalidDataException("Reissued-like dynamic handoff bypassed the accepted-file pin.");
+    }
+
     private static void AssertNoDeploymentSurface()
     {
         var deploymentNames = typeof(PageMaker365.Installer.Engine.Services.InstallerEngine).GetMethods().Select(method => method.Name).Where(name => name.Contains("V06", StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -390,6 +424,11 @@ internal static class DynamicV06ExternalHandoffTests
         RejectLink(path, "handoff file");
         Require((File.GetAttributes(path) & FileAttributes.Directory) == 0, "Dynamic handoff expected a regular file.");
         return path;
+    }
+
+    private static void RequirePinnedFile(string path, string relativeName, string expectedSha256)
+    {
+        if (!FixedEquals(Sha256File(path), expectedSha256)) throw new PinnedFileMismatchException(relativeName);
     }
 
     private static void RejectLink(string path, string description)
@@ -651,5 +690,10 @@ internal static class DynamicV06ExternalHandoffTests
         public DateTimeOffset ExpiresAt { get; set; } = value.ExpiresAt;
 
         public DynamicEnvelope ToImmutable() => new(SchemaVersion, Trust, ReleaseId, RuntimeVersion, SourceCommit, PackageFile, PackageSha256, SigningKeyId, SigningPublicKeySha256, SessionId, ExpectedTenantId, OneTimeCode, ApiBaseUrl, PortalBaseUrl, ExpiresAt);
+    }
+
+    private sealed class PinnedFileMismatchException(string relativeName) : IOException("Dynamic handoff file differs from the accepted CP-002 evidence set.")
+    {
+        public string RelativeName { get; } = relativeName;
     }
 }
