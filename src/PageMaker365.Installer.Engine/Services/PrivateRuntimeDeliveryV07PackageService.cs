@@ -266,6 +266,8 @@ public sealed class PrivateRuntimeDeliveryV07PackageService(RuntimeConfiguration
             var padding = (text.Length % 4) switch { 0 => "", 2 => "==", 3 => "=", _ => throw new FormatException() };
             var result = Convert.FromBase64String(text.Replace('-', '+').Replace('_', '/') + padding);
             if (result.Length != length) Fail("customer_install_v07_signature_invalid");
+            var canonical = Convert.ToBase64String(result).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            if (!string.Equals(text, canonical, StringComparison.Ordinal)) Fail("customer_install_v07_signature_invalid");
             return result;
         }
         catch (FormatException) { Fail("customer_install_v07_signature_invalid"); return []; }

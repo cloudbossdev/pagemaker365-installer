@@ -3,6 +3,9 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Signers;
+using Org.BouncyCastle.X509;
 using PageMaker365.Installer.Engine.Models;
 using PageMaker365.Installer.Engine.Services;
 
@@ -10,8 +13,6 @@ namespace PageMaker365.Installer.Engine.Tests;
 
 internal static class PrivateRuntimeDeliveryV07FixtureTests
 {
-    private const string ProducerCommit = "aff1c693580f0a4f15d223b32b03b77175b73200";
-    private const string ProducerMain = "52b6be17f9f98124cb815f972a8d34437a4c5a45";
     private const string FixtureManifestSha256 = "9ba86d6b38de6fc7eca54f7df9994a2fe92f4c68cbcf7edc489c751873e1b17d";
     private static readonly DateTimeOffset ValidationTime = new(2026, 8, 31, 12, 0, 0, TimeSpan.Zero);
 
@@ -76,8 +77,6 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
         using var vector = ReadJson(fixture.Directory, "signature-vector.json");
         AssertEx.Equal(vector.RootElement.GetProperty("packageHash").GetString(), package.PackageHash);
         AssertEx.Equal(vector.RootElement.GetProperty("canonicalPayloadSha256").GetString(), Sha256(package.CanonicalSigningPayloadUtf8));
-        AssertEx.Equal(ProducerCommit, ProducerCommit);
-        AssertEx.Equal(40, ProducerMain.Length);
         return Task.CompletedTask;
     }
 
@@ -99,19 +98,30 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
         schemaBytes[0] ^= 1;
         AssertError("runtime_configuration_catalog_bytes_mismatch", () => RuntimeConfigurationCatalogV1Authority.Create(catalogBytes, schemaBytes));
 
-        Deny(fixture, root => root["contractVersion"] = "0.6", "customer_install_v07_value");
-        Deny(fixture, root => root["controlPlane"]!["acceptedInstallerCapability"] = "pagemaker365.customer-install.0.6.protected-acquisition.v1", "customer_install_v07_value");
-        Deny(fixture, root => root["runtimeArtifacts"]!["manifestContractVersion"] = "2.0", "customer_install_v07_value");
-        Deny(fixture, root => root["runtimeArtifacts"]!["sourceCommit"] = new string('a', 40), "customer_install_v07_value");
-        Deny(fixture, root => root["runtimeArtifacts"]!["manifestSha256"] = new string('a', 64), "customer_install_v07_manifest_binding");
-        Deny(fixture, root => root["runtimeArtifacts"]!["api"]!["artifactKind"] = "portal", "customer_install_v07_value");
-        Deny(fixture, root => root["protectedAcquisition"]!["contractVersion"] = "pagemaker365.protected-setting-acquisition.v1", "customer_install_v07_value");
-        Deny(fixture, root => root["runtimeConfiguration"]!["schemaVersion"] = "pagemaker365.runtime-configuration-projection.v1", "runtime_configuration_projection_v2_identity");
-        Deny(fixture, root => root["runtimeConfiguration"]!["catalog"]!["sourceCommit"] = new string('a', 40), "runtime_configuration_projection_v2_catalog");
-        Deny(fixture, root => root["runtimeConfiguration"]!["catalog"]!["catalogSha256"] = new string('a', 64), "runtime_configuration_projection_v2_catalog");
-        Deny(fixture, root => root["runtimeConfiguration"]!["catalog"]!["settingCount"] = 69, "runtime_configuration_projection_v2_catalog");
-        Deny(fixture, root => root["runtimeConfiguration"]!["projectionSha256"] = new string('a', 64), "runtime_configuration_projection_v2_digest");
-        Deny(fixture, root => root.Add("unknownField", true), "runtime_configuration_closed_shape");
+        var crossPairs = new (Action<JsonObject> Mutate, string Code, bool RefreshManifest)[]
+        {
+            (root => root["contractVersion"] = "0.6", "customer_install_v07_value", false),
+            (root => root["contractVersion"] = "0.5", "customer_install_v07_value", false),
+            (root => root["contractVersion"] = "9.9", "customer_install_v07_value", false),
+            (root => root["controlPlane"]!["acceptedInstallerCapability"] = "pagemaker365.customer-install.0.6.protected-acquisition.v1", "customer_install_v07_value", false),
+            (root => root["controlPlane"]!["acceptedInstallerCapability"] = "pagemaker365.customer-install.0.5.private-runtime.v1", "customer_install_v07_value", false),
+            (root => root["controlPlane"]!["acceptedInstallerCapability"] = "unknown", "customer_install_v07_value", false),
+            (root => root["runtimeArtifacts"]!["manifestContractVersion"] = "2.0", "customer_install_v07_value", true),
+            (root => root["runtimeArtifacts"]!["manifestContractVersion"] = "4.0", "customer_install_v07_value", true),
+            (root => root["runtimeConfiguration"]!["schemaVersion"] = "pagemaker365.runtime-configuration-projection.v1", "runtime_configuration_projection_v2_identity", false),
+            (root => root["protectedAcquisition"]!["contractVersion"] = "pagemaker365.protected-acquisition.v2", "customer_install_v07_value", false),
+            (root => root["protectedAcquisition"]!["contractVersion"] = "pagemaker365.protected-acquisition.v0", "customer_install_v07_value", false),
+            (root => root.Add("fallback", "0.6"), "runtime_configuration_closed_shape", false),
+            (root => root["runtimeConfiguration"]!["binding"]!["packageContractVersion"] = "0.6", "runtime_configuration_projection_v2_binding", false)
+        };
+        foreach (var item in crossPairs) FreshlySignedDeny(fixture, item.Mutate, item.Code, item.RefreshManifest);
+
+        FreshlySignedDeny(fixture, root => root["runtimeArtifacts"]!["sourceCommit"] = new string('a', 40), "customer_install_v07_value", refreshManifest: true);
+        FreshlySignedDeny(fixture, root => root["runtimeArtifacts"]!["api"]!["artifactKind"] = "portal", "customer_install_v07_value", refreshManifest: true);
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["catalog"]!["sourceCommit"] = new string('a', 40), "runtime_configuration_projection_v2_catalog");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["catalog"]!["catalogSha256"] = new string('a', 64), "runtime_configuration_projection_v2_catalog");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["catalog"]!["settingCount"] = 69, "runtime_configuration_projection_v2_catalog");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!.AsObject().Add("unknownField", true), "runtime_configuration_closed_shape");
 
         var noncanonical = fixture.PackageJson.Replace("  \"customer\"", "   \"customer\"", StringComparison.Ordinal);
         AssertError("customer_install_v07_noncanonical", () => fixture.Service.ValidateJson(noncanonical, fixture.Trust, ValidationTime));
@@ -122,15 +132,33 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
         AssertError("customer_install_v07_trust_key_id", () => fixture.Service.ValidateJson(fixture.PackageJson, wrongTrust, ValidationTime));
         Deny(fixture, root => root["controlPlane"]!["packageHash"] = "sha256:" + new string('a', 64), "customer_install_v07_hash_invalid");
         Deny(fixture, root => root["controlPlane"]!["signature"] = new string('A', 86), "customer_install_v07_signature_invalid");
+
+        var signature = JsonNode.Parse(fixture.PackageJson)!["controlPlane"]!["signature"]!.GetValue<string>();
+        var alias = AliasFinalBase64UrlCharacter(signature);
+        AssertEx.True(DecodeBase64Url(signature).SequenceEqual(DecodeBase64Url(alias)), "Trailing-bit alias must decode to the accepted signature bytes.");
+        Deny(fixture, root => root["controlPlane"]!["signature"] = alias, "customer_install_v07_signature_invalid");
+        foreach (var invalid in new[] { signature + "=", signature[..^1], signature + "*", "+" + signature[1..], "/" + signature[1..] })
+            Deny(fixture, root => root["controlPlane"]!["signature"] = invalid, "customer_install_v07_signature_invalid");
+        Deny(fixture, root => root["controlPlane"]!["signature"] = signature + " ", "customer_install_v07_value");
+
+        var alternate = CreateTestSigningAuthority("alternate-wrong-key");
+        var sameIdWrongKey = new PackageTrustOptions
+        {
+            TrustedPublicKeysById = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [JsonNode.Parse(fixture.PackageJson)!["controlPlane"]!["signingKeyId"]!.GetValue<string>()] = alternate.PublicKeyPem
+            }
+        };
+        AssertError("customer_install_v07_signature_invalid", () => fixture.Service.ValidateJson(fixture.PackageJson, sameIdWrongKey, ValidationTime));
         return Task.CompletedTask;
     }
 
     public static Task RejectsIncompleteUnsafeOrRawConfiguration()
     {
         var fixture = LoadFixture();
-        Deny(fixture, root => root["runtimeConfiguration"]!["featureProfile"]!["connectorSynchronization"] = true, "runtime_configuration_projection_v2_feature_profile");
-        Deny(fixture, root => ((JsonArray)root["runtimeConfiguration"]!["publicSettings"]!).RemoveAt(0), "runtime_configuration_projection_v2_public_count");
-        Deny(fixture, root =>
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["featureProfile"]!["connectorSynchronization"] = true, "runtime_configuration_projection_v2_feature_profile");
+        FreshlySignedDeny(fixture, root => ((JsonArray)root["runtimeConfiguration"]!["publicSettings"]!).RemoveAt(0), "runtime_configuration_projection_v2_public_count");
+        FreshlySignedDeny(fixture, root =>
         {
             var values = (JsonArray)root["runtimeConfiguration"]!["publicSettings"]!;
             var first = values[0]!.DeepClone();
@@ -138,27 +166,36 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
             values[0] = second;
             values[1] = first;
         }, "runtime_configuration_projection_v2_public_order");
-        Deny(fixture, root => root["runtimeConfiguration"]!["publicSettings"]![0]!["valueType"] = "integer", "runtime_configuration_projection_v2_public_order");
-        Deny(fixture, root => FindPublic(root, "API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST")["value"] = false, "runtime_configuration_projection_v2_value");
-        Deny(fixture, root => FindPublic(root, "API_APP_VERSION")["value"] = "2147483648.0.0", "runtime_configuration_projection_v2_value");
-        Deny(fixture, root => FindPublic(root, "API_ENTRA_TENANT_ID")["value"] = "00000000-0000-0000-0000-000000000000", "runtime_configuration_projection_v2_value");
-        Deny(fixture, root => FindPublic(root, "API_ENTRA_TENANT_ID")["value"] = "11111111-1111-4111-8111-111111111111", "runtime_configuration_projection_v2_value");
-        Deny(fixture, root => FindPublic(root, "API_LICENSE_PUBLIC_KEY_PEM")["value"] = "-----BEGIN PUBLIC KEY-----\nQUFBQQ==\n-----END PUBLIC KEY-----\n", "runtime_configuration_projection_v2_value");
-        Deny(fixture, root => FindPublic(root, "PAGEMAKER365_PORTAL_URL")["value"] = "https://portal.example.test/other", "runtime_configuration_projection_v2_portal_origin_binding");
-        Deny(fixture, root => FindPublic(root, "PAGEMAKER365_PORTAL_URL")["value"] = "https://portal.example.test:444", "runtime_configuration_projection_v2_portal_origin_binding");
-        Deny(fixture, root => ((JsonArray)root["runtimeConfiguration"]!["publicSettings"]!).Add(new JsonObject
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["publicSettings"]![0]!["valueType"] = "integer", "runtime_configuration_projection_v2_public_order");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST")["value"] = false, "runtime_configuration_projection_v2_value");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "API_APP_VERSION")["value"] = "2147483648.0.0", "runtime_configuration_projection_v2_value");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "API_ENTRA_TENANT_ID")["value"] = "00000000-0000-0000-0000-000000000000", "runtime_configuration_projection_v2_value");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "API_ENTRA_TENANT_ID")["value"] = "11111111-1111-4111-8111-111111111111", "runtime_configuration_projection_v2_value");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "API_LICENSE_PUBLIC_KEY_PEM")["value"] = "-----BEGIN PUBLIC KEY-----\nQUFBQQ==\n-----END PUBLIC KEY-----\n", "runtime_configuration_projection_v2_value");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "PAGEMAKER365_PORTAL_URL")["value"] = "https://portal.example.test/other", "runtime_configuration_projection_v2_portal_origin_binding");
+        FreshlySignedDeny(fixture, root => FindPublic(root, "PAGEMAKER365_PORTAL_URL")["value"] = "https://portal.example.test:444", "runtime_configuration_projection_v2_portal_origin_binding");
+        FreshlySignedDeny(fixture, root => ((JsonArray)root["runtimeConfiguration"]!["publicSettings"]!).Add(new JsonObject
         {
             ["targetApp"] = "api", ["name"] = "API_WEBPART_TEST_ARTIFACTS_ENABLED", ["valueType"] = "boolean", ["value"] = false
         }), "runtime_configuration_projection_v2_public_count");
 
-        Deny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![0]!["mode"] = "control-plane-protected-setting-delivery", "runtime_configuration_projection_v2_protected_mode");
-        Deny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![0]!["reference"]!.AsObject().Add("value", "raw-secret"), "runtime_configuration_closed_shape");
-        Deny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![2]!["reference"]!["opaqueReference"] = "psr_short", "runtime_configuration_projection_v2_protected_reference");
-        Deny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![3]!["reference"]!["minimumEntropyBytes"] = 16, "runtime_configuration_projection_v2_protected_reference");
-        Deny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![1]!["reference"]!["secretName"] = "database-url", "runtime_configuration_projection_v2_protected_reference_reuse");
-        Deny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![0]!["reference"]!["vaultResourceId"] = "/subscriptions/11111111-1111-4111-8111-111111111111/resourceGroups/pm365/providers/Microsoft.KeyVault/vaults/pm365fixture", "runtime_configuration_projection_v2_protected_reference");
-        Deny(fixture, root => root["runtimeConfiguration"]!["binding"]!["tenantId"] = "11111111-1111-4111-8111-111111111111", "runtime_configuration_projection_v2_binding");
-        Deny(fixture, root => root["customer"]!["customerId"] = "11111111-1111-4111-8111-111111111111", "customer_install_v07_binding_invalid");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![0]!["mode"] = "control-plane-protected-setting-delivery", "runtime_configuration_projection_v2_protected_mode");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![0]!["reference"]!.AsObject().Add("value", "raw-secret"), "runtime_configuration_closed_shape");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![2]!["reference"]!["opaqueReference"] = "psr_short", "runtime_configuration_projection_v2_protected_reference");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![3]!["reference"]!["minimumEntropyBytes"] = 16, "runtime_configuration_projection_v2_protected_reference");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![1]!["reference"]!["secretName"] = "database-url", "runtime_configuration_projection_v2_protected_reference_reuse");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["protectedSettings"]![0]!["reference"]!["vaultResourceId"] = "/subscriptions/11111111-1111-4111-8111-111111111111/resourceGroups/pm365/providers/Microsoft.KeyVault/vaults/pm365fixture", "runtime_configuration_projection_v2_protected_reference");
+        FreshlySignedDeny(fixture, root => root["runtimeConfiguration"]!["binding"]!["tenantId"] = "11111111-1111-4111-8111-111111111111", "runtime_configuration_projection_v2_binding");
+        FreshlySignedDeny(fixture, root => root["customer"]!["customerId"] = "11111111-1111-4111-8111-111111111111", "customer_install_v07_binding_invalid");
+
+        foreach (var lexeme in new[] { "7e1", "70.0", "7.0e1", "-0" })
+            DenyRawNumber(fixture, "\"settingCount\": 70", $"\"settingCount\": {lexeme}", "runtime_configuration_projection_v2_catalog");
+        foreach (var lexeme in new[] { "3.2e1", "32.0", "3.20e1", "-0" })
+            DenyRawNumber(fixture, "\"minimumEntropyBytes\": 32", $"\"minimumEntropyBytes\": {lexeme}", "runtime_configuration_projection_v2_protected_reference");
+        foreach (var invalid in new[] { "+70", "070" })
+            DenyInvalidJsonNumber(fixture, "\"settingCount\": 70", $"\"settingCount\": {invalid}");
+        foreach (var invalid in new[] { "+32", "032" })
+            DenyInvalidJsonNumber(fixture, "\"minimumEntropyBytes\": 32", $"\"minimumEntropyBytes\": {invalid}");
         return Task.CompletedTask;
     }
 
@@ -183,9 +220,158 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
     {
         var root = JsonNode.Parse(fixture.PackageJson)!.AsObject();
         mutate(root);
-        var candidate = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }).Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
+        var candidate = FormatNode(root);
         AssertError(expectedCode, () => fixture.Service.ValidateJson(candidate, fixture.Trust, ValidationTime));
     }
+
+    private static void FreshlySignedDeny(Fixture fixture, Action<JsonObject> mutate, string expectedCode, bool refreshManifest = false)
+    {
+        var authority = CreateTestSigningAuthority("semantic-matrix");
+        AssertEx.False(string.Equals(authority.PublicKeyPem, fixture.PublicKey, StringComparison.Ordinal), "Mutation authority must remain separate from accepted fixture trust.");
+        var root = JsonNode.Parse(fixture.PackageJson)!.AsObject();
+        root["controlPlane"]!["signingKeyId"] = authority.KeyId;
+        mutate(root);
+        if (refreshManifest) RefreshManifestBinding(root);
+        RefreshProjectionDigest(root);
+        RefreshPackageIntegrity(root, authority);
+        var candidate = FormatNode(root);
+
+        using var document = JsonDocument.Parse(candidate);
+        var value = document.RootElement;
+        var projection = value.GetProperty("runtimeConfiguration");
+        var computedProjection = PrivateRuntimeCanonicalJson.Sha256(
+            PrivateRuntimeCanonicalJson.CanonicalizeObjectWithoutProperty(projection, "projectionSha256"));
+        AssertEx.Equal(projection.GetProperty("projectionSha256").GetString(), computedProjection, "Fresh negative must carry its current projection digest.");
+        AssertEx.Equal(value.GetProperty("runtimeArtifacts").GetProperty("manifestSha256").GetString(), ComputeManifestDigest(root), "Fresh negative must carry its current manifest digest.");
+        AssertEx.Equal(value.GetProperty("runtimeArtifacts").GetProperty("manifestSha256").GetString(), projection.GetProperty("binding").GetProperty("manifestSha256").GetString(), "Fresh negative must preserve manifest/projection binding.");
+        var payload = PrivateRuntimeCanonicalJson.Canonicalize(value, excludePackageIntegrity: true);
+        AssertEx.Equal(value.GetProperty("controlPlane").GetProperty("packageHash").GetString(), "sha256:" + PrivateRuntimeCanonicalJson.Sha256(payload), "Fresh negative must carry its current package hash.");
+        AssertEx.True(Verify(authority.PublicKey, payload, DecodeBase64Url(value.GetProperty("controlPlane").GetProperty("signature").GetString()!)), "Fresh negative must carry a valid deterministic test signature.");
+        AssertEx.Equal(candidate, PrivateRuntimeDeliveryV07PackageService.FormatCanonicalPackage(value), "Fresh negative must use canonical package bytes.");
+
+        AssertError(expectedCode, () => fixture.Service.ValidateJson(candidate, authority.Trust, ValidationTime));
+    }
+
+    private static void RefreshProjectionDigest(JsonObject root)
+    {
+        var projection = root["runtimeConfiguration"]!.AsObject();
+        projection.Remove("projectionSha256");
+        using var document = JsonDocument.Parse(projection.ToJsonString());
+        projection["projectionSha256"] = PrivateRuntimeCanonicalJson.Sha256(
+            PrivateRuntimeCanonicalJson.Canonicalize(document.RootElement));
+    }
+
+    private static void RefreshManifestBinding(JsonObject root)
+    {
+        var digest = ComputeManifestDigest(root);
+        root["runtimeArtifacts"]!["manifestSha256"] = digest;
+        root["runtimeConfiguration"]!["binding"]!["manifestSha256"] = digest;
+    }
+
+    private static string ComputeManifestDigest(JsonObject root)
+    {
+        var runtime = root["runtimeArtifacts"]!.AsObject();
+        var manifest = new JsonObject
+        {
+            ["contractVersion"] = runtime["manifestContractVersion"]!.GetValue<string>(),
+            ["product"] = runtime["product"]!.GetValue<string>(),
+            ["releaseId"] = runtime["releaseId"]!.GetValue<string>(),
+            ["runtimeVersion"] = runtime["runtimeVersion"]!.GetValue<string>(),
+            ["sourceRepository"] = runtime["sourceRepository"]!.GetValue<string>(),
+            ["sourceCommit"] = runtime["sourceCommit"]!.GetValue<string>(),
+            ["provenanceSchemaVersion"] = runtime["provenanceSchemaVersion"]!.GetValue<string>(),
+            ["api"] = ManifestArtifact(runtime["api"]!.AsObject()),
+            ["portal"] = ManifestArtifact(runtime["portal"]!.AsObject())
+        };
+        return Sha256(Encoding.UTF8.GetBytes(FormatNode(manifest)));
+    }
+
+    private static JsonObject ManifestArtifact(JsonObject artifact) => new()
+    {
+        ["fileName"] = artifact["fileName"]!.GetValue<string>(),
+        ["sizeBytes"] = artifact["sizeBytes"]!.GetValue<long>(),
+        ["sha256"] = artifact["sha256"]!.GetValue<string>(),
+        ["startupCommand"] = artifact["startupCommand"]!.GetValue<string>(),
+        ["artifactKind"] = artifact["artifactKind"]!.GetValue<string>()
+    };
+
+    private static void RefreshPackageIntegrity(JsonObject root, TestSigningAuthority authority)
+    {
+        using var unsignedDocument = JsonDocument.Parse(FormatNode(root));
+        var payload = PrivateRuntimeCanonicalJson.Canonicalize(unsignedDocument.RootElement, excludePackageIntegrity: true);
+        root["controlPlane"]!["packageHash"] = "sha256:" + PrivateRuntimeCanonicalJson.Sha256(payload);
+        root["controlPlane"]!["signature"] = EncodeBase64Url(Sign(authority.PrivateKey, payload));
+    }
+
+    private static TestSigningAuthority CreateTestSigningAuthority(string label)
+    {
+        var seed = SHA256.HashData(Encoding.UTF8.GetBytes($"PM365-W07-INST-001::{label}::test-only"));
+        var privateKey = new Ed25519PrivateKeyParameters(seed, 0);
+        var publicKey = privateKey.GeneratePublicKey();
+        var der = SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(publicKey).GetDerEncoded();
+        var base64 = Convert.ToBase64String(der);
+        var lines = Enumerable.Range(0, (base64.Length + 63) / 64)
+            .Select(index => base64.Substring(index * 64, Math.Min(64, base64.Length - index * 64)));
+        var pem = "-----BEGIN PUBLIC KEY-----\n" + string.Join("\n", lines) + "\n-----END PUBLIC KEY-----\n";
+        var keyId = "test-only-installer-w07-" + label;
+        var trust = new PackageTrustOptions
+        {
+            TrustedPublicKeysById = new Dictionary<string, string>(StringComparer.Ordinal) { [keyId] = pem }
+        };
+        return new TestSigningAuthority(keyId, privateKey, publicKey, pem, trust);
+    }
+
+    private static byte[] Sign(Ed25519PrivateKeyParameters key, byte[] payload)
+    {
+        var signer = new Ed25519Signer();
+        signer.Init(true, key);
+        signer.BlockUpdate(payload, 0, payload.Length);
+        return signer.GenerateSignature();
+    }
+
+    private static bool Verify(Ed25519PublicKeyParameters key, byte[] payload, byte[] signature)
+    {
+        var verifier = new Ed25519Signer();
+        verifier.Init(false, key);
+        verifier.BlockUpdate(payload, 0, payload.Length);
+        return verifier.VerifySignature(signature);
+    }
+
+    private static string AliasFinalBase64UrlCharacter(string value)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var index = alphabet.IndexOf(value[^1]);
+        AssertEx.True(index >= 0 && index % 16 == 0, "Expected a canonical 64-byte Base64URL signature final character.");
+        return value[..^1] + alphabet[index + 1];
+    }
+
+    private static byte[] DecodeBase64Url(string value)
+    {
+        var padding = (value.Length % 4) switch { 0 => "", 2 => "==", 3 => "=", _ => throw new FormatException() };
+        return Convert.FromBase64String(value.Replace('-', '+').Replace('_', '/') + padding);
+    }
+
+    private static string EncodeBase64Url(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static void DenyRawNumber(Fixture fixture, string accepted, string replacement, string expectedCode)
+    {
+        AssertEx.Equal(1, CountOccurrences(fixture.PackageJson, accepted), $"Expected one raw-number replacement target: {accepted}");
+        AssertError(expectedCode, () => fixture.Service.ValidateJson(fixture.PackageJson.Replace(accepted, replacement, StringComparison.Ordinal), fixture.Trust, ValidationTime));
+    }
+
+    private static void DenyInvalidJsonNumber(Fixture fixture, string accepted, string replacement)
+    {
+        AssertEx.Equal(1, CountOccurrences(fixture.PackageJson, accepted), $"Expected one invalid-number replacement target: {accepted}");
+        AssertEx.Throws<JsonException>(() => fixture.Service.ValidateJson(fixture.PackageJson.Replace(accepted, replacement, StringComparison.Ordinal), fixture.Trust, ValidationTime));
+    }
+
+    private static int CountOccurrences(string value, string search) =>
+        (value.Length - value.Replace(search, "", StringComparison.Ordinal).Length) / search.Length;
+
+    private static string FormatNode(JsonNode value) =>
+        value.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping })
+            .Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
 
     private static JsonObject FindPublic(JsonObject root, string name) =>
         ((JsonArray)root["runtimeConfiguration"]!["publicSettings"]!).Select(item => item!.AsObject()).Single(item => item["name"]!.GetValue<string>() == name);
@@ -238,4 +424,10 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
     }
 
     private sealed record Fixture(string Directory, string PackageJson, string PublicKey, PackageTrustOptions Trust, PrivateRuntimeDeliveryV07PackageService Service);
+    private sealed record TestSigningAuthority(
+        string KeyId,
+        Ed25519PrivateKeyParameters PrivateKey,
+        Ed25519PublicKeyParameters PublicKey,
+        string PublicKeyPem,
+        PackageTrustOptions Trust);
 }

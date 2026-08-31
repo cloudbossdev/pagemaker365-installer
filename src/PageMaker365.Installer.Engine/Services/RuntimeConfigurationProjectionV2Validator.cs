@@ -234,7 +234,8 @@ public sealed class RuntimeConfigurationProjectionV2Validator(RuntimeConfigurati
             RuntimeConfigurationCatalogV1Authority.RequireString(value, "catalogSha256") != RuntimeConfigurationCatalogV1Authority.CatalogSha256 ||
             RuntimeConfigurationCatalogV1Authority.RequireString(value, "catalogSchemaSha256") != RuntimeConfigurationCatalogV1Authority.CatalogSchemaSha256 ||
             RuntimeConfigurationCatalogV1Authority.RequireString(value, "targetQualifiedOrderSha256") != catalog.TargetQualifiedOrderSha256 ||
-            !value.GetProperty("settingCount").TryGetInt32(out var count) || count != 70)
+            !value.GetProperty("settingCount").TryGetInt32(out var count) || count != 70 ||
+            !string.Equals(value.GetProperty("settingCount").GetRawText(), "70", StringComparison.Ordinal))
         {
             Fail("runtime_configuration_projection_v2_catalog");
         }
@@ -454,7 +455,9 @@ public sealed class RuntimeConfigurationProjectionV2Validator(RuntimeConfigurati
         else
         {
             RuntimeConfigurationCatalogV1Authority.RequireExactProperties(value, "vaultResourceId", "secretName", "generationAlgorithm", "minimumEntropyBytes");
-            if (!value.GetProperty("minimumEntropyBytes").TryGetInt32(out var entropy)) Fail("runtime_configuration_projection_v2_protected_reference");
+            if (!value.GetProperty("minimumEntropyBytes").TryGetInt32(out var entropy) ||
+                !string.Equals(value.GetProperty("minimumEntropyBytes").GetRawText(), "32", StringComparison.Ordinal))
+                Fail("runtime_configuration_projection_v2_protected_reference");
             result = new RuntimeConfigurationProtectedReferenceV2 { VaultResourceId = Require(value, "vaultResourceId"), SecretName = Require(value, "secretName"), GenerationAlgorithm = Require(value, "generationAlgorithm"), MinimumEntropyBytes = entropy };
             if (result.GenerationAlgorithm != "random-base64url" || entropy != 32) Fail("runtime_configuration_projection_v2_protected_reference");
         }
