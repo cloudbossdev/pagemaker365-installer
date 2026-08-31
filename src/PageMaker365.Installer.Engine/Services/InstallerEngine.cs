@@ -11,15 +11,16 @@ namespace PageMaker365.Installer.Engine.Services;
 public sealed class InstallerEngine
 {
     private readonly StructuredLogger _logger;
-    private readonly PowerShellProcessRunner _powerShellRunner;
+    private readonly IPowerShellProcessRunner _powerShellRunner;
     private readonly IGraphDeviceCodeAuthenticator _graphAuthenticator;
 
     public InstallerEngine(
         StructuredLogger logger,
-        IGraphDeviceCodeAuthenticator? graphAuthenticator = null)
+        IGraphDeviceCodeAuthenticator? graphAuthenticator = null,
+        IPowerShellProcessRunner? powerShellRunner = null)
     {
         _logger = logger;
-        _powerShellRunner = new PowerShellProcessRunner();
+        _powerShellRunner = powerShellRunner ?? new PowerShellProcessRunner();
         _graphAuthenticator = graphAuthenticator ?? new GraphDeviceCodeAuthenticator();
     }
 
