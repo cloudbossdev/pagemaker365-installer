@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pagemaker365.com/schemas/runtime-configuration.schema.json",
+  "title": "PageMaker365 Runtime Configuration Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "settings"],
+  "properties": {
+    "schemaVersion": { "const": "pagemaker365.runtime-configuration.v1" },
+    "settings": {
+      "type": "array",
+      "minItems": 70,
+      "maxItems": 70,
+      "items": { "$ref": "#/$defs/setting" }
+    }
+  },
+  "$defs": {
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetApp",
+        "name",
+        "classification",
+        "requiredWhen",
+        "valueType",
+        "validationRule",
+        "valueOwner",
+        "installerSource"
+      ],
+      "properties": {
+        "targetApp": { "enum": ["api", "portal"] },
+        "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,127}$" },
+        "classification": { "enum": ["public", "protected-reference", "production-forbidden"] },
+        "requiredWhen": {
+          "enum": [
+            "customer-production",
+            "platform-supplied",
+            "optional",
+            "license-enabled",
+            "connector-sync-enabled",
+            "web-part-sync-enabled",
+            "never-customer-production"
+          ]
+        },
+        "valueType": { "enum": ["string", "integer", "boolean", "string-list", "json-object", "protected-reference"] },
+        "validationRule": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+        "valueOwner": { "enum": ["spo-ui", "control-plane", "installer", "customer-azure", "azure-platform"] },
+        "installerSource": { "enum": ["producer-constant", "runtime-release", "customer-profile", "provisioning-result", "consent-result", "rollout-policy", "protected-store-reference", "installer-generated-protected-reference", "azure-platform", "not-applied"] }
+      }
+    }
+  }
+}

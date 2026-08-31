@@ -1,0 +1,1477 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pagemaker365.runtime-configuration-projection.v2.schema.json",
+  "title": "PageMaker365 runtime configuration projection v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "catalog",
+    "binding",
+    "featureProfile",
+    "publicSettings",
+    "protectedSettings",
+    "projectionSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "pagemaker365.runtime-configuration-projection.v2"
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceRepository",
+        "sourceCommit",
+        "catalogSha256",
+        "catalogSchemaSha256",
+        "targetQualifiedOrderSha256",
+        "settingCount"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "pagemaker365.runtime-configuration.v1"
+        },
+        "sourceRepository": {
+          "const": "cloudbossdev/spo-ui"
+        },
+        "sourceCommit": {
+          "const": "c31427d0027adb4fd03de142fde18c4209ca44ce"
+        },
+        "catalogSha256": {
+          "const": "441a7083b27c6a76a0910b68b0aab3bd47efaf977cf48d594b5a3e48374e9cc6"
+        },
+        "catalogSchemaSha256": {
+          "const": "fb0df2a4b19c0dc8b4a951e4aeb4cd9cb21217ee4e91d86399e64809ce8b8f7e"
+        },
+        "targetQualifiedOrderSha256": {
+          "const": "09974fc243584b7f89e64241d8cb5a19ca7dd0244d0bf88f50967ae4c97257b6"
+        },
+        "settingCount": {
+          "const": 70
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packageContractVersion",
+        "customerId",
+        "installationId",
+        "environmentId",
+        "tenantId",
+        "azureSubscriptionId",
+        "deploymentExportId",
+        "runtimeReleaseId",
+        "runtimeVersion",
+        "manifestSha256"
+      ],
+      "properties": {
+        "packageContractVersion": {
+          "const": "0.7"
+        },
+        "customerId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "installationId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "environmentId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "azureSubscriptionId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "deploymentExportId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "runtimeReleaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])\\.(0|[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])\\.(0|[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$"
+        },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "featureProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connectorSynchronization",
+        "webPartSynchronization"
+      ],
+      "properties": {
+        "connectorSynchronization": {
+          "const": false
+        },
+        "webPartSynchronization": {
+          "const": false
+        }
+      }
+    },
+    "publicSettings": {
+      "type": "array",
+      "minItems": 42,
+      "maxItems": 42,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_APP_VERSION"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_ENV"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_HOST"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_CORS_ORIGIN"
+            },
+            "valueType": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_ENTRA_TENANT_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_ENTRA_AUDIENCE"
+            },
+            "valueType": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_ENTRA_CLIENT_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_GRAPH_SCOPES"
+            },
+            "valueType": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_REQUIRED_SCOPES"
+            },
+            "valueType": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_SHAREPOINT_SITE_URL"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_SHAREPOINT_UPLOADS_LIBRARY_NAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_SHAREPOINT_ISSUES_LIST_NAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_TENANT_CONNECTION_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_TENANT_DISPLAY_NAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "PAGEMAKER365_PORTAL_URL"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_LICENSE_PUBLIC_KEY_PEM"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_LICENSE_ENVIRONMENT_KEY"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_LICENSE_RUNTIME_HOSTNAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_LICENSE_VALIDATION_GRACE_HOURS"
+            },
+            "valueType": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_LICENSE_VALIDATION_INTERVAL_HOURS"
+            },
+            "valueType": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_AZURE_KEY_VAULT_URL"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST"
+            },
+            "valueType": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_RUNTIME_TRUST_FORWARDED_HOST"
+            },
+            "valueType": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "NODE_ENV"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "PM365_PRODUCT"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "PM365_DEPLOYMENT_EXPORT_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "PM365_RUNTIME_RELEASE_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "PM365_RUNTIME_VERSION"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS"
+            },
+            "valueType": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_FILE_PREVIEW_DOWNLOAD_POLICY"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_FILE_PREVIEW_SOURCE_FALLBACK_POLICY"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_API_BASE_URL"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_ENTRA_CLIENT_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_ENTRA_TENANT_ID"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_ENTRA_AUTHORITY"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_API_SCOPE"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_RUNTIME_ENVIRONMENT"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_PRODUCT_NAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_PRODUCT_LOGO_URL"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_CUSTOMER_DISPLAY_NAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_CUSTOMER_SHORT_NAME"
+            },
+            "valueType": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "valueType",
+            "value"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "portal"
+            },
+            "name": {
+              "const": "WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS"
+            },
+            "valueType": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            }
+          }
+        }
+      ],
+      "items": false
+    },
+    "protectedSettings": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "mode",
+            "reference"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "DATABASE_URL"
+            },
+            "mode": {
+              "const": "customer-azure-key-vault-reference"
+            },
+            "reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vaultResourceId",
+                "secretName",
+                "secretVersion"
+              ],
+              "properties": {
+                "vaultResourceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\\.KeyVault/vaults/[A-Za-z0-9-]{3,24}$"
+                },
+                "secretName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 127,
+                  "pattern": "^[A-Za-z0-9-]+$"
+                },
+                "secretVersion": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "mode",
+            "reference"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_ENTRA_CLIENT_SECRET"
+            },
+            "mode": {
+              "const": "customer-azure-key-vault-reference"
+            },
+            "reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vaultResourceId",
+                "secretName",
+                "secretVersion"
+              ],
+              "properties": {
+                "vaultResourceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\\.KeyVault/vaults/[A-Za-z0-9-]{3,24}$"
+                },
+                "secretName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 127,
+                  "pattern": "^[A-Za-z0-9-]+$"
+                },
+                "secretVersion": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "mode",
+            "reference"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_LICENSE_SIGNED_PAYLOAD"
+            },
+            "mode": {
+              "const": "control-plane-protected-setting-delivery"
+            },
+            "reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "contractVersion",
+                "opaqueReference",
+                "vaultResourceId",
+                "secretName"
+              ],
+              "properties": {
+                "contractVersion": {
+                  "const": "pagemaker365.protected-setting-acquisition.v1"
+                },
+                "opaqueReference": {
+                  "type": "string",
+                  "pattern": "^psr_[A-Za-z0-9_-]{24,64}$"
+                },
+                "vaultResourceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\\.KeyVault/vaults/[A-Za-z0-9-]{3,24}$"
+                },
+                "secretName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 127,
+                  "pattern": "^[A-Za-z0-9-]+$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetApp",
+            "name",
+            "mode",
+            "reference"
+          ],
+          "properties": {
+            "targetApp": {
+              "const": "api"
+            },
+            "name": {
+              "const": "API_IMAGE_ASSET_CURSOR_SECRET"
+            },
+            "mode": {
+              "const": "installer-generated-key-vault-secret"
+            },
+            "reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vaultResourceId",
+                "secretName",
+                "generationAlgorithm",
+                "minimumEntropyBytes"
+              ],
+              "properties": {
+                "vaultResourceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\\.KeyVault/vaults/[A-Za-z0-9-]{3,24}$"
+                },
+                "secretName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 127,
+                  "pattern": "^[A-Za-z0-9-]+$"
+                },
+                "generationAlgorithm": {
+                  "const": "random-base64url"
+                },
+                "minimumEntropyBytes": {
+                  "const": 32
+                }
+              }
+            }
+          }
+        }
+      ],
+      "items": false
+    },
+    "projectionSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
