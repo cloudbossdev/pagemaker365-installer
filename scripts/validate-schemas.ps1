@@ -121,4 +121,40 @@ foreach ($negativeCase in @(
     }
 }
 
+$v07FixtureRoot = Join-Path $repoRoot 'tests\PageMaker365.Installer.Engine.Tests\Fixtures\private-runtime-delivery-v3'
+$v07PackagePath = Join-Path $v07FixtureRoot 'customer-install-0.7.json'
+$v07ProjectionPath = Join-Path $v07FixtureRoot 'runtime-configuration-projection-v2.json'
+$v07PackageSchemaPath = Join-Path $repoRoot 'schemas\customer-install-v0.7.schema.json'
+$v07ProjectionSchemaPath = Join-Path $repoRoot 'schemas\runtime-configuration-projection-v2.schema.json'
+
+Invoke-SchemaValidation -SamplePath $v07ProjectionPath -SchemaPath $v07ProjectionSchemaPath
+
+# PowerShell's JSON-schema resolver does not resolve the package schema's
+# closed projection-v2 reference from a sibling file. Compose the two accepted
+# schema objects in memory; no generated schema or fixture is written.
+$v07PackageSchema = Get-Content -LiteralPath $v07PackageSchemaPath -Raw | ConvertFrom-Json
+$v07ProjectionSchema = Get-Content -LiteralPath $v07ProjectionSchemaPath -Raw | ConvertFrom-Json
+$v07PackageSchema.properties.runtimeConfiguration = $v07ProjectionSchema
+$v07CombinedSchema = $v07PackageSchema | ConvertTo-Json -Depth 100
+$v07Package = Get-Content -LiteralPath $v07PackagePath -Raw | ConvertFrom-Json
+if (-not (Test-Json -LiteralPath $v07PackagePath -Schema $v07CombinedSchema -ErrorAction SilentlyContinue)) {
+    throw 'Accepted customer package 0.7 fixture failed its closed package/projection schemas.'
+}
+
+foreach ($negativeCase in @(
+    @{ Name = 'mixed package version'; Mutate = { param($c) $c.contractVersion = '0.6' } },
+    @{ Name = 'mixed manifest version'; Mutate = { param($c) $c.runtimeArtifacts.manifestContractVersion = '2.0' } },
+    @{ Name = 'mixed projection version'; Mutate = { param($c) $c.runtimeConfiguration.schemaVersion = 'pagemaker365.runtime-configuration-projection.v1' } },
+    @{ Name = 'enabled connector profile'; Mutate = { param($c) $c.runtimeConfiguration.featureProfile.connectorSynchronization = $true } },
+    @{ Name = 'missing public setting'; Mutate = { param($c) $c.runtimeConfiguration.publicSettings = @($c.runtimeConfiguration.publicSettings | Select-Object -Skip 1) } },
+    @{ Name = 'raw protected value'; Mutate = { param($c) $c.runtimeConfiguration.protectedSettings[0].reference | Add-Member -NotePropertyName value -NotePropertyValue 'forbidden' } },
+    @{ Name = 'unknown root field'; Mutate = { param($c) $c | Add-Member -NotePropertyName unknownField -NotePropertyValue $true } }
+)) {
+    $candidate = $v07Package | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+    & $negativeCase.Mutate $candidate
+    if (Test-Json -Json ($candidate | ConvertTo-Json -Depth 100) -Schema $v07CombinedSchema -ErrorAction SilentlyContinue) {
+        throw "Customer package 0.7 schemas accepted $($negativeCase.Name)."
+    }
+}
+
 Write-Host 'Schema validation completed.'

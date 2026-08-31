@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "pagemaker365.private-runtime-delivery-fixtures.v3",
+  "sourceRepository": "cloudbossdev/spo-ui",
+  "sourceCommit": "c31427d0027adb4fd03de142fde18c4209ca44ce",
+  "files": {
+    "runtime-configuration.catalog.json": "441a7083b27c6a76a0910b68b0aab3bd47efaf977cf48d594b5a3e48374e9cc6",
+    "runtime-configuration.schema.json": "fb0df2a4b19c0dc8b4a951e4aeb4cd9cb21217ee4e91d86399e64809ce8b8f7e"
+  },
+  "canonicalArtifacts": [
+    {
+      "path": "customer-install-package-v0.7.schema.json",
+      "sizeBytes": 8839,
+      "sha256": "c083ec6e80859316ae9e6c1278a9579eddffac42732c87d0bcbae81c498f571c"
+    },
+    {
+      "path": "runtime-configuration-projection-v2.schema.json",
+      "sizeBytes": 38045,
+      "sha256": "ee146ac4d90ad9ccb08be94cb3f27fa8c43b02c85566f8931656fab82570d63b"
+    },
+    {
+      "path": "runtime-configuration-projection-v2.json",
+      "sizeBytes": 9719,
+      "sha256": "1c49cea398a251c3aee84afe82780b4ff39e5aa4008b336f9b16f80ef5994d5c"
+    },
+    {
+      "path": "customer-install-0.7.json",
+      "sizeBytes": 13000,
+      "sha256": "7d06ff1997754570267388905bd5a83d8aa63ecefc2e1d296e9513b73341740b"
+    },
+    {
+      "path": "signature-vector.json",
+      "sizeBytes": 472,
+      "sha256": "99688dd6b391db94a454ad36b3d829fe3b861362e45854fcada0cc06eb559158"
+    },
+    {
+      "path": "signing-public-key.pem",
+      "sizeBytes": 113,
+      "sha256": "7f2d9ed0b71b8e5a6c5cf30e647d6e20b5bca6dac8071f11abe3fef8014db610"
+    },
+    {
+      "path": "signing-trust.json",
+      "sizeBytes": 245,
+      "sha256": "f2b7542452b34f80001c3ce08c645a9afc4562e80ade5a3a54b2200f6234ac90"
+    }
+  ]
+}
