@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "pagemaker365.customer-install-public-trust.v1",
+  "keyId": "test-only-w09-cross-repository-package-a-ed25519",
+  "publicKeyFile": "signing-public-key.pem",
+  "publicKeySha256": "567af416d4df29c5712a013d0bfbfaabcb1931b28cd4b1d5e1c6885bd3febda0"
+}
