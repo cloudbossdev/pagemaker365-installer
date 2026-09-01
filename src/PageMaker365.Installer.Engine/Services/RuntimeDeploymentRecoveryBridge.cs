@@ -577,7 +577,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
     {
         var destinations = pending.Select(item => new RuntimeBridgeProtectedDestination(item.Name, item.Mode, item.Reference.VaultResourceId,
             item.Reference.SecretName, Sha256(Encoding.UTF8.GetBytes($"{item.Name}\n{item.Mode}\n{item.Reference.VaultResourceId}\n{item.Reference.SecretName}\n")))).ToArray();
-        var recoveryDigest = Sha256(Encoding.UTF8.GetBytes(string.Join("\n", destinations.Reverse().Select(item => item.DestinationSha256)) + "\n"));
+        var recoveryDigest = Sha256(Encoding.UTF8.GetBytes(string.Join("\n", Enumerable.Reverse(destinations).Select(item => item.DestinationSha256)) + "\n"));
         var canonical = JsonSerializer.Serialize(new
         {
             packageHash = package.PackageHash, projectionSha256 = package.RuntimeConfiguration.ProjectionSha256,
