@@ -37,7 +37,15 @@ internal interface IRuntimeBridgeOwnedStageRaceProbe : IRuntimeBridgeSyntheticTe
 
 internal interface IRuntimeBridgeCancellationProbe : IRuntimeBridgeSyntheticTestSeam
 {
-    void Probe(string phase);
+    void Probe(string label, string phase);
+}
+
+internal sealed class RuntimeBridgeSyntheticTransportException(int statusCode, string? safeCode, int responseBodyBytes)
+    : Exception("runtime_bridge_synthetic_transport_terminal")
+{
+    internal int StatusCode { get; } = statusCode;
+    internal string? SafeCode { get; } = safeCode;
+    internal int ResponseBodyBytes { get; } = responseBodyBytes;
 }
 
 internal sealed record RuntimeBridgeInvocation(

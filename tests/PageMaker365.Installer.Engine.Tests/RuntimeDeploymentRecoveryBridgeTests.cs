@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text.Json;
 using PageMaker365.Installer.Engine.Models;
@@ -29,6 +30,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent();
         NativeWindowsStageDeniesCreateRegistrationAndCleanupSubstitutionRaces();
         NativeWindowsStageExecutesTheClosedAliasAndWriterRaceMatrix();
+        NativeWindowsCancellationTableCoversEveryCreateBindAndCleanupBoundary();
         PortableInjectedStageStoreProvesClosedOwnershipSemantics();
         ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary();
         KeepsTheBoundaryInternalOfflineAndNonDeploying();
@@ -45,9 +47,8 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
                 var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
                 var probe = harness.NativeStageRaceProbe!;
                 AssertEx.True(probe.AttackApplied, attack.ToString());
-                AssertEx.True(attack == RuntimeBridgeNativeStageAttack.Rename
-                    ? probe.ProbeCount >= 5 && probe.DeniedCount == probe.ProbeCount && probe.UnexpectedSuccessCount == 0
-                    : probe.DeniedCount + probe.UnexpectedSuccessCount == 1, attack.ToString());
+                AssertEx.Equal(1, probe.ProbeCount, attack.ToString());
+                AssertEx.Equal(1, probe.DeniedCount + probe.UnexpectedSuccessCount, attack.ToString());
                 if (probe.UnexpectedSuccessCount == 0)
                 {
                     AssertEx.Equal("simulated", result.Status, attack.ToString());
@@ -55,14 +56,107 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
                 }
                 else
                 {
-                    AssertEx.Equal("cleanup-required", result.Status, attack.ToString());
-                    AssertEx.False(result.StageCleaned, attack.ToString());
+                    var beforeLeaseCommit = attack is RuntimeBridgeNativeStageAttack.TrustedRootBeforeBind or
+                        RuntimeBridgeNativeStageAttack.ParentBeforeStageCreate or RuntimeBridgeNativeStageAttack.ParentAfterValidationBeforeStageCreate or
+                        RuntimeBridgeNativeStageAttack.StageBeforeBind;
+                    AssertEx.Equal(beforeLeaseCommit ? "failed" : "cleanup-required", result.Status, attack.ToString());
+                    AssertEx.Equal(beforeLeaseCommit, result.StageCleaned, attack.ToString());
                     AssertEx.True(probe.ForeignPath is not null && (File.Exists(probe.ForeignPath) || Directory.Exists(probe.ForeignPath)), attack.ToString());
                 }
                 AssertEx.False(result.AuthorizesDeployment, attack.ToString());
             }
-            finally { harness.Dispose(); }
+            finally
+            {
+                var foreign = harness.NativeStageRaceProbe?.ForeignPath;
+                harness.Dispose();
+                if (foreign is not null)
+                {
+                    try { if (Directory.Exists(foreign)) Directory.Delete(foreign, recursive: true); else if (File.Exists(foreign)) File.Delete(foreign); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
         }
+    }
+
+    private static void NativeWindowsCancellationTableCoversEveryCreateBindAndCleanupBoundary()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var baseline = new RuntimeBridgeTestHarness(cancellationCheckpoint: "never");
+        string[] checkpoints;
+        try
+        {
+            var result = baseline.Bridge.RunAsync(baseline.Invocation(), baseline.BoundaryCancellation!.Token).GetAwaiter().GetResult();
+            AssertEx.Equal("simulated", result.Status);
+            checkpoints = baseline.CancellationProbe!.Phases.Where(item => item.StartsWith("native.", StringComparison.Ordinal)).ToArray();
+            var expected = ExpectedNativeCancellationCheckpoints();
+            var mismatch = Enumerable.Range(0, Math.Min(expected.Length, checkpoints.Length))
+                .FirstOrDefault(index => expected[index] != checkpoints[index], -1);
+            AssertEx.True(expected.SequenceEqual(checkpoints, StringComparer.Ordinal),
+                $"Expected {expected.Length} native checkpoints; observed {checkpoints.Length}; mismatch {mismatch}: " +
+                (mismatch >= 0 ? $"{expected[mismatch]} != {checkpoints[mismatch]}" : "length-only"));
+            AssertEx.Equal(checkpoints.Length, checkpoints.Distinct(StringComparer.Ordinal).Count());
+        }
+        finally { baseline.Dispose(); baseline.BoundaryCancellation?.Dispose(); }
+
+        foreach (var checkpoint in checkpoints)
+        {
+            var harness = new RuntimeBridgeTestHarness(cancellationCheckpoint: checkpoint);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation(), harness.BoundaryCancellation!.Token).GetAwaiter().GetResult();
+                var cleanupBoundary = checkpoint.StartsWith("native.cleanup.", StringComparison.Ordinal);
+                AssertEx.Equal(cleanupBoundary ? "cleanup-required" : "failed", result.Status, checkpoint);
+                AssertEx.Equal(!cleanupBoundary, result.StageCleaned, checkpoint);
+                AssertEx.False(result.AuthorizesDeployment, checkpoint);
+                AssertEx.Equal(1, harness.ArtifactTransport.SessionCount, checkpoint);
+                AssertEx.Equal(29, harness.ArtifactTransport.AcquireCount, checkpoint);
+                AssertEx.Equal(1, harness.ArtifactTransport.ReceiptCount, checkpoint);
+                AssertEx.Equal(cleanupBoundary ? 1 : 0, harness.LicenseTransport.CallCount, checkpoint);
+                AssertEx.Equal(cleanupBoundary ? 2 : 0, harness.WriteSink.CallCount, checkpoint);
+                AssertEx.Equal(cleanupBoundary ? 1 : 0, harness.CursorGenerator.CallCount, checkpoint);
+                AssertEx.Equal(cleanupBoundary ? 2 : 0, harness.WhatIf.CallCount, checkpoint);
+                AssertEx.Equal(cleanupBoundary ? 2 : 0, harness.Approval.CallCount, checkpoint);
+                AssertEx.Equal(cleanupBoundary ? 1 : 0, harness.Handler.CallCount, checkpoint);
+                AssertEx.Equal(0, harness.Recovery.CallCount, checkpoint);
+            }
+            finally { harness.Dispose(); harness.BoundaryCancellation?.Dispose(); }
+        }
+    }
+
+    private static string[] ExpectedNativeCancellationCheckpoints()
+    {
+        var labels = new List<string> { "native.root.open", "native.parent.validate", "native.stage.create", "native.stage.bind",
+            "native.marker.create", "native.marker.bind", "native.file.pagemaker365-api-1.4.3.zip.create", "native.file.pagemaker365-api-1.4.3.zip.bind",
+            "native.directory.api.create", "native.directory.api.bind" };
+        var root = FindRepositoryRoot();
+        var fixture = Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "Fixtures", "private-runtime-v07-cross-repository-rehearsal-v1");
+        foreach (var kind in new[] { "api", "portal" })
+        {
+            if (kind == "portal")
+            {
+                labels.Add("native.file.pagemaker365-portal-1.4.3.zip.create"); labels.Add("native.file.pagemaker365-portal-1.4.3.zip.bind");
+                labels.Add("native.directory.portal.create"); labels.Add("native.directory.portal.bind");
+            }
+            using var archive = ZipFile.OpenRead(Path.Combine(fixture, "artifacts", kind + ".zip"));
+            var createdDirectories = new HashSet<string>(StringComparer.Ordinal) { kind };
+            foreach (var entry in archive.Entries)
+            {
+                var parts = entry.FullName.Split('/');
+                for (var index = 1; index < parts.Length; index++)
+                {
+                    var directory = kind + "." + string.Join('.', parts.Take(index));
+                    if (!createdDirectories.Add(directory)) continue;
+                    labels.Add($"native.directory.{directory}.create");
+                    labels.Add($"native.directory.{directory}.bind");
+                }
+                var file = kind + "." + entry.FullName.Replace('/', '.');
+                labels.Add($"native.file.{file}.create");
+                labels.Add($"native.file.{file}.bind");
+            }
+        }
+        labels.AddRange(["native.inventory.enumerate-complete", "native.cleanup.delete", "native.cleanup.commit"]);
+        return labels.SelectMany(label => new[] { label + ":before", label + ":after" }).ToArray();
     }
 
     private static void ExecutesAllFixtureDeclaredDeliveryAndProtectedNegativeVectors()
@@ -79,21 +173,35 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         AssertEx.Equal(40, protectedRows.Select(row => row.GetProperty("id").GetString()).Distinct(StringComparer.Ordinal).Count());
         foreach (var row in deliveryRows)
         {
-            var actual = RuntimeBridgeTestHarness.ExecuteDeclaredDeliveryNegative(row);
+            var id = row.GetProperty("id").GetString()!;
+            var mutation = row.GetProperty("mutation").GetString()!;
+            var actual = RuntimeBridgeTestHarness.ExecuteDeliveryNegative(mutation);
             AssertEx.Equal(row.GetProperty("expectedStatus").GetInt32(), actual.Status, row.GetProperty("id").GetString()!);
             AssertEx.Equal(row.GetProperty("expectedErrorCode").ValueKind == JsonValueKind.Null ? null : row.GetProperty("expectedErrorCode").GetString(), actual.ErrorCode);
             AssertEx.Equal(row.GetProperty("expectedArtifactOpenCount").GetInt32(), actual.ReadCount);
             AssertEx.Equal(row.GetProperty("expectedReceiptMutationCount").GetInt32(), actual.MutationCount);
             AssertEx.Equal(row.GetProperty("expectedResponseBodyBytes").GetInt32(), actual.ResponseBytes);
+            AssertEx.False(actual.Result.AuthorizesDeployment, id);
+            AssertEx.Equal(0, actual.ProtectedWrites, id);
+            AssertEx.Equal(0, actual.RandomGenerations, id);
+            AssertEx.Equal(0, actual.HandlerCalls, id);
+            AssertEx.Equal(0, actual.Recoveries, id);
         }
         foreach (var row in protectedRows)
         {
-            var actual = RuntimeBridgeTestHarness.ExecuteDeclaredProtectedNegative(row);
+            var id = row.GetProperty("id").GetString()!;
+            var mutation = row.GetProperty("mutation").GetString()!;
+            var actual = RuntimeBridgeTestHarness.ExecuteProtectedNegative(mutation);
             AssertEx.Equal(row.GetProperty("expectedStatus").GetInt32(), actual.Status, row.GetProperty("id").GetString()!);
             AssertEx.Equal(row.GetProperty("expectedErrorCode").GetString(), actual.ErrorCode);
             AssertEx.Equal(row.GetProperty("expectedProtectedReadCount").GetInt32(), actual.ReadCount);
             AssertEx.Equal(row.GetProperty("expectedRedemptionCount").GetInt32(), actual.MutationCount);
             AssertEx.Equal(row.GetProperty("expectedResponseBodyBytes").GetInt32(), actual.ResponseBytes);
+            AssertEx.False(actual.Result.AuthorizesDeployment, id);
+            AssertEx.Equal(0, actual.ProtectedWrites, id);
+            AssertEx.Equal(0, actual.RandomGenerations, id);
+            AssertEx.Equal(0, actual.HandlerCalls, id);
+            AssertEx.Equal(0, actual.Recoveries, id);
         }
         AssertEx.Equal(2, deliveryRows.Single(row => row.GetProperty("id").GetString() == "concurrent-downloads").GetProperty("expectedArtifactOpenCount").GetInt32());
         AssertEx.Equal(1, deliveryRows.Single(row => row.GetProperty("id").GetString() == "receipt-replay").GetProperty("expectedReceiptMutationCount").GetInt32());
@@ -158,36 +266,94 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
     private static void PinsExplicitCancellationChecksAtEveryOwnedBoundary()
     {
         var baseline = new RuntimeBridgeTestHarness(portableStageMutation: PortableOwnedStageMutation.None,
-            cancellationBoundaryOrdinal: int.MaxValue);
-        int boundaryCount;
+            cancellationCheckpoint: "never");
+        string[] checkpoints;
         try
         {
             var result = baseline.Bridge.RunAsync(baseline.Invocation(), baseline.BoundaryCancellation!.Token).GetAwaiter().GetResult();
             AssertEx.Equal("simulated", result.Status, result.EvidenceJson);
-            boundaryCount = baseline.CancellationProbe!.Count;
-            AssertEx.True(boundaryCount >= 60, boundaryCount.ToString());
-            AssertEx.Equal(boundaryCount, baseline.CancellationProbe.Phases.Count);
-            AssertEx.True(baseline.CancellationProbe.Phases.Select((phase, index) => (phase, index))
-                .All(item => item.phase == (item.index % 2 == 0 ? "before" : "after")));
+            checkpoints = baseline.CancellationProbe!.Phases.ToArray();
+            var expected = ExpectedCancellationCheckpoints();
+            AssertEx.True(expected.SequenceEqual(checkpoints, StringComparer.Ordinal),
+                $"Expected {expected.Length} closed checkpoints; observed {checkpoints.Length}.");
+            AssertEx.Equal(checkpoints.Length, checkpoints.Distinct(StringComparer.Ordinal).Count());
+            AssertEx.True(checkpoints.Select((checkpoint, index) => (checkpoint, index)).All(item =>
+                item.checkpoint.EndsWith(item.index % 2 == 0 ? ":before" : ":after", StringComparison.Ordinal)));
         }
         finally { baseline.Dispose(); baseline.BoundaryCancellation?.Dispose(); }
 
-        for (var ordinal = 1; ordinal <= boundaryCount; ordinal++)
+        foreach (var checkpoint in checkpoints)
         {
             var harness = new RuntimeBridgeTestHarness(portableStageMutation: PortableOwnedStageMutation.None,
-                cancellationBoundaryOrdinal: ordinal);
+                cancellationCheckpoint: checkpoint);
             try
             {
                 var result = harness.Bridge.RunAsync(harness.Invocation(), harness.BoundaryCancellation!.Token).GetAwaiter().GetResult();
-                AssertEx.False(result.Status == "simulated", ordinal.ToString());
-                AssertEx.False(result.AuthorizesDeployment, ordinal.ToString());
-                AssertEx.True(harness.ArtifactTransport.AcquireCount <= 29, ordinal.ToString());
-                AssertEx.True(harness.LicenseTransport.CallCount <= 1, ordinal.ToString());
-                AssertEx.True(harness.WriteSink.CallCount <= 2, ordinal.ToString());
-                AssertEx.True(harness.WriteSink.RetainedBuffers.All(buffer => buffer.Span.ToArray().All(value => value == 0)), ordinal.ToString());
+                var position = Array.IndexOf(checkpoints, checkpoint);
+                bool Completed(string label) => Array.IndexOf(checkpoints, label + ":after") <= position &&
+                    Array.IndexOf(checkpoints, label + ":after") >= 0;
+                var expectedAcquires = checkpoints.Take(position + 1).Count(item => item.StartsWith("artifact.", StringComparison.Ordinal) && item.EndsWith(".exchange:after", StringComparison.Ordinal));
+                var expectedWrites = (Completed("protected.license.write") ? 1 : 0) + (Completed("protected.cursor.generate-write") ? 1 : 0);
+                var simulationAccepted = Array.IndexOf(checkpoints, "handler.result-digest.validate:before") <= position;
+                var stageCreated = Completed("stage.create");
+                var expectedCleanup = !stageCreated ? 0 : Completed("stage.cleanup") ? 2 : 1;
+                var expectedRecoveries = simulationAccepted ? 0 : expectedWrites;
+                AssertEx.False(result.Status == "simulated", checkpoint);
+                AssertEx.False(result.AuthorizesDeployment, checkpoint);
+                AssertEx.Equal(Completed("session.exchange") ? 1 : 0, harness.ArtifactTransport.SessionCount, checkpoint);
+                AssertEx.Equal(expectedAcquires, harness.ArtifactTransport.AcquireCount, checkpoint);
+                AssertEx.Equal(Completed("receipt.exchange") ? 1 : 0, harness.ArtifactTransport.ReceiptCount, checkpoint);
+                AssertEx.Equal(Completed("protected.license.exchange") ? 1 : 0, harness.LicenseTransport.CallCount, checkpoint);
+                AssertEx.Equal(expectedWrites, harness.WriteSink.CallCount, checkpoint);
+                AssertEx.Equal(Completed("protected.cursor.generate-write") ? 1 : 0, harness.CursorGenerator.CallCount, checkpoint);
+                AssertEx.Equal((Completed("whatif.provisional") ? 1 : 0) + (Completed("whatif.final") ? 1 : 0), harness.WhatIf.CallCount, checkpoint);
+                AssertEx.Equal((Completed("approval.provisional") ? 1 : 0) + (Completed("approval.final") ? 1 : 0), harness.Approval.CallCount, checkpoint);
+                AssertEx.Equal(Completed("handler.invoke") ? 1 : 0, harness.Handler.CallCount, checkpoint);
+                AssertEx.Equal(expectedRecoveries, harness.Recovery.CallCount, checkpoint);
+                AssertEx.Equal(expectedCleanup, harness.PortableStageStore!.CleanupCount, checkpoint);
+                AssertEx.True(harness.WriteSink.RetainedBuffers.All(buffer => buffer.Span.ToArray().All(value => value == 0)), checkpoint);
             }
             finally { harness.Dispose(); harness.BoundaryCancellation?.Dispose(); }
         }
+    }
+
+    private static string[] ExpectedCancellationCheckpoints()
+    {
+        var labels = new List<string> { "package.parse", "package.trust.validate", "input.provisional", "session.exchange", "session.response.validate" };
+        labels.Add("artifact.api.full.exchange");
+        labels.Add("artifact.api.full.header-digest.validate");
+        foreach (var index in Enumerable.Range(0, 12))
+        {
+            labels.Add($"artifact.api.range.{index:D2}.exchange");
+            labels.Add($"artifact.api.range.{index:D2}.header-digest.validate");
+        }
+        labels.AddRange(["artifact.api.range.reconstruction.validate", "artifact.api.zip.validate", "artifact.api.provenance.validate"]);
+        labels.Add("artifact.portal.full.exchange");
+        labels.Add("artifact.portal.full.header-digest.validate");
+        foreach (var index in Enumerable.Range(0, 15))
+        {
+            labels.Add($"artifact.portal.range.{index:D2}.exchange");
+            labels.Add($"artifact.portal.range.{index:D2}.header-digest.validate");
+        }
+        labels.AddRange(["artifact.portal.range.reconstruction.validate", "artifact.portal.zip.validate", "artifact.portal.provenance.validate",
+            "receipt.exchange", "receipt.envelope.validate", "receipt.request.validate", "receipt.response.validate", "stage.create"]);
+        var root = FindRepositoryRoot();
+        var fixture = Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "Fixtures", "private-runtime-v07-cross-repository-rehearsal-v1");
+        foreach (var kind in new[] { "api", "portal" })
+        {
+            labels.Add($"stage.{kind}.assert");
+            labels.Add($"stage.{kind}.archive.write");
+            labels.Add($"stage.{kind}.directory.create");
+            using var archive = ZipFile.OpenRead(Path.Combine(fixture, "artifacts", kind + ".zip"));
+            labels.AddRange(archive.Entries.Select(entry => $"stage.{kind}/{entry.FullName}.write"));
+        }
+        labels.AddRange(["stage.inventory.complete", "whatif.provisional", "whatif.provisional.validate", "approval.provisional",
+            "approval.provisional.validate", "approval.provisional.consume", "protected.license.exchange", "protected.license.response.validate",
+            "protected.license.signature-fingerprint.validate", "protected.license.write", "protected.license.receipt-content.validate",
+            "protected.cursor.generate-write", "input.finalize", "input.final-shape.validate", "whatif.final", "whatif.final.validate",
+            "approval.final", "approval.final.validate", "approval.final.consume", "handler.invoke", "handler.result-digest.validate",
+            "stage.cleanup", "evidence.commit"]);
+        return labels.SelectMany(label => new[] { label + ":before", label + ":after" }).ToArray();
     }
 
     private static void StopsAtOwnedFailureAndCancellationBoundaries()
@@ -902,7 +1068,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
             AssertEx.Equal("simulated", result.Status, result.EvidenceJson);
             AssertEx.True(result.StageCleaned);
-            AssertEx.True(harness.NativeStageRaceProbe!.ProbeCount >= 3);
+            AssertEx.Equal(1, harness.NativeStageRaceProbe!.ProbeCount);
             AssertEx.Equal(harness.NativeStageRaceProbe.ProbeCount, harness.NativeStageRaceProbe.DeniedCount,
                 string.Join(',', harness.NativeStageRaceProbe.UnexpectedOperations));
             AssertEx.Equal(0, harness.NativeStageRaceProbe.UnexpectedSuccessCount, string.Join(',', harness.NativeStageRaceProbe.UnexpectedOperations));
