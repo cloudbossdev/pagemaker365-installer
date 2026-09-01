@@ -144,11 +144,9 @@ $apiPublic = @($projection.publicSettings | Where-Object targetApp -eq 'api' | F
 $portalPublic = @($projection.publicSettings | Where-Object targetApp -eq 'portal' | ForEach-Object { ConvertTo-ApplicationSetting $_ })
 $vaultOrigin = [string]($projection.publicSettings | Where-Object name -eq 'API_AZURE_KEY_VAULT_URL').value
 $protectedReferences = @(
-    $projection.protectedSettings | ForEach-Object {
+    $projection.protectedSettings | Where-Object mode -eq 'customer-azure-key-vault-reference' | ForEach-Object {
         $uri = "${vaultOrigin}/secrets/$([string]$_.reference.secretName)"
-        if ([string]$_.mode -ceq 'customer-azure-key-vault-reference') {
-            $uri += "/$([string]$_.reference.secretVersion)"
-        }
+        $uri += "/$([string]$_.reference.secretVersion)"
         [ordered]@{
             name = [string]$_.name
             mode = [string]$_.mode
@@ -228,8 +226,9 @@ $applicationInput = & (Get-Module PageMaker365.Install) {
 Assert-True ($applicationInput.enableRuntimeConfigurationProjectionV2) 'Application input must carry the explicit enabled gate.'
 Assert-True (@($applicationInput.apiRuntimeConfigurationPublicSettings).Count -eq 31) 'Application input must contain exactly 31 API public settings.'
 Assert-True (@($applicationInput.portalRuntimeConfigurationPublicSettings).Count -eq 11) 'Application input must contain exactly 11 portal public settings.'
-Assert-True (@($applicationInput.apiRuntimeConfigurationProtectedSettingReferences).Count -eq 4) 'Application input must contain exactly four protected Key Vault references.'
+Assert-True (@($applicationInput.apiRuntimeConfigurationProtectedSettingReferences).Count -eq 2) 'Application input must contain only the two already-versioned protected Key Vault references.'
 Assert-True (-not (($applicationInput | ConvertTo-Json -Depth 20) -match 'psr_')) 'Opaque license references must not enter Bicep parameters.'
+Assert-True (-not (($applicationInput | ConvertTo-Json -Depth 20) -match 'license-payload|image-cursor-secret')) 'Pending license and cursor destinations must not become premature Bicep app settings.'
 Assert-True ($script:applicationProcessStarts -eq 0 -and $script:applicationCloudCalls -eq 0) 'Application input generation must remain offline.'
 
 try {

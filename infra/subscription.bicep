@@ -93,7 +93,7 @@ param apiRuntimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
 @description('Exact validated projection-v2 portal public settings.')
 param portalRuntimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
 
-@description('Key-Vault-reference-only projection-v2 API protected settings.')
+@description('Only already-versioned projection-v2 API Key Vault references. Pending license and cursor destinations are excluded.')
 param apiRuntimeConfigurationProtectedSettingReferences RuntimeApplicationSetting[] = []
 
 @description('Immutable PageMaker365 runtime release identifier.')

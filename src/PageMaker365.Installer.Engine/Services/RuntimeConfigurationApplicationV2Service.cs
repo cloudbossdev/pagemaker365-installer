@@ -70,7 +70,7 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
         var publicSettings = projection.PublicSettings;
         var api = ConvertPublicSettings(publicSettings.Take(ApiPublicNames.Length).ToArray(), "api", ApiPublicNames);
         var portal = ConvertPublicSettings(publicSettings.Skip(ApiPublicNames.Length).ToArray(), "portal", PortalPublicNames);
-        var protectedReferences = ConvertProtectedSettings(projection.ProtectedSettings, publicSettings);
+        var protectedReferences = ConvertVersionedProtectedSettings(projection.ProtectedSettings, publicSettings);
         var license = projection.ProtectedSettings.Single(item => item.Name == "API_LICENSE_SIGNED_PAYLOAD");
         var cursor = projection.ProtectedSettings.Single(item => item.Name == "API_IMAGE_ASSET_CURSOR_SECRET");
         var rollbackTargets = api.Select(item => $"api:{item.Name}")
@@ -207,7 +207,7 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
         _ => throw new InvalidDataException("runtime_configuration_application_v2_public_type")
     };
 
-    private static IReadOnlyList<RuntimeConfigurationApplicationProtectedReferenceV2> ConvertProtectedSettings(
+    private static IReadOnlyList<RuntimeConfigurationApplicationProtectedReferenceV2> ConvertVersionedProtectedSettings(
         IReadOnlyList<RuntimeConfigurationProtectedSettingV2> settings,
         IReadOnlyList<RuntimeConfigurationPublicSettingV2> publicSettings)
     {
@@ -222,8 +222,8 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
             if (item.TargetApp != "api" || item.Name != expected.Name || item.Mode != expected.Mode ||
                 !item.Reference.VaultResourceId.EndsWith($"/vaults/{vaultName}", StringComparison.OrdinalIgnoreCase))
                 Fail("runtime_configuration_application_v2_protected_shape");
-            var secretUri = $"{vaultOrigin}/secrets/{item.Reference.SecretName}";
-            if (item.Mode == "customer-azure-key-vault-reference") secretUri += $"/{item.Reference.SecretVersion}";
+            if (item.Mode != "customer-azure-key-vault-reference") continue;
+            var secretUri = $"{vaultOrigin}/secrets/{item.Reference.SecretName}/{item.Reference.SecretVersion}";
             result.Add(new RuntimeConfigurationApplicationProtectedReferenceV2
             {
                 Name = item.Name,
@@ -238,7 +238,7 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
     {
         if (plan.ContractVersion != RuntimeConfigurationApplicationV2Plan.ContractVersionValue ||
             plan.ApiPublicSettings.Count != 31 || plan.PortalPublicSettings.Count != 11 ||
-            plan.ApiProtectedSettingReferences.Count != 4 || plan.CursorGeneration.GenerationAlgorithm != "random-base64url" ||
+            plan.ApiProtectedSettingReferences.Count != 2 || plan.CursorGeneration.GenerationAlgorithm != "random-base64url" ||
             plan.CursorGeneration.MinimumEntropyBytes != 32 || plan.Rollback.ContainsValues ||
             plan.CanonicalJson != FormatCanonicalPlan(plan) ||
             !FixedEquals(plan.PlanSha256, Sha256(Encoding.UTF8.GetBytes(plan.CanonicalJson))))

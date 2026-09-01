@@ -48,7 +48,7 @@ param enableRuntimeConfigurationProjectionV2 bool = false
 @description('Exact validated projection-v2 API public settings. Empty unless the application gate is enabled.')
 param runtimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
 
-@description('Key-Vault-reference-only projection-v2 API protected settings. Empty unless the application gate is enabled.')
+@description('Only already-versioned projection-v2 API Key Vault references. Pending license and cursor destinations are excluded.')
 param runtimeConfigurationProtectedSettingReferences RuntimeApplicationSetting[] = []
 
 @description('Customer Entra tenant ID used for token validation and Microsoft Graph OBO.')

@@ -26,8 +26,8 @@ internal static class RuntimeConfigurationApplicationV2Tests
         AssertEx.Equal(RuntimeConfigurationApplicationV2Plan.ContractVersionValue, first.ContractVersion);
         AssertEx.Equal(31, first.ApiPublicSettings.Count);
         AssertEx.Equal(11, first.PortalPublicSettings.Count);
-        AssertEx.Equal(4, first.ApiProtectedSettingReferences.Count);
-        AssertEx.Equal(46, first.Rollback.TargetQualifiedSettings.Count);
+        AssertEx.Equal(2, first.ApiProtectedSettingReferences.Count);
+        AssertEx.Equal(44, first.Rollback.TargetQualifiedSettings.Count);
         AssertEx.False(first.Rollback.ContainsValues);
         AssertEx.True(first.Rollback.TargetQualifiedSettings.SequenceEqual(
             first.ApiPublicSettings.Select(item => $"api:{item.Name}")
@@ -51,13 +51,11 @@ internal static class RuntimeConfigurationApplicationV2Tests
 
         var database = first.ApiProtectedSettingReferences[0];
         var entra = first.ApiProtectedSettingReferences[1];
-        var license = first.ApiProtectedSettingReferences[2];
-        var cursor = first.ApiProtectedSettingReferences[3];
         AssertEx.True(database.KeyVaultReference.EndsWith("/database-url/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)", StringComparison.Ordinal));
         AssertEx.True(entra.KeyVaultReference.EndsWith("/entra-client-secret/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)", StringComparison.Ordinal));
-        AssertEx.True(license.KeyVaultReference.EndsWith("/license-payload)", StringComparison.Ordinal));
-        AssertEx.True(cursor.KeyVaultReference.EndsWith("/image-cursor-secret)", StringComparison.Ordinal));
-        AssertEx.False(license.KeyVaultReference.Contains(first.LicenseAcquisition.OpaqueReference, StringComparison.Ordinal));
+        AssertEx.False(first.ApiProtectedSettingReferences.Any(item => item.Name is "API_LICENSE_SIGNED_PAYLOAD" or "API_IMAGE_ASSET_CURSOR_SECRET"));
+        AssertEx.False(first.CanonicalJson.Contains("@Microsoft.KeyVault(SecretUri=https://pm365fixture.vault.azure.net/secrets/license-payload)", StringComparison.Ordinal));
+        AssertEx.False(first.CanonicalJson.Contains("@Microsoft.KeyVault(SecretUri=https://pm365fixture.vault.azure.net/secrets/image-cursor-secret)", StringComparison.Ordinal));
         AssertEx.Equal(RuntimeConfigurationProjectionV2Validator.ProtectedSettingAcquisitionVersion, first.LicenseAcquisition.ContractVersion);
         AssertEx.True(first.LicenseAcquisition.OpaqueReference.StartsWith("psr_", StringComparison.Ordinal));
         AssertEx.Equal("random-base64url", first.CursorGeneration.GenerationAlgorithm);

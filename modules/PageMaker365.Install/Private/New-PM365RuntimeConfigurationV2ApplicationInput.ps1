@@ -84,12 +84,9 @@ function New-PM365RuntimeConfigurationV2ApplicationInput {
         Assert-PM365RuntimeConfigurationV2Settings -Items @($plan.portalPublicSettings) -ExpectedNames $portalNames
 
         $protected = @($plan.apiProtectedSettingReferences)
-        $protectedNames = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET', 'API_LICENSE_SIGNED_PAYLOAD', 'API_IMAGE_ASSET_CURSOR_SECRET')
-        $protectedModes = @(
-            'customer-azure-key-vault-reference', 'customer-azure-key-vault-reference',
-            'control-plane-protected-setting-delivery', 'installer-generated-key-vault-secret'
-        )
-        if ($protected.Count -ne 4) {
+        $protectedNames = @('DATABASE_URL', 'API_ENTRA_CLIENT_SECRET')
+        $protectedModes = @('customer-azure-key-vault-reference', 'customer-azure-key-vault-reference')
+        if ($protected.Count -ne 2) {
             throw [System.IO.InvalidDataException]::new('runtime_configuration_application_v2_protected_shape')
         }
         for ($index = 0; $index -lt $protected.Count; $index++) {
@@ -100,11 +97,8 @@ function New-PM365RuntimeConfigurationV2ApplicationInput {
                 [string]$protected[$index].keyVaultReference -cnotmatch '^@Microsoft\.KeyVault\(SecretUri=https://[a-z0-9-]{3,24}\.vault\.azure\.net/secrets/[A-Za-z0-9-]{1,127}(?:/[0-9a-f]{32})?\)$') {
                 throw [System.IO.InvalidDataException]::new('runtime_configuration_application_v2_protected_shape')
             }
-            if ($index -lt 2 -and [string]$protected[$index].keyVaultReference -cnotmatch '/[0-9a-f]{32}\)$') {
+            if ([string]$protected[$index].keyVaultReference -cnotmatch '/[0-9a-f]{32}\)$') {
                 throw [System.IO.InvalidDataException]::new('runtime_configuration_application_v2_protected_version')
-            }
-            if ($index -ge 2 -and [string]$protected[$index].keyVaultReference -cmatch '/[0-9a-f]{32}\)$') {
-                throw [System.IO.InvalidDataException]::new('runtime_configuration_application_v2_pending_reference')
             }
         }
 
@@ -123,7 +117,7 @@ function New-PM365RuntimeConfigurationV2ApplicationInput {
             [bool]$plan.rollback.containsValues) {
             throw [System.IO.InvalidDataException]::new('runtime_configuration_application_v2_pending_descriptor')
         }
-        if (@($plan.rollback.targetQualifiedSettings).Count -ne 46) {
+        if (@($plan.rollback.targetQualifiedSettings).Count -ne 44) {
             throw [System.IO.InvalidDataException]::new('runtime_configuration_application_v2_rollback')
         }
 
