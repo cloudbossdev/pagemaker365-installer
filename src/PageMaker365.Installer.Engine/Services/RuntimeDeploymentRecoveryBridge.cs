@@ -17,7 +17,7 @@ namespace PageMaker365.Installer.Engine.Services;
 /// <summary>
 /// Internal synthetic rehearsal only. It cannot select a real transport or deployment handler.
 /// </summary>
-internal sealed class RuntimeDeploymentRecoveryBridge
+internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStageStore
 {
     private readonly RuntimeBridgeSyntheticTestCapability capability;
     private readonly PrivateRuntimeDeliveryV07PackageService packageService;
@@ -33,6 +33,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
     private readonly IRuntimeBridgeApproval approvals;
     private readonly IRuntimeBridgeSyntheticHandler handler;
     private readonly IRuntimeBridgeRecovery recovery;
+    private readonly IRuntimeBridgeOwnedStageStore stageStore;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<string, CachedInvocation> completed = new(StringComparer.Ordinal);
     private readonly Dictionary<string, OwnedStageState> ownedStages = new(StringComparer.OrdinalIgnoreCase);
@@ -50,7 +51,8 @@ internal sealed class RuntimeDeploymentRecoveryBridge
         IRuntimeBridgeWhatIf whatIf,
         IRuntimeBridgeApproval approvals,
         IRuntimeBridgeSyntheticHandler handler,
-        IRuntimeBridgeRecovery recovery)
+        IRuntimeBridgeRecovery recovery,
+        IRuntimeBridgeOwnedStageStore? stageStore = null)
     {
         this.capability = capability ?? throw new ArgumentNullException(nameof(capability));
         packageService = new PrivateRuntimeDeliveryV07PackageService(catalog ?? throw new ArgumentNullException(nameof(catalog)));
@@ -73,7 +75,10 @@ internal sealed class RuntimeDeploymentRecoveryBridge
         this.approvals = RequireSeam(approvals);
         this.handler = RequireSeam(handler);
         this.recovery = RequireSeam(recovery);
+        this.stageStore = stageStore is null ? this : RequireSeam(stageStore);
     }
+
+    RuntimeBridgeSyntheticTestCapability IRuntimeBridgeSyntheticTestSeam.Capability => capability;
 
     internal async Task<RuntimeBridgeResult> RunAsync(RuntimeBridgeInvocation invocation, CancellationToken cancellationToken = default)
     {
@@ -103,9 +108,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
 
     private RuntimeBridgeResult Execute(RuntimeBridgeInvocation invocation, CancellationToken cancellationToken)
     {
-        var trustedRoot = "";
-        var stageRoot = "";
-        byte[] ownershipMarker = [];
+        RuntimeBridgeOwnedStageLease? stage = null;
         RuntimeBridgeProtectedWriteReceipt? licenseReceipt = null;
         RuntimeBridgeProtectedWriteReceipt? cursorReceipt = null;
         var trace = new List<string>();
@@ -130,19 +133,18 @@ internal sealed class RuntimeDeploymentRecoveryBridge
             var preliminary = application.CreateDeploymentInput(invocation.CanonicalPackageJson, enabled: true);
             trace.Add("package-authorized");
 
-            trustedRoot = ValidateTrustedRoot(invocation.WorkspaceRoot);
-            stageRoot = CreateOwnedStage(trustedRoot, invocation.InvocationId, out ownershipMarker);
-            AssertOwnedStage(trustedRoot, stageRoot, ownershipMarker);
+            stage = stageStore.Create(invocation.WorkspaceRoot, invocation.InvocationId);
+            stageStore.AssertOwned(stage);
             var session = artifacts.CreateSession(package, cancellationToken);
             if (session.SessionId != "rds_SYNTHETIC_W09_REHEARSAL_0001" ||
                 session.ExpiresAt != DateTimeOffset.Parse("2099-08-30T12:00:00.000Z"))
                 Fail("runtime_bridge_session_invalid");
             var verified = new[]
             {
-                VerifyArtifact(package, session, "api", trustedRoot, stageRoot, ownershipMarker, cancellationToken),
-                VerifyArtifact(package, session, "portal", trustedRoot, stageRoot, ownershipMarker, cancellationToken)
+                VerifyArtifact(package, session, "api", stage, cancellationToken),
+                VerifyArtifact(package, session, "portal", stage, cancellationToken)
             };
-            AssertOwnedStage(trustedRoot, stageRoot, ownershipMarker);
+            stageStore.AssertOwned(stage);
             var artifactReceipt = artifacts.SubmitReceipt(package, session, verified, cancellationToken);
             if (artifactReceipt.SessionId != session.SessionId || artifactReceipt.PackageHash != package.PackageHash ||
                 artifactReceipt.Status != "completed" || artifactReceipt.MutationCount != 1)
@@ -219,7 +221,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
             evidenceState.HandlerResultSha256 = simulation.ResultSha256;
             simulationAccepted = true;
             trace.Add("handler-simulated");
-            var cleaned = TryCleanupStage(trustedRoot, stageRoot, ownershipMarker);
+            var cleaned = stageStore.Cleanup(stage);
             if (!cleaned)
                 return Result("cleanup-required", "runtime_deployment_recovery_stage_cleanup_required", trace, [], null, false,
                     licenseAcquisitions, 2, whatIfCount, approvalCount, handlerCount, 0, evidenceState: evidenceState);
@@ -230,7 +232,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
         {
             if (simulationAccepted)
             {
-                var cleanedAfterSimulation = TryCleanupStage(trustedRoot, stageRoot, ownershipMarker);
+                var cleanedAfterSimulation = stage is not null && stageStore.Cleanup(stage);
                 return Result(cleanedAfterSimulation ? "failed" : "cleanup-required",
                     cleanedAfterSimulation ? "runtime_deployment_recovery_rehearsal_failed" : "runtime_deployment_recovery_stage_cleanup_required",
                     trace, [], null, cleanedAfterSimulation, licenseAcquisitions,
@@ -253,7 +255,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
                     unrecovered.Add(receipt);
                 }
             }
-            var cleaned = string.IsNullOrEmpty(stageRoot) || TryCleanupStage(trustedRoot, stageRoot, ownershipMarker);
+            var cleaned = stage is null || stageStore.Cleanup(stage);
             var ambiguity = error is RuntimeBridgeTerminalAmbiguityException;
             return Result(unrecovered.Count > 0 ? "recovery-required" : !cleaned ? "cleanup-required" : "failed",
                 unrecovered.Count > 0 ? "runtime_deployment_recovery_required" : !cleaned ? "runtime_deployment_recovery_stage_cleanup_required" :
@@ -265,7 +267,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
     }
 
     private RuntimeBridgeVerifiedArtifact VerifyArtifact(PrivateRuntimeDeliveryPackageV07 package, RuntimeBridgeArtifactSession session, string kind,
-        string trustedRoot, string stageRoot, byte[] ownershipMarker, CancellationToken cancellationToken)
+        RuntimeBridgeOwnedStageLease stage, CancellationToken cancellationToken)
     {
         var expected = package.Artifact(kind);
         var reference = kind == "api" ? package.ApiDeliveryReference : package.PortalDeliveryReference;
@@ -295,13 +297,13 @@ internal sealed class RuntimeDeploymentRecoveryBridge
             !range.Body.AsSpan().SequenceEqual(acceptedBody.AsSpan((int)range.Offset, range.Body.Length)))
             Fail("runtime_bridge_artifact_protocol_invalid");
 
-        AssertOwnedStage(trustedRoot, stageRoot, ownershipMarker);
-        var zipPath = Path.Combine(stageRoot, expected.FileName);
-        WriteExclusive(trustedRoot, stageRoot, ownershipMarker, zipPath, acceptedBody);
-        var extractRoot = Path.Combine(stageRoot, kind);
-        CreateDirectoryExclusive(trustedRoot, stageRoot, ownershipMarker, extractRoot);
+        stageStore.AssertOwned(stage);
+        stageStore.WriteFileExclusive(stage, expected.FileName, acceptedBody);
+        stageStore.CreateDirectoryExclusive(stage, kind);
         var entries = 0;
-        using (var archive = ZipFile.OpenRead(zipPath))
+        var treeRows = new List<(string Path, string Hash)>();
+        byte[]? provenanceBytes = null;
+        using (var archive = new ZipArchive(new MemoryStream(acceptedBody, writable: false), ZipArchiveMode.Read, leaveOpen: false))
         {
             long expandedBytes = 0;
             foreach (var entry in archive.Entries)
@@ -310,27 +312,24 @@ internal sealed class RuntimeDeploymentRecoveryBridge
                 expandedBytes = checked(expandedBytes + entry.Length);
                 if (entries++ >= 128 || entry.Length > 4 * 1024 * 1024 || expandedBytes > 8 * 1024 * 1024 || unixMode == 0xA000)
                     Fail("runtime_bridge_archive_invalid");
-                var destination = Path.GetFullPath(Path.Combine(extractRoot, entry.FullName.Replace('/', Path.DirectorySeparatorChar)));
-                if (!destination.StartsWith(extractRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(entry.Name))
+                var relative = $"{kind}/{entry.FullName}";
+                if (string.IsNullOrEmpty(entry.Name))
                     Fail("runtime_bridge_archive_invalid");
                 if (entry.FullName.Contains(':', StringComparison.Ordinal) || entry.FullName.Contains('\\', StringComparison.Ordinal))
                     Fail("runtime_bridge_archive_invalid");
-                AssertOwnedStage(trustedRoot, stageRoot, ownershipMarker);
-                CreateSafeDirectories(trustedRoot, stageRoot, ownershipMarker, extractRoot, Path.GetDirectoryName(destination)!);
+                stageStore.AssertOwned(stage);
                 using var input = entry.Open();
-                using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.WriteThrough);
-                input.CopyTo(output);
-                output.Flush(flushToDisk: true);
-                RegisterOwned(stageRoot, destination, isDirectory: false);
+                using var output = new MemoryStream(); input.CopyTo(output);
+                var entryBytes = output.ToArray();
+                stageStore.WriteFileExclusive(stage, relative, entryBytes);
+                treeRows.Add(($"{entry.FullName}", Sha256(entryBytes)));
+                if (entry.FullName == ".pm365/provenance.json") provenanceBytes = entryBytes;
             }
         }
-        AssertOwnedStage(trustedRoot, stageRoot, ownershipMarker);
-        var tree = string.Join("\n", Directory.GetFiles(extractRoot, "*", SearchOption.AllDirectories)
-            .Select(path => { AssertOwnedStage(trustedRoot, stageRoot, ownershipMarker); return (Path.GetRelativePath(extractRoot, path).Replace('\\', '/'), Sha256(File.ReadAllBytes(path))); })
-            .OrderBy(item => item.Item1, StringComparer.Ordinal).Select(item => $"{item.Item1}:{item.Item2}")) + "\n";
-        var provenancePath = Path.Combine(extractRoot, ".pm365", "provenance.json");
-        if (!File.Exists(provenancePath)) Fail("runtime_bridge_artifact_provenance");
-        using (var provenance = JsonDocument.Parse(File.ReadAllBytes(provenancePath)))
+        stageStore.AssertOwned(stage);
+        var tree = string.Join("\n", treeRows.OrderBy(item => item.Path, StringComparer.Ordinal).Select(item => $"{item.Path}:{item.Hash}")) + "\n";
+        if (provenanceBytes is null) Fail("runtime_bridge_artifact_provenance");
+        using (var provenance = JsonDocument.Parse(provenanceBytes))
         {
             var value = provenance.RootElement;
             if (value.GetProperty("schemaVersion").GetString() != "pagemaker365.runtime-provenance.v1" ||
@@ -340,7 +339,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge
                 value.GetProperty("startupCommand").GetString() != expected.StartupCommand)
                 Fail("runtime_bridge_artifact_provenance");
         }
-        return new RuntimeBridgeVerifiedArtifact(kind, expected.FileName, expected.Sha256, expected.SizeBytes, extractRoot, Sha256(Encoding.UTF8.GetBytes(tree)), entries);
+        return new RuntimeBridgeVerifiedArtifact(kind, expected.FileName, expected.Sha256, expected.SizeBytes, stage.StageRoot, Sha256(Encoding.UTF8.GetBytes(tree)), entries);
     }
 
     private static RuntimeBridgeProvisionalIntent CreateProvisional(PrivateRuntimeDeliveryPackageV07 package, RuntimeConfigurationApplicationV2DeploymentInput input,
@@ -541,6 +540,41 @@ internal sealed class RuntimeDeploymentRecoveryBridge
         if (!Path.IsPathFullyQualified(root) || !Directory.Exists(root) || File.Exists(root)) Fail("runtime_bridge_stage_root_invalid");
         AssertSafeComponents(root);
         return root.TrimEnd(Path.DirectorySeparatorChar);
+    }
+
+    RuntimeBridgeOwnedStageLease IRuntimeBridgeOwnedStageStore.Create(string trustedRoot, string invocationId)
+    {
+        var root = ValidateTrustedRoot(trustedRoot);
+        var stageRoot = CreateOwnedStage(root, invocationId, out var marker);
+        return new RuntimeBridgeOwnedStageLease(invocationId, root, stageRoot, marker);
+    }
+
+    void IRuntimeBridgeOwnedStageStore.AssertOwned(RuntimeBridgeOwnedStageLease lease) =>
+        AssertOwnedStage(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker);
+
+    void IRuntimeBridgeOwnedStageStore.CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath)
+    {
+        RequireSafeRelative(relativePath);
+        CreateDirectoryExclusive(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker, Path.Combine(lease.StageRoot, relativePath));
+    }
+
+    void IRuntimeBridgeOwnedStageStore.WriteFileExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath, ReadOnlySpan<byte> bytes)
+    {
+        RequireSafeRelative(relativePath);
+        var path = Path.Combine(lease.StageRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var parent = Path.GetDirectoryName(path)!;
+        CreateSafeDirectories(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker, lease.StageRoot, parent);
+        WriteExclusive(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker, path, bytes);
+    }
+
+    bool IRuntimeBridgeOwnedStageStore.Cleanup(RuntimeBridgeOwnedStageLease lease) =>
+        TryCleanupStage(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker);
+
+    private static void RequireSafeRelative(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) || relativePath.Contains(':') ||
+            relativePath.Contains('\\') || relativePath.Split('/').Any(part => part is "" or "." or ".."))
+            Fail("runtime_bridge_stage_path_invalid");
     }
 
     private string CreateOwnedStage(string trustedRoot, string invocationId, out byte[] marker)

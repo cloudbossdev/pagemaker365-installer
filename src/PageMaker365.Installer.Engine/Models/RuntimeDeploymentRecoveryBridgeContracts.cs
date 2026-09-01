@@ -12,6 +12,21 @@ internal interface IRuntimeBridgeSyntheticTestSeam
     RuntimeBridgeSyntheticTestCapability Capability { get; }
 }
 
+internal sealed record RuntimeBridgeOwnedStageLease(
+    string InvocationId,
+    string TrustedRoot,
+    string StageRoot,
+    byte[] OwnershipMarker);
+
+internal interface IRuntimeBridgeOwnedStageStore : IRuntimeBridgeSyntheticTestSeam
+{
+    RuntimeBridgeOwnedStageLease Create(string trustedRoot, string invocationId);
+    void AssertOwned(RuntimeBridgeOwnedStageLease lease);
+    void CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath);
+    void WriteFileExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath, ReadOnlySpan<byte> bytes);
+    bool Cleanup(RuntimeBridgeOwnedStageLease lease);
+}
+
 internal sealed record RuntimeBridgeInvocation(
     string InvocationId,
     string CanonicalPackageJson,

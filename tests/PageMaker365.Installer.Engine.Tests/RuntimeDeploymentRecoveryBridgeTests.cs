@@ -20,6 +20,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         PinsTheCompleteLicenseAuthorityAndSignedIdentity();
         RejectsEveryHandlerResultMutationAndBindsItsDigestIntoEvidence();
         RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent();
+        PortableInjectedStageStoreProvesClosedOwnershipSemantics();
         ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary();
         KeepsTheBoundaryInternalOfflineAndNonDeploying();
     }
@@ -400,6 +401,113 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             }
             finally { harness.Dispose(); }
         }
+    }
+
+    private static void PortableInjectedStageStoreProvesClosedOwnershipSemantics()
+    {
+        var expectedMutations = new[]
+        {
+            nameof(PortableOwnedStageMutation.None),
+            nameof(PortableOwnedStageMutation.Unsupported),
+            nameof(PortableOwnedStageMutation.RootIdentitySubstitution),
+            nameof(PortableOwnedStageMutation.StageIdentitySubstitution),
+            nameof(PortableOwnedStageMutation.MarkerRemoval),
+            nameof(PortableOwnedStageMutation.MarkerSubstitution),
+            nameof(PortableOwnedStageMutation.RootReparse),
+            nameof(PortableOwnedStageMutation.StageLink),
+            nameof(PortableOwnedStageMutation.ComponentReparse),
+            nameof(PortableOwnedStageMutation.ComponentLink),
+            nameof(PortableOwnedStageMutation.FileHardlink),
+            nameof(PortableOwnedStageMutation.ComponentIdentitySubstitution),
+            nameof(PortableOwnedStageMutation.UnexpectedInventory),
+            nameof(PortableOwnedStageMutation.ExistingTargetCollision),
+            nameof(PortableOwnedStageMutation.CleanupMarkerSubstitution),
+            nameof(PortableOwnedStageMutation.CleanupUnexpectedInventory),
+            nameof(PortableOwnedStageMutation.CleanupStageIdentitySubstitution)
+        };
+        AssertEx.True(Enum.GetNames<PortableOwnedStageMutation>().SequenceEqual(expectedMutations));
+
+        var positive = new RuntimeBridgeTestHarness(portableStageMutation: PortableOwnedStageMutation.None);
+        try
+        {
+            var result = positive.Bridge.RunAsync(positive.Invocation()).GetAwaiter().GetResult();
+            AssertEx.Equal("simulated", result.Status, result.EvidenceJson);
+            AssertEx.True(result.StageCleaned);
+            AssertEx.True(positive.PortableStageStore!.DeleteCount > 0);
+            AssertEx.Equal(0, Directory.GetDirectories(positive.WorkspaceRoot).Length);
+        }
+        finally { positive.Dispose(); }
+
+        foreach (var mutation in Enum.GetValues<PortableOwnedStageMutation>().Where(value => value is not PortableOwnedStageMutation.None))
+        {
+            var harness = new RuntimeBridgeTestHarness(portableStageMutation: mutation);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal(mutation == PortableOwnedStageMutation.Unsupported ? "failed" : "cleanup-required", result.Status,
+                    $"{mutation}: {result.EvidenceJson}");
+                AssertEx.Equal(0, harness.PortableStageStore!.DeleteCount, mutation.ToString());
+                AssertEx.Equal(1, harness.PortableStageStore.CreateCount, mutation.ToString());
+                if (mutation is PortableOwnedStageMutation.CleanupMarkerSubstitution or
+                    PortableOwnedStageMutation.CleanupUnexpectedInventory or PortableOwnedStageMutation.CleanupStageIdentitySubstitution)
+                {
+                    AssertEx.Equal(1, harness.Handler.CallCount, mutation.ToString());
+                    AssertEx.Equal(1, harness.LicenseTransport.CallCount, mutation.ToString());
+                }
+                else
+                {
+                    AssertEx.Equal(0, harness.Handler.CallCount, mutation.ToString());
+                    AssertEx.Equal(0, harness.LicenseTransport.CallCount, mutation.ToString());
+                }
+                if (mutation is PortableOwnedStageMutation.UnexpectedInventory or PortableOwnedStageMutation.ExistingTargetCollision or
+                    PortableOwnedStageMutation.CleanupUnexpectedInventory)
+                    AssertEx.Equal(1, harness.PortableStageStore.UnownedPaths.Count, mutation.ToString());
+            }
+            finally { harness.Dispose(); }
+        }
+
+        ProvesPortableStoreDirectLeasePathAndCleanupRules();
+    }
+
+    private static void ProvesPortableStoreDirectLeasePathAndCleanupRules()
+    {
+        var capability = RuntimeBridgeSyntheticTestCapability.CreateForTestSupport();
+        var store = new RuntimeBridgeTestHarness.TestOwnedStageStore(capability, PortableOwnedStageMutation.None);
+        var lease = store.Create("portable-root", "inv_PORTABLE_DIRECT_0001");
+        store.AssertOwned(lease);
+        foreach (var unsafePath in new[] { "", " ", "/rooted", "C:/rooted", "../escape", "a/../escape", "a/./file", "a//file", "a/ /file", "a\\file", "a:stream", "a/\0file" })
+            AssertEx.Throws<InvalidDataException>(() => store.WriteFileExclusive(lease, unsafePath, [0x01]));
+
+        store.WriteFileExclusive(lease, "api.zip", [0x01, 0x02]);
+        AssertEx.Throws<IOException>(() => store.WriteFileExclusive(lease, "api.zip", [0x03]));
+        store.CreateDirectoryExclusive(lease, "api");
+        AssertEx.Throws<IOException>(() => store.CreateDirectoryExclusive(lease, "api"));
+        AssertEx.Throws<IOException>(() => store.WriteFileExclusive(lease, "api", [0x04]));
+        store.WriteFileExclusive(lease, "portal/.pm365/provenance.json", [0x05]);
+
+        var wrongInvocation = lease with { InvocationId = "inv_PORTABLE_DIRECT_0002" };
+        var wrongRoot = lease with { TrustedRoot = "different-root" };
+        var wrongStage = lease with { StageRoot = "different-stage" };
+        var wrongMarkerBytes = lease.OwnershipMarker.ToArray(); wrongMarkerBytes[0] ^= 0xFF;
+        var wrongMarker = lease with { OwnershipMarker = wrongMarkerBytes };
+        AssertEx.Throws<InvalidDataException>(() => store.AssertOwned(wrongInvocation));
+        AssertEx.Throws<InvalidDataException>(() => store.AssertOwned(wrongRoot));
+        AssertEx.Throws<InvalidDataException>(() => store.AssertOwned(wrongStage));
+        AssertEx.Throws<InvalidDataException>(() => store.AssertOwned(wrongMarker));
+        AssertEx.True(store.Cleanup(lease));
+        AssertEx.True(lease.OwnershipMarker.All(value => value == 0));
+        AssertEx.False(store.Cleanup(lease));
+
+        var noDeleteStore = new RuntimeBridgeTestHarness.TestOwnedStageStore(capability, PortableOwnedStageMutation.CleanupUnexpectedInventory);
+        var noDeleteLease = noDeleteStore.Create("portable-root", "inv_PORTABLE_DIRECT_0003");
+        noDeleteStore.WriteFileExclusive(noDeleteLease, "owned.txt", [0x06]);
+        AssertEx.False(noDeleteStore.Cleanup(noDeleteLease));
+        AssertEx.Equal(0, noDeleteStore.DeleteCount);
+        AssertEx.True(noDeleteStore.UnownedPaths.Contains("foreign-cleanup.txt"));
+        AssertEx.True(noDeleteLease.OwnershipMarker.Any(value => value != 0));
+
+        var unsupported = new RuntimeBridgeTestHarness.TestOwnedStageStore(capability, PortableOwnedStageMutation.Unsupported);
+        AssertEx.Throws<PlatformNotSupportedException>(() => unsupported.Create("portable-root", "inv_PORTABLE_DIRECT_0004"));
     }
 
     private static void ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary()

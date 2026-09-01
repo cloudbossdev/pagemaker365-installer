@@ -75,6 +75,27 @@ internal enum RuntimeBridgeTestFailure : long
     ArtifactRangeShape = 1L << 62
 }
 
+internal enum PortableOwnedStageMutation
+{
+    None,
+    Unsupported,
+    RootIdentitySubstitution,
+    StageIdentitySubstitution,
+    MarkerRemoval,
+    MarkerSubstitution,
+    RootReparse,
+    StageLink,
+    ComponentReparse,
+    ComponentLink,
+    FileHardlink,
+    ComponentIdentitySubstitution,
+    UnexpectedInventory,
+    ExistingTargetCollision,
+    CleanupMarkerSubstitution,
+    CleanupUnexpectedInventory,
+    CleanupStageIdentitySubstitution
+}
+
 internal sealed class RuntimeBridgeTestHarness
 {
     internal static readonly DateTimeOffset Now = new(2026, 8, 30, 12, 0, 0, TimeSpan.Zero);
@@ -96,10 +117,12 @@ internal sealed class RuntimeBridgeTestHarness
     internal TestApproval Approval { get; }
     internal TestHandler Handler { get; }
     internal TestRecovery Recovery { get; }
+    internal TestOwnedStageStore? PortableStageStore { get; }
 
     internal RuntimeBridgeTestHarness(
         RuntimeBridgeTestFailure failure = RuntimeBridgeTestFailure.None,
-        string volatileIdentity = "A")
+        string volatileIdentity = "A",
+        PortableOwnedStageMutation? portableStageMutation = null)
     {
         Failure = failure;
         var root = FindRepositoryRoot();
@@ -125,8 +148,9 @@ internal sealed class RuntimeBridgeTestHarness
         Approval = new TestApproval(Capability, Trace, failure, volatileIdentity);
         Handler = new TestHandler(Capability, Trace, failure);
         Recovery = new TestRecovery(Capability, Trace, failure);
+        PortableStageStore = portableStageMutation is null ? null : new TestOwnedStageStore(Capability, portableStageMutation.Value);
         Bridge = new RuntimeDeploymentRecoveryBridge(Capability, Catalog, Trust, LicenseAuthority, Now, ArtifactTransport, LicenseTransport,
-            CursorGenerator, WriteSink, WhatIf, Approval, Handler, Recovery);
+            CursorGenerator, WriteSink, WhatIf, Approval, Handler, Recovery, PortableStageStore);
     }
 
     internal RuntimeBridgeInvocation Invocation(
@@ -151,6 +175,242 @@ internal sealed class RuntimeBridgeTestHarness
         return bridge.RunAsync(Invocation()).GetAwaiter().GetResult();
     }
     internal void Dispose() { if (Directory.Exists(WorkspaceRoot)) Directory.Delete(WorkspaceRoot, recursive: true); }
+
+    internal sealed class TestOwnedStageStore : IRuntimeBridgeOwnedStageStore
+    {
+        private readonly PortableOwnedStageMutation mutation;
+        private StageState? state;
+        private bool delayedMutationApplied;
+
+        internal TestOwnedStageStore(RuntimeBridgeSyntheticTestCapability capability, PortableOwnedStageMutation mutation)
+        {
+            Capability = capability;
+            this.mutation = mutation;
+        }
+
+        public RuntimeBridgeSyntheticTestCapability Capability { get; }
+        internal int CreateCount { get; private set; }
+        internal int AssertCount { get; private set; }
+        internal int DeleteCount { get; private set; }
+        internal IReadOnlyCollection<string> UnownedPaths => state is null
+            ? []
+            : state.Inventory.Keys.Where(path => !state.Owned.ContainsKey(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+
+        public RuntimeBridgeOwnedStageLease Create(string trustedRoot, string invocationId)
+        {
+            CreateCount++;
+            if (mutation == PortableOwnedStageMutation.Unsupported)
+                throw new PlatformNotSupportedException("runtime_bridge_stage_platform_unproved");
+            if (state is not null || string.IsNullOrWhiteSpace(trustedRoot) || string.IsNullOrWhiteSpace(invocationId))
+                throw new InvalidDataException("portable_stage_create_invalid");
+            var root = trustedRoot.TrimEnd('/', '\\');
+            var stage = root + "/portable-owned-stage-0001";
+            var marker = Enumerable.Range(1, 32).Select(value => (byte)value).ToArray();
+            var markerPath = ".pm365-owned";
+            var markerNode = new PortableNode("file", "identity-marker-1", marker.ToArray());
+            state = new StageState(invocationId, root, stage, marker.ToArray(), "identity-root-1", "identity-stage-1",
+                new Dictionary<string, PortableNode>(StringComparer.Ordinal) { [markerPath] = markerNode.Clone() },
+                new Dictionary<string, PortableNode>(StringComparer.Ordinal) { [markerPath] = markerNode.Clone() });
+            ApplyImmediateMutation(state);
+            return new RuntimeBridgeOwnedStageLease(invocationId, root, stage, marker);
+        }
+
+        public void AssertOwned(RuntimeBridgeOwnedStageLease lease)
+        {
+            AssertCount++;
+            var current = state ?? throw new InvalidDataException("portable_stage_missing");
+            if (lease.InvocationId != current.InvocationId || lease.TrustedRoot != current.TrustedRoot || lease.StageRoot != current.StageRoot ||
+                lease.OwnershipMarker.Length != current.Marker.Length ||
+                !CryptographicOperations.FixedTimeEquals(lease.OwnershipMarker, current.Marker))
+                throw new InvalidDataException("portable_stage_lease_substitution");
+            if (current.RootIdentity != "identity-root-1" || current.StageIdentity != "identity-stage-1" ||
+                current.RootReparse || current.RootLink || current.StageReparse || current.StageLink)
+                throw new InvalidDataException("portable_stage_identity_substitution");
+            if (!current.Inventory.TryGetValue(".pm365-owned", out var marker) || marker.Content is null ||
+                marker.Content.Length != current.Marker.Length || !CryptographicOperations.FixedTimeEquals(marker.Content, current.Marker))
+                throw new InvalidDataException("portable_stage_marker_invalid");
+            if (current.Inventory.Count != current.Owned.Count)
+                throw new InvalidDataException("portable_stage_inventory_invalid");
+            foreach (var owned in current.Owned)
+            {
+                if (!current.Inventory.TryGetValue(owned.Key, out var actual) || actual.Identity != owned.Value.Identity ||
+                    actual.Kind != owned.Value.Kind || actual.IsReparse || actual.IsLink ||
+                    (actual.Kind == "file" && actual.LinkCount != 1))
+                    throw new InvalidDataException("portable_stage_component_substitution");
+            }
+        }
+
+        public void CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath)
+        {
+            AssertOwned(lease);
+            var path = RequireSafeRelative(relativePath);
+            var current = state!;
+            if (current.Inventory.ContainsKey(path)) throw new IOException("portable_stage_no_replace");
+            EnsureParents(current, path);
+            AddOwned(current, path, new PortableNode("directory", "identity-directory-" + current.NextIdentity++, null));
+            ApplyDelayedMutation(current, path);
+        }
+
+        public void WriteFileExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath, ReadOnlySpan<byte> bytes)
+        {
+            AssertOwned(lease);
+            var path = RequireSafeRelative(relativePath);
+            var current = state!;
+            if (mutation == PortableOwnedStageMutation.ExistingTargetCollision && !delayedMutationApplied)
+            {
+                delayedMutationApplied = true;
+                current.Inventory[path] = new PortableNode("file", "identity-unowned-collision", [0xCC]);
+            }
+            if (current.Inventory.ContainsKey(path)) throw new IOException("portable_stage_no_replace");
+            EnsureParents(current, path);
+            AddOwned(current, path, new PortableNode("file", "identity-file-" + current.NextIdentity++, bytes.ToArray()));
+            ApplyDelayedMutation(current, path);
+        }
+
+        public bool Cleanup(RuntimeBridgeOwnedStageLease lease)
+        {
+            var current = state;
+            if (current is null) return false;
+            ApplyCleanupMutation(current);
+            try { AssertOwned(lease); }
+            catch { return false; }
+            DeleteCount += current.Owned.Count;
+            foreach (var node in current.Inventory.Values.Where(node => node.Content is not null))
+                CryptographicOperations.ZeroMemory(node.Content!);
+            foreach (var node in current.Owned.Values.Where(node => node.Content is not null))
+                CryptographicOperations.ZeroMemory(node.Content!);
+            CryptographicOperations.ZeroMemory(current.Marker);
+            CryptographicOperations.ZeroMemory(lease.OwnershipMarker);
+            current.Inventory.Clear();
+            current.Owned.Clear();
+            state = null;
+            return true;
+        }
+
+        private void ApplyImmediateMutation(StageState current)
+        {
+            switch (mutation)
+            {
+                case PortableOwnedStageMutation.RootIdentitySubstitution: current.RootIdentity = "identity-root-2"; break;
+                case PortableOwnedStageMutation.StageIdentitySubstitution: current.StageIdentity = "identity-stage-2"; break;
+                case PortableOwnedStageMutation.MarkerRemoval: current.Inventory.Remove(".pm365-owned"); break;
+                case PortableOwnedStageMutation.MarkerSubstitution: current.Inventory[".pm365-owned"].Content![0] ^= 0xFF; break;
+                case PortableOwnedStageMutation.RootReparse: current.RootReparse = true; break;
+                case PortableOwnedStageMutation.StageLink: current.StageLink = true; break;
+            }
+        }
+
+        private void ApplyDelayedMutation(StageState current, string path)
+        {
+            if (delayedMutationApplied) return;
+            switch (mutation)
+            {
+                case PortableOwnedStageMutation.ComponentReparse:
+                    current.Inventory[path].IsReparse = true; break;
+                case PortableOwnedStageMutation.ComponentLink:
+                    current.Inventory[path].IsLink = true; break;
+                case PortableOwnedStageMutation.FileHardlink:
+                    current.Inventory[path].LinkCount = 2; break;
+                case PortableOwnedStageMutation.ComponentIdentitySubstitution:
+                    current.Inventory[path].Identity = "identity-component-substitute"; break;
+                case PortableOwnedStageMutation.UnexpectedInventory:
+                    current.Inventory["foreign.txt"] = new PortableNode("file", "identity-foreign", [0xFA]); break;
+                default:
+                    return;
+            }
+            delayedMutationApplied = true;
+        }
+
+        private void ApplyCleanupMutation(StageState current)
+        {
+            if (delayedMutationApplied) return;
+            switch (mutation)
+            {
+                case PortableOwnedStageMutation.CleanupMarkerSubstitution:
+                    current.Inventory[".pm365-owned"].Content![0] ^= 0xFF; break;
+                case PortableOwnedStageMutation.CleanupUnexpectedInventory:
+                    current.Inventory["foreign-cleanup.txt"] = new PortableNode("file", "identity-foreign-cleanup", [0xFB]); break;
+                case PortableOwnedStageMutation.CleanupStageIdentitySubstitution:
+                    current.StageIdentity = "identity-stage-cleanup-substitute"; break;
+                default:
+                    return;
+            }
+            delayedMutationApplied = true;
+        }
+
+        private static string RequireSafeRelative(string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath) || relativePath.StartsWith('/') || relativePath.Contains(':') ||
+                relativePath.Contains('\\') || relativePath.Any(char.IsControl) ||
+                relativePath.Split('/').Any(part => string.IsNullOrWhiteSpace(part) || part is "." or ".."))
+                throw new InvalidDataException("portable_stage_path_invalid");
+            return relativePath;
+        }
+
+        private static void EnsureParents(StageState current, string path)
+        {
+            var segments = path.Split('/');
+            var parent = "";
+            foreach (var segment in segments.Take(segments.Length - 1))
+            {
+                parent = parent.Length == 0 ? segment : parent + "/" + segment;
+                if (current.Inventory.TryGetValue(parent, out var existing))
+                {
+                    if (existing.Kind != "directory" || existing.IsLink || existing.IsReparse)
+                        throw new InvalidDataException("portable_stage_parent_invalid");
+                    continue;
+                }
+                AddOwned(current, parent, new PortableNode("directory", "identity-directory-" + current.NextIdentity++, null));
+            }
+        }
+
+        private static void AddOwned(StageState current, string path, PortableNode node)
+        {
+            if (!current.Inventory.TryAdd(path, node) || !current.Owned.TryAdd(path, node.Clone()))
+                throw new IOException("portable_stage_no_replace");
+        }
+
+        private sealed class StageState(
+            string invocationId,
+            string trustedRoot,
+            string stageRoot,
+            byte[] marker,
+            string rootIdentity,
+            string stageIdentity,
+            Dictionary<string, PortableNode> inventory,
+            Dictionary<string, PortableNode> owned)
+        {
+            internal string InvocationId { get; } = invocationId;
+            internal string TrustedRoot { get; } = trustedRoot;
+            internal string StageRoot { get; } = stageRoot;
+            internal byte[] Marker { get; } = marker;
+            internal string RootIdentity { get; set; } = rootIdentity;
+            internal string StageIdentity { get; set; } = stageIdentity;
+            internal bool RootReparse { get; set; }
+            internal bool RootLink { get; set; }
+            internal bool StageReparse { get; set; }
+            internal bool StageLink { get; set; }
+            internal int NextIdentity { get; set; } = 1;
+            internal Dictionary<string, PortableNode> Inventory { get; } = inventory;
+            internal Dictionary<string, PortableNode> Owned { get; } = owned;
+        }
+
+        private sealed class PortableNode(string kind, string identity, byte[]? content)
+        {
+            internal string Kind { get; } = kind;
+            internal string Identity { get; set; } = identity;
+            internal byte[]? Content { get; } = content;
+            internal bool IsReparse { get; set; }
+            internal bool IsLink { get; set; }
+            internal int LinkCount { get; set; } = 1;
+            internal PortableNode Clone() => new(Kind, Identity, Content?.ToArray())
+            {
+                IsReparse = IsReparse,
+                IsLink = IsLink,
+                LinkCount = LinkCount
+            };
+        }
+    }
 
     private static RuntimeBridgeLicenseAuthority CreateLicenseAuthority(string fixture, string publicKeyPem, RuntimeBridgeTestFailure failure)
     {
