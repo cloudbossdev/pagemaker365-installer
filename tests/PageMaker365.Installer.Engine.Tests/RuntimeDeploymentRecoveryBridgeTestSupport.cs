@@ -189,7 +189,15 @@ internal sealed record RuntimeBridgeMeasuredVectorOutcome(
     int Approvals,
     int HandlerCalls,
     int Recoveries,
-    int CleanupCalls);
+    int CleanupCalls,
+    RuntimeBridgeTwoCallRaceObservation? RaceObservation);
+
+internal sealed record RuntimeBridgeTwoCallRaceObservation(
+    int CallCount,
+    int WinnerCount,
+    int ReplayCount,
+    int ConflictCount,
+    int LoserCount);
 
 internal sealed class RuntimeBridgeTestHarness
 {
@@ -308,7 +316,8 @@ internal sealed class RuntimeBridgeTestHarness
             var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
             return harness.Measure(result, harness.ArtifactTransport.LastServerStatus, harness.ArtifactTransport.LastServerErrorCode,
                 harness.ArtifactTransport.ArtifactOpenCount, harness.ArtifactTransport.ReceiptMutationCount,
-                harness.ArtifactTransport.LastResponseBodyBytes);
+                harness.ArtifactTransport.LastResponseBodyBytes,
+                harness.ArtifactTransport.ConcurrentDownloadRace ?? harness.ArtifactTransport.ConcurrentReceiptRace);
         }
         finally { harness.Dispose(); }
     }
@@ -321,16 +330,17 @@ internal sealed class RuntimeBridgeTestHarness
             var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
             return harness.Measure(result, harness.LicenseTransport.LastServerStatus, harness.LicenseTransport.LastServerErrorCode,
                 harness.LicenseTransport.ProtectedReadCount, harness.LicenseTransport.RedemptionCount,
-                harness.LicenseTransport.LastResponseBodyBytes);
+                harness.LicenseTransport.LastResponseBodyBytes, harness.LicenseTransport.ConcurrentRedemptionRace);
         }
         finally { harness.Dispose(); }
     }
 
     private RuntimeBridgeMeasuredVectorOutcome Measure(RuntimeBridgeResult result, int status, string? errorCode,
-        int reads, int mutations, int responseBytes) =>
+        int reads, int mutations, int responseBytes, RuntimeBridgeTwoCallRaceObservation? raceObservation) =>
         new(result, status, errorCode, reads, mutations, responseBytes, ArtifactTransport.SessionCount,
             ArtifactTransport.ReceiptCount, WriteSink.CallCount, CursorGenerator.CallCount, WhatIf.CallCount,
-            Approval.CallCount, Handler.CallCount, Recovery.CallCount, PortableStageStore?.CleanupCount ?? (result.StageCleaned ? 1 : 0));
+            Approval.CallCount, Handler.CallCount, Recovery.CallCount, PortableStageStore?.CleanupCount ?? (result.StageCleaned ? 1 : 0),
+            raceObservation);
 
     internal sealed class TestNativeStageRaceProbe(
         RuntimeBridgeSyntheticTestCapability capability,
@@ -339,6 +349,7 @@ internal sealed class RuntimeBridgeTestHarness
         public RuntimeBridgeSyntheticTestCapability Capability { get; } = capability;
         internal int ProbeCount { get; private set; }
         internal int DeniedCount { get; private set; }
+        internal int UnavailableCount { get; private set; }
         internal int UnexpectedSuccessCount { get; private set; }
         internal List<string> UnexpectedOperations { get; } = [];
         internal bool AttackApplied { get; private set; }
@@ -397,7 +408,7 @@ internal sealed class RuntimeBridgeTestHarness
             }
             catch (IOException) { DeniedCount++; }
             catch (UnauthorizedAccessException) { DeniedCount++; }
-            catch (PlatformNotSupportedException) { DeniedCount++; }
+            catch (PlatformNotSupportedException) { UnavailableCount++; }
         }
 
         private static bool Applies(string operation, RuntimeBridgeNativeStageAttack value) => value switch
@@ -869,6 +880,8 @@ internal sealed class RuntimeBridgeTestHarness
         string? declaredMutation) : IRuntimeBridgeArtifactTransport
     {
         private bool httpMutationApplied;
+        private int artifactOpenCount;
+        private int receiptMutationCount;
         private readonly Dictionary<string, int> rangeIndexes = new(StringComparer.Ordinal)
         {
             ["api"] = 0,
@@ -887,8 +900,13 @@ internal sealed class RuntimeBridgeTestHarness
         internal RuntimeBridgeArtifactSession? LastSession { get; private set; }
         internal RuntimeBridgeArtifactReceipt? LastReceipt { get; private set; }
         internal List<RuntimeBridgeArtifactRequest> ArtifactRequests { get; } = [];
-        internal int ArtifactOpenCount { get; private set; }
-        internal int ReceiptMutationCount { get; private set; }
+        internal int ArtifactOpenCount => Volatile.Read(ref artifactOpenCount);
+        internal int ReceiptMutationCount => Volatile.Read(ref receiptMutationCount);
+        internal RuntimeBridgeTwoCallRaceObservation? ConcurrentDownloadRace { get; private set; }
+        internal RuntimeBridgeTwoCallRaceObservation? ConcurrentReceiptRace { get; private set; }
+        internal int SessionResponseBodyBytes { get; private set; }
+        internal int ArtifactResponseBodyBytes { get; private set; }
+        internal int ReceiptResponseBodyBytes { get; private set; }
         internal int LastServerStatus { get; private set; } = 200;
         internal string? LastServerErrorCode { get; private set; }
         internal int LastResponseBodyBytes { get; private set; }
@@ -922,6 +940,7 @@ internal sealed class RuntimeBridgeTestHarness
             SessionReplayProbeCount = 1;
             SessionReplayStatusCode = 200;
             LastSession = ShouldMutate(RuntimeBridgeHttpOperation.Session) ? MutateSession(session, httpMutation!.Fault) : session;
+            SessionResponseBodyBytes = LastSession.ResponseBodyUtf8.Length;
             return LastSession;
         }
         public RuntimeBridgeArtifactResponse Acquire(
@@ -940,8 +959,8 @@ internal sealed class RuntimeBridgeTestHarness
             var pinnedOffset = request.ArtifactKind == "api" ? 17L : 29L;
             var pinnedLength = request.ArtifactKind == "api" ? 97 : 131;
             var bytes = File.ReadAllBytes(Path.Combine(fixture, "artifacts", request.ArtifactKind + ".zip"));
-            if (!range && declaredMutation == "concurrent-downloads" && ArtifactOpenCount == 0) ArtifactOpenCount = 2;
-            else if (!range && declaredMutation is "artifact-short" or "artifact-long" or "artifact-hash-mismatch" or "aborted") ArtifactOpenCount = 1;
+            if (!range && declaredMutation is "artifact-short" or "artifact-long" or "artifact-hash-mismatch" or "aborted")
+                Interlocked.Exchange(ref artifactOpenCount, 1);
             var expectedEtag = $"\"sha256:{Sha256(bytes)}\"";
             var expectedRanges = GapFreeRanges(bytes.LongLength, pinnedOffset, pinnedLength);
             var rangeIndex = range ? rangeIndexes[request.ArtifactKind] : -1;
@@ -1054,12 +1073,18 @@ internal sealed class RuntimeBridgeTestHarness
             }
             else if (!range && declaredMutation == "concurrent-downloads")
             {
+                ConcurrentDownloadRace = ExecuteTwoCallRace(conflictingSecondCall: true, onCall: () =>
+                {
+                    Interlocked.Increment(ref artifactOpenCount);
+                    Interlocked.Add(ref concurrentDownloadBodyBytes, response.Body.Length);
+                });
                 LastServerStatus = 200;
                 LastServerErrorCode = null;
-                LastResponseBodyBytes = checked(response.Body.Length * 2);
+                LastResponseBodyBytes = Volatile.Read(ref concurrentDownloadBodyBytes);
                 if (request.ArtifactKind == "api")
                     throw new RuntimeBridgeSyntheticTransportException(200, null, LastResponseBodyBytes);
             }
+            ArtifactResponseBodyBytes = checked(ArtifactResponseBodyBytes + response.Body.Length);
             return response;
         }
 
@@ -1139,7 +1164,7 @@ internal sealed class RuntimeBridgeTestHarness
             };
             ReceiptReplayProbeCount = 1;
             ReceiptReplayStatusCode = 200;
-            ReceiptMutationCount = declaredMutation is null or "receipt-event-mismatch" or "receipt-replay" ? 1 : 0;
+            if (declaredMutation is null) Interlocked.Exchange(ref receiptMutationCount, 1);
             if (declaredMutation == "receipt-replay")
             {
                 receipt = receipt with { StatusCode = 200 };
@@ -1150,6 +1175,7 @@ internal sealed class RuntimeBridgeTestHarness
             if (receiptNestedFault != RuntimeBridgeReceiptNestedFault.None)
                 receipt = MutateReceiptNested(receipt, receiptNestedFault);
             LastReceipt = ShouldMutate(RuntimeBridgeHttpOperation.Receipt) ? MutateReceipt(receipt, httpMutation!.Fault) : receipt;
+            ReceiptResponseBodyBytes = LastReceipt.ResponseBodyUtf8.Length;
             return LastReceipt;
         }
 
@@ -1190,11 +1216,41 @@ internal sealed class RuntimeBridgeTestHarness
         private void EvaluateReceiptRequest()
         {
             if (declaredMutation == "receipt-binding-mismatch") Deny(400, "runtime_delivery_receipt_binding_invalid", []);
-            if (declaredMutation == "receipt-event-mismatch")
+            if (declaredMutation is "receipt-event-mismatch" or "receipt-replay")
             {
-                ReceiptMutationCount = 1;
-                Deny(409, "runtime_delivery_receipt_conflict", []);
+                ConcurrentReceiptRace = ExecuteTwoCallRace(declaredMutation == "receipt-event-mismatch", () => { });
+                Interlocked.Exchange(ref receiptMutationCount, ConcurrentReceiptRace.WinnerCount);
+                if (declaredMutation == "receipt-event-mismatch")
+                    Deny(409, "runtime_delivery_receipt_conflict", []);
             }
+        }
+
+        private int concurrentDownloadBodyBytes;
+
+        private static RuntimeBridgeTwoCallRaceObservation ExecuteTwoCallRace(bool conflictingSecondCall, Action onCall)
+        {
+            var callCount = 0;
+            var winnerCount = 0;
+            var replayCount = 0;
+            var conflictCount = 0;
+            var committed = 0;
+            using var barrier = new Barrier(2);
+            var calls = Enumerable.Range(0, 2).Select(_ => Task.Run(() =>
+            {
+                Interlocked.Increment(ref callCount);
+                onCall();
+                if (!barrier.SignalAndWait(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("synthetic_two_call_barrier_timeout");
+                if (Interlocked.CompareExchange(ref committed, 1, 0) == 0)
+                {
+                    Interlocked.Increment(ref winnerCount);
+                    return;
+                }
+                if (conflictingSecondCall) Interlocked.Increment(ref conflictCount);
+                else Interlocked.Increment(ref replayCount);
+            })).ToArray();
+            Task.WaitAll(calls);
+            return new(callCount, winnerCount, replayCount, conflictCount, callCount - winnerCount);
         }
 
         private void Deny(int status, string code, byte[] body)
@@ -1324,8 +1380,12 @@ internal sealed class RuntimeBridgeTestHarness
         internal int ReplayProbeCount { get; private set; }
         internal int ReplayStatusCode { get; private set; }
         internal RuntimeBridgeProtectedLicenseResponse? LastResponse { get; private set; }
-        internal int ProtectedReadCount { get; private set; }
-        internal int RedemptionCount { get; private set; }
+        private int protectedReadCount;
+        private int redemptionCount;
+        internal int ProtectedReadCount => Volatile.Read(ref protectedReadCount);
+        internal int RedemptionCount => Volatile.Read(ref redemptionCount);
+        internal RuntimeBridgeTwoCallRaceObservation? ConcurrentRedemptionRace { get; private set; }
+        internal int ResponseBodyBytes { get; private set; }
         internal int LastServerStatus { get; private set; } = 200;
         internal string? LastServerErrorCode { get; private set; }
         internal int LastResponseBodyBytes { get; private set; }
@@ -1376,13 +1436,14 @@ internal sealed class RuntimeBridgeTestHarness
                 ProtectedReadCount = 1,
                 RedemptionCount = 1
             };
-            ProtectedReadCount = 1;
-            RedemptionCount = 1;
+            Interlocked.Exchange(ref protectedReadCount, 1);
+            Interlocked.Exchange(ref redemptionCount, 1);
             ReplayProbeCount = 1;
             ReplayStatusCode = 404;
             LastResponse = httpMutation?.Operation == RuntimeBridgeHttpOperation.Protected
                 ? MutateProtected(result, httpMutation.Fault)
                 : result;
+            ResponseBodyBytes = LastResponse.ResponseBodyUtf8.Length;
             return LastResponse;
         }
 
@@ -1404,10 +1465,40 @@ internal sealed class RuntimeBridgeTestHarness
                 !state.ReferenceCurrent || !state.LicenseSignatureValid || !state.LicenseFingerprintValid ||
                 !state.LicenseKeyValid || !state.LicenseCurrent || state.ConcurrentRedemption)
             {
-                ProtectedReadCount = state.ConcurrentRedemption ? 2 : 1;
-                RedemptionCount = state.ConcurrentRedemption ? 1 : 0;
+                if (state.ConcurrentRedemption)
+                {
+                    ConcurrentRedemptionRace = ExecuteProtectedRedemptionRace();
+                    Interlocked.Exchange(ref protectedReadCount, ConcurrentRedemptionRace.CallCount);
+                    Interlocked.Exchange(ref redemptionCount, ConcurrentRedemptionRace.WinnerCount);
+                }
+                else
+                {
+                    Interlocked.Exchange(ref protectedReadCount, 1);
+                    Interlocked.Exchange(ref redemptionCount, 0);
+                }
                 Deny(state.SessionCurrent ? 404 : 410, "private_runtime_protected_setting_unavailable", ProtectedUnavailableBody());
             }
+        }
+
+        private static RuntimeBridgeTwoCallRaceObservation ExecuteProtectedRedemptionRace()
+        {
+            var calls = 0;
+            var winners = 0;
+            var conflicts = 0;
+            var redeemed = 0;
+            using var barrier = new Barrier(2);
+            var tasks = Enumerable.Range(0, 2).Select(_ => Task.Run(() =>
+            {
+                Interlocked.Increment(ref calls);
+                if (!barrier.SignalAndWait(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("synthetic_protected_redemption_barrier_timeout");
+                if (Interlocked.CompareExchange(ref redeemed, 1, 0) == 0)
+                    Interlocked.Increment(ref winners);
+                else
+                    Interlocked.Increment(ref conflicts);
+            })).ToArray();
+            Task.WaitAll(tasks);
+            return new(calls, winners, 0, conflicts, calls - winners);
         }
 
         private void ApplyProtectedPayloadMutation()
