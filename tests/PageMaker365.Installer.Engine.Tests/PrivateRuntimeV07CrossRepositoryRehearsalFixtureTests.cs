@@ -450,6 +450,7 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
             if (!allowedOwners.Contains(owner)) Fail("fixture_source_map_owner");
             var key = target + ":" + name;
             if (!qualified.Add(key) || !sourceBindings.Add(owner + ":" + field)) Fail("fixture_source_map_duplicate");
+            if (!field.Equals(name, StringComparison.Ordinal)) Fail("fixture_source_map_source_binding");
             owners[owner] = owners.GetValueOrDefault(owner) + 1;
             var projected = projection[index];
             if (target != projected.GetProperty("targetApp").GetString() || name != projected.GetProperty("name").GetString() || type != projected.GetProperty("valueType").GetString())
@@ -548,6 +549,7 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
         RequireString(deliverySession, "deliverySessionId", "rds_SYNTHETIC_W09_REHEARSAL_0001", "fixture_runtime_vector_session");
         RequireString(deliverySession, "status", "active", "fixture_runtime_vector_session");
         RequireStringArray(deliverySession, "artifactKinds", ["api", "portal"], "fixture_runtime_vector_session");
+        RequireString(deliverySession, "expiresAt", "2099-08-30T12:00:00.000Z", "fixture_runtime_vector_session_expiry_binding");
         RequireFutureUtc(deliverySession, "expiresAt", ValidationTime, "fixture_runtime_vector_session");
 
         var downloads = RequireArray(root, "artifactDownloads", "fixture_runtime_vector_download").EnumerateArray().ToArray();
@@ -597,9 +599,10 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
             var row = negatives[index];
             var expected = RuntimeNegatives[index];
             RequireShape(row, "fixture_runtime_vector_negative", "id", "operation", "mutation", "expectedStatus", "expectedErrorCode", "expectedArtifactOpenCount", "expectedReceiptMutationCount", "expectedResponseBodyBytes");
+            var errorCode = RequireNullableString(row, "expectedErrorCode", "fixture_runtime_vector_negative");
             if (RequireString(row, "id", null, "fixture_runtime_vector_negative") != expected.Id || RequireString(row, "mutation", null, "fixture_runtime_vector_negative") != expected.Id ||
                 RequireString(row, "operation", null, "fixture_runtime_vector_negative") != expected.Operation || RequireInt32(row, "expectedStatus", "fixture_runtime_vector_negative") != expected.Status ||
-                (RequireNullableString(row, "expectedErrorCode", "fixture_runtime_vector_negative") ?? "") != expected.Error || RequireInt32(row, "expectedArtifactOpenCount", "fixture_runtime_vector_negative") != expected.ArtifactOpens ||
+                (expected.Error.Length == 0 ? errorCode is not null : errorCode != expected.Error) || RequireInt32(row, "expectedArtifactOpenCount", "fixture_runtime_vector_negative") != expected.ArtifactOpens ||
                 RequireInt32(row, "expectedReceiptMutationCount", "fixture_runtime_vector_negative") != expected.ReceiptMutations || RequireInt32(row, "expectedResponseBodyBytes", "fixture_runtime_vector_negative") != expected.BodyBytes)
                 Fail("fixture_runtime_vector_negative_binding");
         }
@@ -725,6 +728,7 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
         var payload = RequireObject(signedLicense, "payload", "fixture_license_payload_shape");
         RequireShape(payload, "fixture_license_payload_shape", "product", "licenseId", "activationId", "customerId", "customerKey", "customerDisplayName", "subscriptionId", "installationId", "installationKey", "environmentId", "environmentKey", "environmentType", "planKey", "supportTier", "workspaceLimit", "environmentLimit", "validFrom", "validTo", "issuedAt");
         RequireString(payload, "product", "PageMaker365", "fixture_license_payload_identity");
+        RequireString(payload, "licenseId", "synthetic-w09-rehearsal-license", "fixture_license_payload_license_id");
         RequireString(payload, "customerId", context.Package.CustomerId, "fixture_license_payload_binding");
         RequireString(payload, "installationId", context.Package.InstallationId, "fixture_license_payload_binding");
         RequireString(payload, "environmentId", context.Package.EnvironmentId, "fixture_license_payload_binding");
@@ -762,6 +766,7 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
     {
         AssertJsonSemanticDeny(accepted, "runtime-configuration-source-map-v2.json", root => root["entries"]![0]!["ownerSource"] = "unknown/owner", "fixture_source_map_owner", ValidateSourceMapV2);
         AssertJsonSemanticDeny(accepted, "runtime-configuration-source-map-v2.json", root => root["entries"]![0]!["sourceField"] = "", "fixture_source_map_domain", ValidateSourceMapV2);
+        AssertWrongNonemptySourceFieldDeny(accepted);
         AssertJsonSemanticDeny(accepted, "runtime-configuration-source-map-v2.json", root => root.Remove("catalog"), "fixture_source_map_root", ValidateSourceMapV2);
         AssertJsonSemanticDeny(accepted, "runtime-configuration-source-map-v2.json", root => MovePropertyToEnd(root, "schemaVersion"), "fixture_source_map_root", ValidateSourceMapV2);
         AssertJsonSemanticDeny(accepted, "runtime-configuration-source-map-v2.json", root => root["schemaVersion"] = 2, "fixture_source_map_identity", ValidateSourceMapV2);
@@ -818,6 +823,7 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
         AssertPackageManifestSemanticDeny(accepted, root => root.Add("unknown", true), "customer_install_v07_manifest_binding");
 
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root["sessionCreation"]!["method"] = "GET", "fixture_runtime_vector_session", ValidateRuntimeDeliveryVectorDocument);
+        AssertFutureShiftedSessionExpiryDeny(accepted);
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root.Remove("authorization"), "fixture_runtime_vector_root", ValidateRuntimeDeliveryVectorDocument);
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => Swap((JsonArray)root["authorization"]!["requiredHeaderNames"]!, 0, 1), "fixture_runtime_vector_authorization", ValidateRuntimeDeliveryVectorDocument);
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root["sessionCreation"]!["request"]!.AsObject().Add("query", "forbidden"), "fixture_runtime_vector_session", ValidateRuntimeDeliveryVectorDocument);
@@ -833,6 +839,7 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root["receipt"]!["request"]!["eventId"] = "wrong", "fixture_runtime_vector_receipt", ValidateRuntimeDeliveryVectorDocument);
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root["receipt"]!["request"]!["artifacts"]!["api"]!["bytesReceived"] = 1, "fixture_runtime_vector_receipt_binding", ValidateRuntimeDeliveryVectorDocument);
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root["negativeVectors"]![0]!["expectedArtifactOpenCount"] = 1, "fixture_runtime_vector_negative_binding", ValidateRuntimeDeliveryVectorDocument);
+        AssertSuccessfulRuntimeNegativeEmptyErrorCodeDeny(accepted);
         AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json", root => root.Add("redirect", "https://example.test"), "fixture_runtime_vector_root", ValidateRuntimeDeliveryVectorDocument);
         AssertRawDuplicateJsonDeny(accepted, "runtime-delivery-http-vectors.json", "classification", "fixture_json_duplicate", ValidateRuntimeDeliveryVectorDocument);
 
@@ -865,8 +872,75 @@ internal static class PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests
         AssertFreshLicenseBindingDeny(accepted, payload => payload["environmentId"] = "11111111-1111-4111-8111-111111111111", "fixture_license_payload_binding");
         AssertFreshLicenseBindingDeny(accepted, payload => payload["validTo"] = "2026-08-29T12:00:00.000Z", "fixture_license_payload_time");
         AssertFreshLicenseBindingDeny(accepted, payload => payload["workspaceLimit"] = 2, "fixture_license_payload_limits");
+        AssertFreshLicenseIdDeny(accepted);
         AssertWrongLicenseKeyDeny(accepted);
         AssertFreshSameAuthorityDeny(accepted);
+    }
+
+    private static void AssertWrongNonemptySourceFieldDeny(FixtureBundle accepted)
+    {
+        var sourceMap = accepted.JsonObject("runtime-configuration-source-map-v2.json");
+        var entry = sourceMap["entries"]![0]!.AsObject();
+        var name = entry["name"]!.GetValue<string>();
+        var original = entry["sourceField"]!.GetValue<string>();
+        if (!original.Equals(name, StringComparison.Ordinal)) Fail("fixture_test_source_binding_precondition");
+        var replacement = original + "_ALTERNATE";
+        if (string.IsNullOrWhiteSpace(replacement) || replacement.Equals(original, StringComparison.Ordinal)) Fail("fixture_test_source_binding_precondition");
+        AssertJsonSemanticDeny(accepted, "runtime-configuration-source-map-v2.json",
+            root => root["entries"]![0]!["sourceField"] = replacement,
+            "fixture_source_map_source_binding", ValidateSourceMapV2);
+    }
+
+    private static void AssertFutureShiftedSessionExpiryDeny(FixtureBundle accepted)
+    {
+        var vectors = accepted.JsonObject("runtime-delivery-http-vectors.json");
+        var original = vectors["sessionCreation"]!["expected"]!["response"]!["deliverySession"]!["expiresAt"]!.GetValue<string>();
+        const string replacement = "2099-08-31T12:00:00.000Z";
+        if (!original.Equals("2099-08-30T12:00:00.000Z", StringComparison.Ordinal) ||
+            !DateTimeOffset.TryParseExact(replacement, "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var shifted) ||
+            shifted <= ValidationTime)
+            Fail("fixture_test_session_expiry_precondition");
+        AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json",
+            root => root["sessionCreation"]!["expected"]!["response"]!["deliverySession"]!["expiresAt"] = replacement,
+            "fixture_runtime_vector_session_expiry_binding", ValidateRuntimeDeliveryVectorDocument);
+    }
+
+    private static void AssertSuccessfulRuntimeNegativeEmptyErrorCodeDeny(FixtureBundle accepted)
+    {
+        var vectors = accepted.JsonObject("runtime-delivery-http-vectors.json");
+        var rows = vectors["negativeVectors"]!.AsArray();
+        var index = Enumerable.Range(0, rows.Count).Single(item => rows[item]!["id"]!.GetValue<string>() == "artifact-short");
+        if (rows[index]!["expectedErrorCode"] is not null || rows[index]!["expectedStatus"]!.GetValue<int>() != 200)
+            Fail("fixture_test_runtime_error_code_precondition");
+        AssertJsonSemanticDeny(accepted, "runtime-delivery-http-vectors.json",
+            root => root["negativeVectors"]![index]!["expectedErrorCode"] = "",
+            "fixture_runtime_vector_negative_binding", ValidateRuntimeDeliveryVectorDocument);
+    }
+
+    private static void AssertFreshLicenseIdDeny(FixtureBundle accepted)
+    {
+        const string replacement = "11111111-1111-4111-8111-111111111111";
+        if (!Guid.TryParseExact(replacement, "D", out var parsed) || !parsed.ToString("D").Equals(replacement, StringComparison.Ordinal))
+            Fail("fixture_test_license_id_precondition");
+        var candidate = accepted.Clone();
+        var licenseAuthority = TestAuthority.Create(LicenseKeyId);
+        var packageAuthority = TestAuthority.Create("test-only-installer-w09-package-license-id");
+        ReissueLicense(candidate, licenseAuthority, payload =>
+        {
+            if (payload["licenseId"]!.GetValue<string>() != "synthetic-w09-rehearsal-license") Fail("fixture_test_license_id_precondition");
+            payload["licenseId"] = replacement;
+        });
+        RebindProjectionLicensePem(candidate, licenseAuthority.PublicKeyPem);
+        ResignPackage(candidate, packageAuthority);
+        RefreshProtocolPackageBindings(candidate);
+        candidate.RefreshSelfManifest();
+        var context = ValidateDynamicEnvelope(candidate, packageAuthority.Trust);
+        var vector = candidate.JsonObject("license-signature-vector.json");
+        if (vector["publicKeySha256"]!.GetValue<string>() != Sha256(Encoding.UTF8.GetBytes(licenseAuthority.PublicKeyPem)))
+            Fail("fixture_test_license_id_precondition");
+        AssertOwnedError("fixture_license_payload_license_id",
+            () => ValidateProtectedVectorAndLicenseDocuments(candidate, context, licenseAuthority.PublicKeyPem));
     }
 
     private static void AssertJsonSemanticDeny(FixtureBundle accepted, string file, Action<JsonObject> mutate, string code,
