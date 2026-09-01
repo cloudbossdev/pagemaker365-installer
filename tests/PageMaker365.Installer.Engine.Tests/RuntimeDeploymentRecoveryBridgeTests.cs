@@ -24,6 +24,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         RejectsExactZipLocalCentralAndEocdMutations();
         RecursivelyClosesReceiptRequestAndResponseBodies();
         PinsExplicitCancellationChecksAtEveryOwnedBoundary();
+        PinsCompleteFailureRecoveryCancellationUnion();
         RejectsEveryOwnedArtifactProtocolMutationBeforeProtectedEffects();
         PinsTheCompleteLicenseAuthorityAndSignedIdentity();
         RejectsEveryHandlerResultMutationAndBindsItsDigestIntoEvidence();
@@ -86,7 +87,9 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
                 AssertEx.Equal(expected.Writes, harness.WriteSink.CallCount, id);
                 AssertEx.Equal(expected.RandomGenerations, harness.CursorGenerator.CallCount, id);
                 AssertEx.Equal(expected.Previews, harness.WhatIf.CallCount, id);
+                AssertEx.Equal(harness.WhatIf.Results.Count, result.WhatIfCount, id);
                 AssertEx.Equal(expected.Approvals, harness.Approval.CallCount, id);
+                AssertEx.Equal(harness.Approval.Receipts.Count, result.ApprovalCount, id);
                 AssertEx.Equal(expected.HandlerCalls, harness.Handler.CallCount, id);
                 AssertEx.Equal(expected.Recoveries, harness.Recovery.CallCount, id);
                 if (expected.AttackEstablished)
@@ -239,16 +242,36 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             if (id == "concurrent-downloads")
             {
                 AssertEx.Equal(new RuntimeBridgeTwoCallRaceObservation(2, 1, 0, 1, 1), actual.RaceObservation, id);
+                AssertEx.Equal("competitor", actual.DurableWinnerIdentity, id);
+                AssertEx.Equal("opened:competitor", actual.DurableState, id);
+                AssertEx.Equal(200, actual.CompetingStatusCode, id);
+                AssertEx.Equal(1015, actual.CompetingBodyBytes, id);
+                AssertEx.Equal(2, actual.RaceObservation!.CallCount, id);
+                AssertEx.Equal(0, actual.ReceiptCalls, id);
             }
             else if (id == "receipt-event-mismatch")
             {
                 AssertEx.Equal(new RuntimeBridgeTwoCallRaceObservation(2, 1, 0, 1, 1), actual.RaceObservation, id);
+                AssertEx.Equal("competitor", actual.DurableWinnerIdentity, id);
+                AssertEx.Equal("persisted:synthetic-w09-receipt:synthetic-w09-conflicting", actual.DurableState, id);
+                AssertEx.Equal(201, actual.CompetingStatusCode, id);
+                AssertEx.Equal(927, actual.CompetingBodyBytes, id);
+                AssertEx.Equal(2, actual.ReceiptCalls, id);
             }
             else if (id == "receipt-replay")
             {
                 AssertEx.Equal(new RuntimeBridgeTwoCallRaceObservation(2, 1, 1, 0, 1), actual.RaceObservation, id);
+                AssertEx.Equal("competitor", actual.DurableWinnerIdentity, id);
+                AssertEx.Equal("persisted:synthetic-w09-receipt:synthetic-w09-verified", actual.DurableState, id);
+                AssertEx.Equal(201, actual.CompetingStatusCode, id);
+                AssertEx.Equal(924, actual.CompetingBodyBytes, id);
+                AssertEx.Equal(2, actual.ReceiptCalls, id);
             }
-            else AssertEx.True(actual.RaceObservation is null, id);
+            else
+            {
+                AssertEx.True(actual.RaceObservation is null, id);
+                AssertEx.True(actual.DurableWinnerIdentity is null && actual.DurableState is null, id);
+            }
         }
         foreach (var row in protectedRows)
         {
@@ -266,9 +289,18 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             AssertEx.Equal(0, actual.HandlerCalls, id);
             AssertEx.Equal(0, actual.Recoveries, id);
             if (id == "concurrent-redemption")
+            {
                 AssertEx.Equal(new RuntimeBridgeTwoCallRaceObservation(2, 1, 0, 1, 1), actual.RaceObservation, id);
+                AssertEx.Equal("competitor", actual.DurableWinnerIdentity, id);
+                AssertEx.True(actual.DurableState!.StartsWith("redeemed:psr_", StringComparison.Ordinal), id);
+                AssertEx.Equal(200, actual.CompetingStatusCode, id);
+                AssertEx.Equal(1179, actual.CompetingBodyBytes, id);
+            }
             else
+            {
                 AssertEx.True(actual.RaceObservation is null, id);
+                AssertEx.True(actual.DurableWinnerIdentity is null && actual.DurableState is null, id);
+            }
         }
         AssertEx.Equal(2, deliveryRows.Single(row => row.GetProperty("id").GetString() == "concurrent-downloads").GetProperty("expectedArtifactOpenCount").GetInt32());
         AssertEx.Equal(1, deliveryRows.Single(row => row.GetProperty("id").GetString() == "receipt-replay").GetProperty("expectedReceiptMutationCount").GetInt32());
@@ -524,6 +556,173 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         int Writes, int RandomGenerations, int Previews, int Approvals, int HandlerCalls, int Recoveries,
         int CleanupCalls, int OwnedDeleteCount, int SessionBodyBytes, int ArtifactBodyBytes, int ReceiptBodyBytes,
         int ProtectedBodyBytes);
+
+    private static void PinsCompleteFailureRecoveryCancellationUnion()
+    {
+        var success = ExpectedCancellationLedger().Select(row => row.Checkpoint).ToArray();
+        var rows = new[]
+        {
+            RecoveryRows("cursor", RuntimeBridgeTestFailure.SecondWhatIf, "whatif.final:before",
+                ["recovery.API_IMAGE_ASSET_CURSOR_SECRET:before", "recovery.API_IMAGE_ASSET_CURSOR_SECRET:after",
+                    "recovery.API_LICENSE_SIGNED_PAYLOAD:before", "recovery.API_LICENSE_SIGNED_PAYLOAD:after",
+                    "recovery.stage.cleanup:before", "recovery.stage.cleanup:after"],
+                protectedWrites: 2, randomGenerations: 1, previews: 2, approvals: 1, recoveries: 2,
+                targetLabels: ["recovery.API_IMAGE_ASSET_CURSOR_SECRET:before", "recovery.API_IMAGE_ASSET_CURSOR_SECRET:after"]),
+            RecoveryRows("license", RuntimeBridgeTestFailure.CursorWrite, "protected.cursor.generate-write:before",
+                ["recovery.API_LICENSE_SIGNED_PAYLOAD:before", "recovery.API_LICENSE_SIGNED_PAYLOAD:after",
+                    "recovery.stage.cleanup:before", "recovery.stage.cleanup:after"],
+                protectedWrites: 2, randomGenerations: 1, previews: 1, approvals: 1, recoveries: 1,
+                targetLabels: ["recovery.API_LICENSE_SIGNED_PAYLOAD:before", "recovery.API_LICENSE_SIGNED_PAYLOAD:after",
+                    "recovery.stage.cleanup:before", "recovery.stage.cleanup:after"]),
+            RecoveryRows("simulation-cleanup", RuntimeBridgeTestFailure.None, "stage.cleanup:before",
+                ["simulation-accepted.stage.cleanup:before", "simulation-accepted.stage.cleanup:after"],
+                protectedWrites: 2, randomGenerations: 1, previews: 2, approvals: 2, recoveries: 0,
+                handlerCalls: 1, failureCheckpoint: "stage.cleanup:before",
+                targetLabels: ["simulation-accepted.stage.cleanup:before"]),
+            RecoveryRows("evidence-commit", RuntimeBridgeTestFailure.None, "evidence.commit:before",
+                ["simulation-accepted.stage.cleanup:before", "simulation-accepted.stage.cleanup:after"],
+                protectedWrites: 2, randomGenerations: 1, previews: 2, approvals: 2, recoveries: 0,
+                handlerCalls: 1, failureCheckpoint: "evidence.commit:before",
+                targetLabels: ["simulation-accepted.stage.cleanup:after"], status: "cleanup-required",
+                safeCode: "runtime_deployment_recovery_stage_cleanup_required", cleanupCalls: 2)
+        }.SelectMany(group => group).ToArray();
+
+        var expectedRecoveryLabels = new[]
+        {
+            "recovery.API_IMAGE_ASSET_CURSOR_SECRET:before", "recovery.API_IMAGE_ASSET_CURSOR_SECRET:after",
+            "recovery.API_LICENSE_SIGNED_PAYLOAD:before", "recovery.API_LICENSE_SIGNED_PAYLOAD:after",
+            "recovery.stage.cleanup:before", "recovery.stage.cleanup:after",
+            "simulation-accepted.stage.cleanup:before", "simulation-accepted.stage.cleanup:after"
+        };
+        AssertEx.Equal(8, rows.Length);
+        AssertEx.True(expectedRecoveryLabels.SequenceEqual(rows.Select(row => row.CancelCheckpoint), StringComparer.Ordinal),
+            "failure/recovery cancellation rows must be an independent closed authority-ordered union");
+        AssertEx.Equal(rows.Length, rows.Select(row => row.CancelCheckpoint).Distinct(StringComparer.Ordinal).Count());
+
+        foreach (var expected in rows)
+        {
+            var harness = new RuntimeBridgeTestHarness(expected.Failure,
+                portableStageMutation: PortableOwnedStageMutation.None,
+                cancellationCheckpoint: expected.CancelCheckpoint,
+                failureCheckpoint: expected.FailureCheckpoint);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation(), harness.BoundaryCancellation!.Token).GetAwaiter().GetResult();
+                var id = expected.CancelCheckpoint;
+                AssertEx.True(expected.ExpectedPhases.SequenceEqual(harness.CancellationProbe!.Phases, StringComparer.Ordinal),
+                    $"{id}: expected {expected.ExpectedPhases.Count} checkpoints, observed {harness.CancellationProbe.Phases.Count}");
+                AssertEx.True(harness.BoundaryCancellation.IsCancellationRequested, id);
+                AssertEx.Equal(expected.Status, result.Status, id);
+                AssertEx.Equal(expected.SafeCode, result.SafeCode, id);
+                AssertEx.Equal(expected.Status == "failed", result.StageCleaned, id);
+                AssertEx.False(result.AuthorizesDeployment, id);
+                AssertEx.Equal(1, harness.ArtifactTransport.SessionCount, id);
+                AssertEx.Equal(29, harness.ArtifactTransport.AcquireCount, id);
+                AssertEx.Equal(1, harness.ArtifactTransport.ReceiptCount, id);
+                AssertEx.Equal(1, harness.ArtifactTransport.ReceiptMutationCount, id);
+                AssertEx.Equal(1, harness.LicenseTransport.CallCount, id);
+                AssertEx.Equal(1, harness.LicenseTransport.ProtectedReadCount, id);
+                AssertEx.Equal(1, harness.LicenseTransport.RedemptionCount, id);
+                AssertEx.Equal(expected.ProtectedWrites, harness.WriteSink.CallCount, id);
+                AssertEx.Equal(expected.CommittedWrites, result.ProtectedWriteCount, id);
+                AssertEx.Equal(expected.RandomGenerations, harness.CursorGenerator.CallCount, id);
+                AssertEx.Equal(expected.Previews, harness.WhatIf.CallCount, id);
+                AssertEx.Equal(expected.Approvals, harness.Approval.CallCount, id);
+                AssertEx.Equal(expected.HandlerCalls, harness.Handler.CallCount, id);
+                AssertEx.Equal(expected.Recoveries, harness.Recovery.CallCount, id);
+                AssertEx.Equal(expected.Recoveries, result.RecoveryCount, id);
+                AssertEx.True(expected.RecoveredNames.SequenceEqual(harness.Recovery.RecoveredNames, StringComparer.Ordinal), id);
+                AssertEx.Equal(expected.CleanupCalls, harness.PortableStageStore!.CleanupCount, id);
+                AssertEx.Equal(16, harness.PortableStageStore.DeleteCount, id);
+                AssertEx.False(harness.PortableStageStore.Exists, id);
+                AssertEx.Equal(0, harness.PortableStageStore.InventoryCount, id);
+                AssertEx.Equal(0, harness.PortableStageStore.OwnedCount, id);
+                AssertEx.Equal(0, harness.PortableStageStore.UnownedPaths.Count, id);
+                AssertEx.Equal(252, harness.ArtifactTransport.SessionResponseBodyBytes, id);
+                AssertEx.Equal(5648, harness.ArtifactTransport.ArtifactResponseBodyBytes, id);
+                AssertEx.Equal(924, harness.ArtifactTransport.ReceiptResponseBodyBytes, id);
+                AssertEx.Equal(1179, harness.LicenseTransport.ResponseBodyBytes, id);
+                AssertEx.Equal("empty", harness.ArtifactTransport.ReceiptDurableState, id);
+                AssertEx.True(harness.ArtifactTransport.ConcurrentReceiptWinner is null, id);
+                AssertEx.Equal("active", harness.LicenseTransport.ProtectedDurableState, id);
+                AssertEx.True(harness.LicenseTransport.ConcurrentRedemptionWinner is null, id);
+                AssertEx.Equal(0, result.OwnedReceipts.Count, id);
+                AssertEx.True(result.FinalInput is null, id);
+                AssertRecoveryEvidence(result, harness, expected, id);
+                AssertEx.True(harness.LicenseTransport.ReturnedBuffer is not null &&
+                    harness.LicenseTransport.ReturnedBuffer.All(value => value == 0), id);
+                AssertEx.True(harness.CursorGenerator.ReturnedBuffer is not null &&
+                    harness.CursorGenerator.ReturnedBuffer.All(value => value == 0), id);
+                AssertEx.True(harness.WriteSink.RetainedBuffers.All(buffer => buffer.Span.ToArray().All(value => value == 0)), id);
+            }
+            finally { harness.Dispose(); harness.BoundaryCancellation?.Dispose(); }
+        }
+
+        IReadOnlyList<RecoveryCancellationExpected> RecoveryRows(string name, RuntimeBridgeTestFailure failure,
+            string successTerminalCheckpoint, IReadOnlyList<string> tail, int protectedWrites, int randomGenerations,
+            int previews, int approvals, int recoveries, int handlerCalls = 0, string? failureCheckpoint = null,
+            IReadOnlyList<string>? targetLabels = null, string status = "failed",
+            string safeCode = "runtime_deployment_recovery_rehearsal_failed", int cleanupCalls = 1)
+        {
+            var prefixLength = Array.IndexOf(success, successTerminalCheckpoint) + 1;
+            AssertEx.True(prefixLength > 0, name);
+            var phases = success.Take(prefixLength).Concat(tail).ToArray();
+            var committedWrites = failure == RuntimeBridgeTestFailure.CursorWrite ? 1 : protectedWrites;
+            var recoveredNames = failure == RuntimeBridgeTestFailure.SecondWhatIf
+                ? new[] { "API_IMAGE_ASSET_CURSOR_SECRET", "API_LICENSE_SIGNED_PAYLOAD" }
+                : failure == RuntimeBridgeTestFailure.CursorWrite ? new[] { "API_LICENSE_SIGNED_PAYLOAD" } : [];
+            var targets = targetLabels ?? tail;
+            return targets.Select(cancelCheckpoint => new RecoveryCancellationExpected(name, failure, failureCheckpoint,
+                cancelCheckpoint, phases, status, safeCode, protectedWrites, committedWrites, randomGenerations, previews,
+                approvals, handlerCalls, recoveries, cleanupCalls, recoveredNames)).ToArray();
+        }
+
+        static void AssertRecoveryEvidence(RuntimeBridgeResult result, RuntimeBridgeTestHarness harness,
+            RecoveryCancellationExpected expected, string id)
+        {
+            AssertEx.Equal(RuntimeBridgeTestHarness.Sha256(System.Text.Encoding.UTF8.GetBytes(result.EvidenceJson)), result.EvidenceSha256, id);
+            using var evidence = JsonDocument.Parse(result.EvidenceJson);
+            var root = evidence.RootElement;
+            AssertEx.Equal(expected.Status, root.GetProperty("status").GetString(), id);
+            AssertEx.Equal(expected.SafeCode, root.GetProperty("safeCode").GetString(), id);
+            AssertEx.Equal(expected.Status == "failed", root.GetProperty("stageCleaned").GetBoolean(), id);
+            AssertEx.Equal(harness.WhatIf.Results.Count, root.GetProperty("previewSha256s").GetArrayLength(), id);
+            AssertEx.Equal(harness.Approval.Receipts.Count, root.GetProperty("approvalSha256s").GetArrayLength(), id);
+            AssertEx.Equal(expected.CommittedWrites, root.GetProperty("receiptIdentitySha256s").GetArrayLength(), id);
+            AssertEx.Equal(expected.Recoveries, root.GetProperty("recoverySemanticSha256s").GetArrayLength(), id);
+            var previewDigests = root.GetProperty("previewSha256s").EnumerateArray().Select(value => value.GetString()).ToArray();
+            AssertEx.True(harness.WhatIf.Results.Select(value => value.PreviewSha256).SequenceEqual(previewDigests, StringComparer.Ordinal), id);
+            var approvalDigests = root.GetProperty("approvalSha256s").EnumerateArray().Select(value => value.GetString()).ToArray();
+            AssertEx.True(harness.Approval.Challenges.Take(harness.Approval.Receipts.Count).Select(StableApprovalBinding)
+                .SequenceEqual(approvalDigests, StringComparer.Ordinal), id);
+            var receiptDigests = root.GetProperty("receiptIdentitySha256s").EnumerateArray().Select(value => value.GetString()).ToArray();
+            AssertEx.True(harness.WriteSink.Receipts.Select(ReceiptIdentity).SequenceEqual(receiptDigests, StringComparer.Ordinal), id);
+            var recoveryDigests = root.GetProperty("recoverySemanticSha256s").EnumerateArray().Select(value => value.GetString()).ToArray();
+            AssertEx.True(harness.WriteSink.Receipts.AsEnumerable().Reverse().Take(expected.Recoveries)
+                .Select(receipt => RuntimeBridgeTestHarness.Sha256(System.Text.Encoding.UTF8.GetBytes($"{ReceiptIdentity(receipt)}\nrecovered\n1\n")))
+                .SequenceEqual(recoveryDigests, StringComparer.Ordinal), id);
+            var handlerDigest = root.GetProperty("handlerResultSha256");
+            if (expected.HandlerCalls == 0) AssertEx.Equal(JsonValueKind.Null, handlerDigest.ValueKind, id);
+            else AssertEx.Equal(harness.Handler.LastResult!.ResultSha256, handlerDigest.GetString(), id);
+            var counts = root.GetProperty("counts");
+            AssertEx.Equal(expected.CommittedWrites, counts.GetProperty("protectedWrites").GetInt32(), id);
+            AssertEx.Equal(harness.WhatIf.Results.Count, counts.GetProperty("whatIf").GetInt32(), id);
+            AssertEx.Equal(harness.Approval.Receipts.Count, counts.GetProperty("approvals").GetInt32(), id);
+            AssertEx.Equal(expected.HandlerCalls, counts.GetProperty("handler").GetInt32(), id);
+            AssertEx.Equal(expected.Recoveries, counts.GetProperty("recovery").GetInt32(), id);
+        }
+
+        static string StableApprovalBinding(RuntimeBridgeApprovalChallenge challenge) => RuntimeBridgeTestHarness.Sha256(
+            System.Text.Encoding.UTF8.GetBytes($"{challenge.Phase}\n{challenge.PackageHash}\n{challenge.InputSha256}\n{challenge.PreviewSha256}\n{challenge.ArtifactIdentitySha256}\n{challenge.RecoveryPlanSha256}\n{challenge.PhaseOneApprovalDigest}\n{string.Join(',', challenge.ReceiptIdentitySha256s)}\n"));
+
+        static string ReceiptIdentity(RuntimeBridgeProtectedWriteReceipt receipt) => RuntimeBridgeTestHarness.Sha256(
+            System.Text.Encoding.UTF8.GetBytes($"{receipt.Name}\n{receipt.Mode}\n{receipt.VaultResourceId}\n{receipt.SecretName}\n{receipt.SecretVersion}\n{receipt.KeyVaultReference}\n{receipt.ContentSha256}\n{receipt.PackageHash}\n{receipt.ApprovalDigest}\n{receipt.Outcome}\n{receipt.WriteCount}\n"));
+    }
+
+    private sealed record RecoveryCancellationExpected(string Name, RuntimeBridgeTestFailure Failure, string? FailureCheckpoint,
+        string CancelCheckpoint, IReadOnlyList<string> ExpectedPhases, string Status, string SafeCode, int ProtectedWrites,
+        int CommittedWrites, int RandomGenerations, int Previews, int Approvals, int HandlerCalls, int Recoveries,
+        int CleanupCalls, IReadOnlyList<string> RecoveredNames);
 
     private static void StopsAtOwnedFailureAndCancellationBoundaries()
     {

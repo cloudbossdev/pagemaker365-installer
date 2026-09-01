@@ -289,7 +289,8 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
                 ? transport.SafeCode : "runtime_deployment_recovery_rehearsal_failed";
             if (simulationAccepted)
             {
-                var cleanedAfterSimulation = stage is not null && stageStore.Cleanup(stage);
+                var cleanedAfterSimulation = stage is not null &&
+                    AtBoundary("simulation-accepted.stage.cleanup", CancellationToken.None, () => stageStore.Cleanup(stage));
                 return Result(cleanedAfterSimulation ? "failed" : "cleanup-required",
                     cleanedAfterSimulation ? terminalSafeCode : "runtime_deployment_recovery_stage_cleanup_required",
                     trace, [], null, cleanedAfterSimulation, licenseAcquisitions,
