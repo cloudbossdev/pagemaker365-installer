@@ -1,0 +1,442 @@
+{
+  "schemaVersion": "pagemaker365.protected-setting-acquisition-rehearsal.v1",
+  "classification": "synthetic-test-only",
+  "fixedNow": "2026-08-30T12:00:00.000Z",
+  "endpoint": {
+    "method": "POST",
+    "path": "/api/onboarding/installer/runtime-protected-settings/acquire"
+  },
+  "authorization": {
+    "mode": "injected-test-only",
+    "requiredHeaderNames": [
+      "Authorization",
+      "X-PM365-Onboarding-Session",
+      "X-PM365-Onboarding-Code",
+      "X-PM365-Runtime-Delivery-Session"
+    ],
+    "containsHeaderValues": false
+  },
+  "positive": {
+    "request": {
+      "contractVersion": "pagemaker365.protected-setting-acquisition.v1",
+      "packageHash": "sha256:82dbb820acd4762e61e39dbda177c7a6f3cda53b1b14cd83ced80151e548964f",
+      "targetApp": "api",
+      "name": "API_LICENSE_SIGNED_PAYLOAD",
+      "reference": "psr_CCCCCCCCCCCCCCCCCCCCCCCC"
+    },
+    "expectedStatus": 200,
+    "expectedHeaders": {
+      "Cache-Control": "private, no-store",
+      "Pragma": "no-cache",
+      "X-Content-Type-Options": "nosniff",
+      "Vary": "Authorization, X-PM365-Onboarding-Session, X-PM365-Runtime-Delivery-Session"
+    },
+    "response": {
+      "contractVersion": "pagemaker365.protected-setting-acquisition.v1",
+      "packageHash": "sha256:82dbb820acd4762e61e39dbda177c7a6f3cda53b1b14cd83ced80151e548964f",
+      "targetApp": "api",
+      "name": "API_LICENSE_SIGNED_PAYLOAD",
+      "value": {
+        "schemaVersion": "pagemaker365.license.v1",
+        "payload": {
+          "product": "PageMaker365",
+          "licenseId": "synthetic-w09-rehearsal-license",
+          "activationId": "f81e2937-c411-4fa0-b208-42d34464d6ae",
+          "customerId": "2f8d99e4-1bc2-4f73-8a5d-91e64730c2bb",
+          "customerKey": "synthetic-w09-rehearsal",
+          "customerDisplayName": "Synthetic W09 Rehearsal",
+          "subscriptionId": "synthetic-w09-rehearsal-subscription",
+          "installationId": "a52d731f-6d90-4681-b274-18e39c50fa62",
+          "installationKey": "primary",
+          "environmentId": "7c91e4b8-35af-42d6-9b73-e06f128ad954",
+          "environmentKey": "sandbox",
+          "environmentType": "sandbox",
+          "planKey": "synthetic-test-only",
+          "supportTier": "none",
+          "workspaceLimit": 1,
+          "environmentLimit": 1,
+          "validFrom": "2026-08-30T12:00:00.000Z",
+          "validTo": "2099-08-30T12:00:00.000Z",
+          "issuedAt": "2026-08-30T12:00:00.000Z"
+        },
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "test-only-w09-cross-repository-license-b-ed25519",
+          "value": "o8uSo-S2qEvqzl9gfH1Ffouu5plaYDgCzpKM_rlhYrHztxJff5-qv4XofArhPWtmEvRAaqp_kQQA8ka_fb3JAg"
+        }
+      }
+    }
+  },
+  "replay": {
+    "expectedStatus": 404,
+    "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+    "expectedRedemptionCount": 1
+  },
+  "negativeVectors": [
+    {
+      "id": "feature-absent",
+      "mutation": "feature-absent",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "feature-false",
+      "mutation": "feature-false",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "configuration-absent",
+      "mutation": "configuration-absent",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "configuration-false",
+      "mutation": "configuration-false",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "authentication-missing",
+      "mutation": "authentication-missing",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "authentication-invalid",
+      "mutation": "authentication-invalid",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "onboarding-session-mismatch",
+      "mutation": "onboarding-session-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "onboarding-code-mismatch",
+      "mutation": "onboarding-code-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "delivery-session-mismatch",
+      "mutation": "delivery-session-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "query-forbidden",
+      "mutation": "query-forbidden",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "range-forbidden",
+      "mutation": "range-forbidden",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "idempotency-forbidden",
+      "mutation": "idempotency-forbidden",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "retry-forbidden",
+      "mutation": "retry-forbidden",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-header-forbidden",
+      "mutation": "reference-header-forbidden",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "package-mismatch",
+      "mutation": "package-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-missing",
+      "mutation": "reference-missing",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-wrong",
+      "mutation": "reference-wrong",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "target-mismatch",
+      "mutation": "target-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "name-mismatch",
+      "mutation": "name-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-inactive",
+      "mutation": "reference-inactive",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-expired",
+      "mutation": "reference-expired",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-redeemed",
+      "mutation": "reference-redeemed",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "package-stale",
+      "mutation": "package-stale",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "package-revoked",
+      "mutation": "package-revoked",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "session-revoked",
+      "mutation": "session-revoked",
+      "expectedStatus": 410,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "export-drift",
+      "mutation": "export-drift",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "activation-drift",
+      "mutation": "activation-drift",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "payload-corrupt",
+      "mutation": "payload-corrupt",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "license-signature-invalid",
+      "mutation": "license-signature-invalid",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "license-fingerprint-invalid",
+      "mutation": "license-fingerprint-invalid",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "license-wrong-key",
+      "mutation": "license-wrong-key",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "license-status-invalid",
+      "mutation": "license-status-invalid",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "license-expired",
+      "mutation": "license-expired",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "rate-limited",
+      "mutation": "rate-limited",
+      "expectedStatus": 429,
+      "expectedErrorCode": "rate_limited",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 33
+    },
+    {
+      "id": "aborted",
+      "mutation": "aborted",
+      "expectedStatus": 499,
+      "expectedErrorCode": "private_runtime_protected_setting_aborted",
+      "expectedProtectedReadCount": 0,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 139
+    },
+    {
+      "id": "package-race",
+      "mutation": "package-race",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "session-race",
+      "mutation": "session-race",
+      "expectedStatus": 410,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "activation-race",
+      "mutation": "activation-race",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "reference-race",
+      "mutation": "reference-race",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 1,
+      "expectedRedemptionCount": 0,
+      "expectedResponseBodyBytes": 143
+    },
+    {
+      "id": "concurrent-redemption",
+      "mutation": "concurrent-redemption",
+      "expectedStatus": 404,
+      "expectedErrorCode": "private_runtime_protected_setting_unavailable",
+      "expectedProtectedReadCount": 2,
+      "expectedRedemptionCount": 1,
+      "expectedResponseBodyBytes": 143
+    }
+  ],
+  "licenseSignatureVectorFile": "license-signature-vector.json",
+  "containsSyntheticProtectedValue": true,
+  "containsCustomerSecret": false,
+  "containsReusableCredential": false,
+  "authorizesDeployment": false
+}

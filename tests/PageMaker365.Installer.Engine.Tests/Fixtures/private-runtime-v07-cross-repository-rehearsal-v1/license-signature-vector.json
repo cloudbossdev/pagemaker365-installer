@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "pagemaker365.license-signature-vector.v1",
+  "algorithm": "Ed25519",
+  "keyId": "test-only-w09-cross-repository-license-b-ed25519",
+  "publicKeySha256": "3f55459b7e38204bc2c081f17b801e9f339054185b3d6fd57c06f95ec9032fcd",
+  "canonicalization": "json-c14n-v1",
+  "signedPayloadSha256": "d5c1dd3e2abab39deb1548a642988450b6fc29d45db2681c47182c3aacec8f18",
+  "signedPayloadFingerprint": "d5c1dd3e2abab39deb1548a642988450b6fc29d45db2681c47182c3aacec8f18",
+  "signature": "o8uSo-S2qEvqzl9gfH1Ffouu5plaYDgCzpKM_rlhYrHztxJff5-qv4XofArhPWtmEvRAaqp_kQQA8ka_fb3JAg",
+  "validFrom": "2026-08-30T12:00:00.000Z",
+  "validTo": "2099-08-30T12:00:00.000Z",
+  "classification": "synthetic-test-only-noncustomer-nonreusable-nondeployable"
+}

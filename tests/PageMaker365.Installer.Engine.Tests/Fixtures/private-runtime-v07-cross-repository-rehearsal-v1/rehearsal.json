@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "pagemaker365.private-runtime-v07-cross-repository-rehearsal.v1",
+  "classification": "synthetic-test-only",
+  "fixedNow": "2026-08-30T12:00:00.000Z",
+  "packageFile": "customer-install-0.7.json",
+  "runtimeDeliveryVectorsFile": "runtime-delivery-http-vectors.json",
+  "protectedSettingVectorsFile": "protected-setting-acquisition-http-vectors.json",
+  "packageSigningTrustFile": "signing-trust.json",
+  "licenseSigningTrustFile": "license-signing-public-key.pem",
+  "apiArtifactFile": "artifacts/api.zip",
+  "portalArtifactFile": "artifacts/portal.zip",
+  "requiresInjectedTransport": true,
+  "requiresExplicitOptIn": true,
+  "containsSyntheticProtectedValue": true,
+  "containsCustomerData": false,
+  "containsCustomerSecret": false,
+  "containsReusableCredential": false,
+  "containsPrivateKey": false,
+  "authorizesDeployment": false,
+  "runtimeArtifactBytesDerivedFromSourceCommit": false,
+  "sourceCommitRole": "schema-and-contract-authority-only"
+}
