@@ -13,6 +13,7 @@ internal interface IRuntimeBridgeSyntheticTestSeam
 }
 
 internal sealed record RuntimeBridgeInvocation(
+    string InvocationId,
     string CanonicalPackageJson,
     string WorkspaceRoot,
     string InstallerVersion,
@@ -20,12 +21,32 @@ internal sealed record RuntimeBridgeInvocation(
 
 internal sealed record RuntimeBridgeArtifactSession(string SessionId, DateTimeOffset ExpiresAt);
 
+internal sealed record RuntimeBridgeArtifactRequest(
+    string VectorId,
+    string ArtifactKind,
+    string ArtifactReference,
+    string PackageHash,
+    string SessionId,
+    string IfMatch,
+    long? RangeOffset,
+    int? RangeLength);
+
 internal sealed record RuntimeBridgeArtifactResponse(
     string ArtifactKind,
+    string VectorId,
+    string ArtifactReference,
+    string PackageHash,
+    string SessionId,
+    int StatusCode,
     bool IsRange,
     long Offset,
     long TotalLength,
     string Sha256,
+    string ETag,
+    string? AcceptRanges,
+    string? ContentRange,
+    long ContentLength,
+    string BodyFile,
     string CacheControl,
     string Pragma,
     string ContentTypeOptions,
@@ -41,7 +62,7 @@ internal sealed record RuntimeBridgeArtifactReceipt(
 internal interface IRuntimeBridgeArtifactTransport : IRuntimeBridgeSyntheticTestSeam
 {
     RuntimeBridgeArtifactSession CreateSession(PrivateRuntimeDeliveryPackageV07 package, CancellationToken cancellationToken);
-    RuntimeBridgeArtifactResponse Acquire(PrivateRuntimeDeliveryPackageV07 package, RuntimeBridgeArtifactSession session, string artifactKind, bool range, CancellationToken cancellationToken);
+    RuntimeBridgeArtifactResponse Acquire(PrivateRuntimeDeliveryPackageV07 package, RuntimeBridgeArtifactSession session, RuntimeBridgeArtifactRequest request, CancellationToken cancellationToken);
     RuntimeBridgeArtifactReceipt SubmitReceipt(PrivateRuntimeDeliveryPackageV07 package, RuntimeBridgeArtifactSession session, IReadOnlyList<RuntimeBridgeVerifiedArtifact> artifacts, CancellationToken cancellationToken);
 }
 
@@ -66,6 +87,18 @@ internal interface IRuntimeBridgeProtectedLicenseTransport : IRuntimeBridgeSynth
         RuntimeConfigurationProtectedSettingV2 descriptor,
         CancellationToken cancellationToken);
 }
+
+internal sealed record RuntimeBridgeLicenseAuthority(
+    string Algorithm,
+    string KeyId,
+    string PublicKeyPem,
+    string PublicKeySha256,
+    string Canonicalization,
+    string SignedPayloadSha256,
+    string SignedPayloadFingerprint,
+    string FingerprintDomain,
+    string Signature,
+    string SubscriptionId);
 
 internal interface IRuntimeBridgeCursorGenerator : IRuntimeConfigurationCursorSecretGenerator, IRuntimeBridgeSyntheticTestSeam;
 
@@ -185,7 +218,13 @@ internal sealed record RuntimeBridgeSimulationRequest(
     bool AuthorizesDeployment);
 
 internal sealed record RuntimeBridgeSimulationResult(
+    string PackageHash,
+    string FinalInputSha256,
+    string FinalPreviewSha256,
+    string ApprovalBindingSha256,
+    string ArtifactIdentitySha256,
     string Status,
+    bool AuthorizesDeployment,
     int ResourceCount,
     int WriteCount,
     int DeploymentCount,

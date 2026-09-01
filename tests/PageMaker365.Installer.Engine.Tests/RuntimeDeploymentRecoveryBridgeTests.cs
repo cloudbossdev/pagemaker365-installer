@@ -14,6 +14,13 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         StopsAtOwnedFailureAndCancellationBoundaries();
         RecoversInReverseOrderAndTreatsAmbiguityAsTerminal();
         SerializesConcurrentReplayWithoutRepeatingEffects();
+        BindsReplayToTheExactInvocationIdentity();
+        ProducesDeterministicEvidenceAcrossVolatileIdentitiesAndStages();
+        RejectsEveryOwnedArtifactProtocolMutationBeforeProtectedEffects();
+        PinsTheCompleteLicenseAuthorityAndSignedIdentity();
+        RejectsEveryHandlerResultMutationAndBindsItsDigestIntoEvidence();
+        RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent();
+        ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary();
         KeepsTheBoundaryInternalOfflineAndNonDeploying();
     }
 
@@ -101,6 +108,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             AssertEx.Equal(2, evidence.RootElement.GetProperty("previewSha256s").GetArrayLength());
             AssertEx.Equal(2, evidence.RootElement.GetProperty("approvalSha256s").GetArrayLength());
             AssertEx.Equal(2, evidence.RootElement.GetProperty("receiptIdentitySha256s").GetArrayLength());
+            AssertEx.Equal(harness.Handler.LastResult!.ResultSha256, evidence.RootElement.GetProperty("handlerResultSha256").GetString());
             AssertEx.Equal(0, evidence.RootElement.GetProperty("counts").GetProperty("recovery").GetInt32());
             AssertEx.Equal(0, Directory.GetDirectories(harness.WorkspaceRoot).Length);
         }
@@ -165,18 +173,33 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         }
         finally { ambiguity.Dispose(); }
 
-        var recoveryFailure = new RuntimeBridgeTestHarness(RuntimeBridgeTestFailure.SecondWhatIf | RuntimeBridgeTestFailure.Recovery);
+        AssertRecoveryOwnership(RuntimeBridgeTestFailure.CursorRecoveryFailure, "API_IMAGE_ASSET_CURSOR_SECRET", expectedRecoveries: 1);
+        AssertRecoveryOwnership(RuntimeBridgeTestFailure.LicenseRecoveryFailure, "API_LICENSE_SIGNED_PAYLOAD", expectedRecoveries: 1);
+        AssertRecoveryOwnership(RuntimeBridgeTestFailure.CursorRecoveryAmbiguous, "API_IMAGE_ASSET_CURSOR_SECRET", expectedRecoveries: 1);
+        AssertRecoveryOwnership(RuntimeBridgeTestFailure.LicenseRecoveryAmbiguous, "API_LICENSE_SIGNED_PAYLOAD", expectedRecoveries: 1);
+        AssertRecoveryOwnership(RuntimeBridgeTestFailure.CursorRecoveryFailure | RuntimeBridgeTestFailure.LicenseRecoveryFailure,
+            expectedOwnedName: null, expectedRecoveries: 0, expectedOwnedCount: 2);
+    }
+
+    private static void AssertRecoveryOwnership(
+        RuntimeBridgeTestFailure recoveryFailure,
+        string? expectedOwnedName,
+        int expectedRecoveries,
+        int expectedOwnedCount = 1)
+    {
+        var harness = new RuntimeBridgeTestHarness(RuntimeBridgeTestFailure.SecondWhatIf | recoveryFailure);
         try
         {
-            var result = recoveryFailure.Bridge.RunAsync(recoveryFailure.Invocation()).GetAwaiter().GetResult();
+            var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
             AssertEx.Equal("recovery-required", result.Status);
             AssertEx.Equal("runtime_deployment_recovery_required", result.SafeCode);
-            AssertEx.Equal(0, result.RecoveryCount);
-            AssertEx.Equal(2, recoveryFailure.Recovery.CallCount);
-            AssertEx.Equal(2, result.OwnedReceipts.Count);
+            AssertEx.Equal(expectedRecoveries, result.RecoveryCount);
+            AssertEx.Equal(2, harness.Recovery.CallCount);
+            AssertEx.Equal(expectedOwnedCount, result.OwnedReceipts.Count);
+            if (expectedOwnedName is not null) AssertEx.Equal(expectedOwnedName, result.OwnedReceipts.Single().Name);
             AssertEx.True(result.OwnedReceipts.All(receipt => receipt.Outcome == "written" && receipt.WriteCount == 1));
         }
-        finally { recoveryFailure.Dispose(); }
+        finally { harness.Dispose(); }
     }
 
     private static void SerializesConcurrentReplayWithoutRepeatingEffects()
@@ -194,6 +217,200 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             AssertEx.Equal(1, harness.Handler.CallCount);
         }
         finally { harness.Dispose(); }
+    }
+
+    private static void BindsReplayToTheExactInvocationIdentity()
+    {
+        var harness = new RuntimeBridgeTestHarness();
+        try
+        {
+            var original = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+            var exactReplay = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+            AssertEx.True(ReferenceEquals(original, exactReplay));
+            var denied = harness.Bridge.RunAsync(harness.Invocation(installerVersion: "0.0.1-synthetic")).GetAwaiter().GetResult();
+            AssertEx.Equal("denied", denied.Status);
+            AssertEx.Equal("runtime_deployment_recovery_invocation_reuse", denied.SafeCode);
+            AssertEx.Equal(1, harness.LicenseTransport.CallCount);
+            AssertEx.Equal(2, harness.WriteSink.CallCount);
+            AssertEx.Equal(1, harness.Handler.CallCount);
+            var changedPackage = harness.Bridge.RunAsync(harness.Invocation(packageJson: harness.PackageJson + "\n")).GetAwaiter().GetResult();
+            AssertEx.Equal("denied", changedPackage.Status);
+            AssertEx.Equal("runtime_deployment_recovery_invocation_reuse", changedPackage.SafeCode);
+            AssertEx.Equal(1, harness.LicenseTransport.CallCount);
+
+            var independent = harness.Bridge.RunAsync(harness.Invocation(invocationId: "inv_SYNTHETIC_RUNTIME_0002")).GetAwaiter().GetResult();
+            AssertEx.Equal("simulated", independent.Status, independent.EvidenceJson);
+            AssertEx.Equal(2, harness.LicenseTransport.CallCount);
+            AssertEx.Equal(4, harness.WriteSink.CallCount);
+            AssertEx.Equal(2, harness.Handler.CallCount);
+        }
+        finally { harness.Dispose(); }
+    }
+
+    private static void ProducesDeterministicEvidenceAcrossVolatileIdentitiesAndStages()
+    {
+        var first = new RuntimeBridgeTestHarness(volatileIdentity: "FIRST");
+        var second = new RuntimeBridgeTestHarness(volatileIdentity: "SECOND");
+        try
+        {
+            var firstResult = first.Bridge.RunAsync(first.Invocation()).GetAwaiter().GetResult();
+            var secondResult = second.Bridge.RunAsync(second.Invocation()).GetAwaiter().GetResult();
+            AssertEx.Equal("simulated", firstResult.Status, firstResult.EvidenceJson);
+            AssertEx.Equal("simulated", secondResult.Status, secondResult.EvidenceJson);
+            AssertEx.Equal(firstResult.EvidenceJson, secondResult.EvidenceJson);
+            AssertEx.Equal(firstResult.EvidenceSha256, secondResult.EvidenceSha256);
+            AssertEx.False(first.Approval.ApprovalIds.SequenceEqual(second.Approval.ApprovalIds));
+            AssertEx.False(first.WriteSink.ReceiptIds.SequenceEqual(second.WriteSink.ReceiptIds));
+            AssertEx.False(first.WorkspaceRoot == second.WorkspaceRoot);
+        }
+        finally { first.Dispose(); second.Dispose(); }
+    }
+
+    private static void RejectsEveryOwnedArtifactProtocolMutationBeforeProtectedEffects()
+    {
+        var mutations = new[]
+        {
+            RuntimeBridgeTestFailure.ArtifactFullStatus,
+            RuntimeBridgeTestFailure.ArtifactFullVector,
+            RuntimeBridgeTestFailure.ArtifactFullReference,
+            RuntimeBridgeTestFailure.ArtifactFullPackage,
+            RuntimeBridgeTestFailure.ArtifactFullSession,
+            RuntimeBridgeTestFailure.ArtifactFullEtag,
+            RuntimeBridgeTestFailure.ArtifactFullAcceptRanges,
+            RuntimeBridgeTestFailure.ArtifactFullContentRange,
+            RuntimeBridgeTestFailure.ArtifactFullContentLength,
+            RuntimeBridgeTestFailure.ArtifactFullBodyFile,
+            RuntimeBridgeTestFailure.ArtifactFullHeaders,
+            RuntimeBridgeTestFailure.ArtifactFullRedirect,
+            RuntimeBridgeTestFailure.ArtifactFullBody,
+            RuntimeBridgeTestFailure.ArtifactFullKind,
+            RuntimeBridgeTestFailure.ArtifactFullTotalLength,
+            RuntimeBridgeTestFailure.ArtifactFullOffset,
+            RuntimeBridgeTestFailure.ArtifactFullSha,
+            RuntimeBridgeTestFailure.ArtifactRangeStatus,
+            RuntimeBridgeTestFailure.ArtifactRangeVector,
+            RuntimeBridgeTestFailure.ArtifactRangeReference,
+            RuntimeBridgeTestFailure.ArtifactRangePackage,
+            RuntimeBridgeTestFailure.ArtifactRangeSession,
+            RuntimeBridgeTestFailure.ArtifactRangeEtag,
+            RuntimeBridgeTestFailure.ArtifactRangeAcceptRanges,
+            RuntimeBridgeTestFailure.ArtifactRangeContentRange,
+            RuntimeBridgeTestFailure.ArtifactRangeContentLength,
+            RuntimeBridgeTestFailure.ArtifactRangeBodyFile,
+            RuntimeBridgeTestFailure.ArtifactRangeHeaders,
+            RuntimeBridgeTestFailure.ArtifactRangeRedirect,
+            RuntimeBridgeTestFailure.ArtifactRangeBody,
+            RuntimeBridgeTestFailure.ArtifactRangeShape
+        };
+        foreach (var mutation in mutations)
+        {
+            var harness = new RuntimeBridgeTestHarness(mutation);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("failed", result.Status, $"{mutation}: {result.EvidenceJson}");
+                AssertEx.Equal(0, harness.LicenseTransport.CallCount, mutation.ToString());
+                AssertEx.Equal(0, harness.WriteSink.CallCount, mutation.ToString());
+                AssertEx.Equal(0, harness.Handler.CallCount, mutation.ToString());
+                AssertEx.Equal(mutation.ToString().StartsWith("ArtifactFull", StringComparison.Ordinal) ? 1 : 2,
+                    harness.ArtifactTransport.AcquireCount, mutation.ToString());
+                AssertEx.True(result.StageCleaned, mutation.ToString());
+            }
+            finally { harness.Dispose(); }
+        }
+    }
+
+    private static void PinsTheCompleteLicenseAuthorityAndSignedIdentity()
+    {
+        var mutations = new[]
+        {
+            RuntimeBridgeTestFailure.LicenseAlgorithm,
+            RuntimeBridgeTestFailure.LicenseKeyId,
+            RuntimeBridgeTestFailure.LicensePublicKeyDigest,
+            RuntimeBridgeTestFailure.LicenseCanonicalization,
+            RuntimeBridgeTestFailure.LicensePayloadDigest,
+            RuntimeBridgeTestFailure.LicenseFingerprint,
+            RuntimeBridgeTestFailure.LicenseFingerprintDomain,
+            RuntimeBridgeTestFailure.LicenseSignature,
+            RuntimeBridgeTestFailure.LicenseSubscription
+        };
+        foreach (var mutation in mutations)
+        {
+            var harness = new RuntimeBridgeTestHarness(mutation);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("failed", result.Status, $"{mutation}: {result.EvidenceJson}");
+                var trustGateMutation = mutation is RuntimeBridgeTestFailure.LicenseAlgorithm or
+                    RuntimeBridgeTestFailure.LicenseKeyId or RuntimeBridgeTestFailure.LicensePublicKeyDigest;
+                AssertEx.Equal(trustGateMutation ? 0 : 1, harness.LicenseTransport.CallCount, mutation.ToString());
+                AssertEx.Equal(trustGateMutation ? 0 : 1, harness.ArtifactTransport.SessionCount, mutation.ToString());
+                AssertEx.Equal(0, harness.WriteSink.CallCount, mutation.ToString());
+                AssertEx.Equal(0, harness.Handler.CallCount, mutation.ToString());
+            }
+            finally { harness.Dispose(); }
+        }
+    }
+
+    private static void RejectsEveryHandlerResultMutationAndBindsItsDigestIntoEvidence()
+    {
+        var mutations = new[]
+        {
+            RuntimeBridgeTestFailure.HandlerPackage,
+            RuntimeBridgeTestFailure.HandlerInput,
+            RuntimeBridgeTestFailure.HandlerPreview,
+            RuntimeBridgeTestFailure.HandlerApproval,
+            RuntimeBridgeTestFailure.HandlerArtifact,
+            RuntimeBridgeTestFailure.HandlerAuthorizes,
+            RuntimeBridgeTestFailure.HandlerResourceCount,
+            RuntimeBridgeTestFailure.HandlerWriteCount,
+            RuntimeBridgeTestFailure.HandlerDeploymentCount,
+            RuntimeBridgeTestFailure.HandlerDigest
+        };
+        foreach (var mutation in mutations)
+        {
+            var harness = new RuntimeBridgeTestHarness(mutation);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("failed", result.Status, $"{mutation}: {result.EvidenceJson}");
+                AssertEx.Equal(1, harness.Handler.CallCount, mutation.ToString());
+                AssertEx.Equal(2, result.RecoveryCount, mutation.ToString());
+                AssertEx.Equal(0, result.OwnedReceipts.Count, mutation.ToString());
+            }
+            finally { harness.Dispose(); }
+        }
+    }
+
+    private static void RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent()
+    {
+        foreach (var mutation in new[] { RuntimeBridgeTestFailure.StageMarkerMissing, RuntimeBridgeTestFailure.StageUnexpectedPath })
+        {
+            var harness = new RuntimeBridgeTestHarness(mutation);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("cleanup-required", result.Status, $"{mutation}: {result.EvidenceJson}");
+                AssertEx.False(result.StageCleaned);
+                AssertEx.Equal(0, harness.LicenseTransport.CallCount);
+                AssertEx.Equal(0, harness.WriteSink.CallCount);
+                AssertEx.Equal(1, Directory.GetDirectories(harness.WorkspaceRoot).Length);
+                if (mutation == RuntimeBridgeTestFailure.StageUnexpectedPath)
+                    AssertEx.True(File.Exists(Path.Combine(Directory.GetDirectories(harness.WorkspaceRoot).Single(), "foreign.txt")));
+            }
+            finally { harness.Dispose(); }
+        }
+    }
+
+    private static void ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary()
+    {
+        var root = FindRepositoryRoot();
+        var service = File.ReadAllText(Path.Combine(root, "src", "PageMaker365.Installer.Engine", "Services", "RuntimeDeploymentRecoveryBridge.cs"));
+        var support = File.ReadAllText(Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "RuntimeDeploymentRecoveryBridgeTestSupport.cs"));
+        AssertEx.False(service.Contains("base64UrlSecretUtf8.ToArray()", StringComparison.Ordinal));
+        AssertEx.False(support.Contains("request.ValueUtf8.ToArray()", StringComparison.Ordinal));
+        AssertEx.True(service.Contains("Sha256(base64UrlSecretUtf8.Span)", StringComparison.Ordinal));
+        AssertEx.True(support.Contains("Sha256(request.ValueUtf8.Span)", StringComparison.Ordinal));
     }
 
     private static void KeepsTheBoundaryInternalOfflineAndNonDeploying()
