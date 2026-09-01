@@ -16,10 +16,13 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         SerializesConcurrentReplayWithoutRepeatingEffects();
         BindsReplayToTheExactInvocationIdentity();
         ProducesDeterministicEvidenceAcrossVolatileIdentitiesAndStages();
+        ExecutesTheClosedProtectedContentEvidenceLedger();
+        ExecutesTheClosedHttpProtocolMatrix();
         RejectsEveryOwnedArtifactProtocolMutationBeforeProtectedEffects();
         PinsTheCompleteLicenseAuthorityAndSignedIdentity();
         RejectsEveryHandlerResultMutationAndBindsItsDigestIntoEvidence();
         RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent();
+        NativeWindowsStageDeniesCreateRegistrationAndCleanupSubstitutionRaces();
         PortableInjectedStageStoreProvesClosedOwnershipSemantics();
         ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary();
         KeepsTheBoundaryInternalOfflineAndNonDeploying();
@@ -90,8 +93,26 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             AssertEx.True(harness.Trace.IndexOf("whatif-provisional") < harness.Trace.IndexOf("approval-provisional"));
             AssertEx.True(harness.Trace.IndexOf("whatif-final") < harness.Trace.IndexOf("approval-final"));
             AssertEx.True(harness.Trace.IndexOf("approval-final") < harness.Trace.IndexOf("handler"));
-            AssertEx.Equal(4, harness.ArtifactTransport.AcquireCount);
+            AssertEx.Equal(29, harness.ArtifactTransport.AcquireCount);
             AssertEx.Equal(1, harness.ArtifactTransport.ReceiptCount);
+            AssertEx.Equal(43, harness.ArtifactTransport.LastSession!.RequestBodyUtf8.Length);
+            AssertEx.Equal(252, harness.ArtifactTransport.LastSession.ResponseBodyUtf8.Length);
+            AssertEx.Equal(1, harness.ArtifactTransport.SessionMutationCount);
+            AssertEx.Equal(1, harness.ArtifactTransport.SessionReplayProbeCount);
+            AssertEx.Equal(200, harness.ArtifactTransport.SessionReplayStatusCode);
+            AssertEx.Equal(1029, harness.ArtifactTransport.LastReceipt!.RequestBodyUtf8.Length);
+            AssertEx.Equal(924, harness.ArtifactTransport.LastReceipt.ResponseBodyUtf8.Length);
+            AssertEx.Equal(1, harness.ArtifactTransport.LastReceipt.MutationCount);
+            AssertEx.Equal(1, harness.ArtifactTransport.ReceiptReplayProbeCount);
+            AssertEx.Equal(200, harness.ArtifactTransport.ReceiptReplayStatusCode);
+            AssertEx.Equal(252, harness.LicenseTransport.LastResponse!.RequestBodyUtf8.Length);
+            AssertEx.Equal(1179, harness.LicenseTransport.LastResponse.ResponseBodyUtf8.Length);
+            AssertEx.Equal(1, harness.LicenseTransport.LastResponse.ProtectedReadCount);
+            AssertEx.Equal(1, harness.LicenseTransport.LastResponse.RedemptionCount);
+            AssertEx.Equal(1, harness.LicenseTransport.ReplayProbeCount);
+            AssertEx.Equal(404, harness.LicenseTransport.ReplayStatusCode);
+            AssertGapFreeRanges(harness.ArtifactTransport.ArtifactRequests, "api", 1015, expectedRangeCount: 12, pinnedOffset: 17, pinnedLength: 97);
+            AssertGapFreeRanges(harness.ArtifactTransport.ArtifactRequests, "portal", 1809, expectedRangeCount: 15, pinnedOffset: 29, pinnedLength: 131);
             AssertEx.Equal(0, harness.WhatIf.Requests[0].ReceiptIdentitySha256s.Count);
             AssertEx.Equal(2, harness.WhatIf.Requests[1].ReceiptIdentitySha256s.Count);
             AssertEx.True(harness.WhatIf.Requests[1].ReceiptIdentitySha256s.All(value => value.Length == 64));
@@ -114,6 +135,31 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             AssertEx.Equal(0, Directory.GetDirectories(harness.WorkspaceRoot).Length);
         }
         finally { harness.Dispose(); }
+    }
+
+    private static void AssertGapFreeRanges(
+        IEnumerable<RuntimeBridgeArtifactRequest> requests,
+        string kind,
+        long totalLength,
+        int expectedRangeCount,
+        long pinnedOffset,
+        int pinnedLength)
+    {
+        var ranges = requests.Where(item => item.ArtifactKind == kind && item.RangeOffset is not null).ToArray();
+        AssertEx.Equal(expectedRangeCount, ranges.Length, kind);
+        var cursor = 0L;
+        foreach (var range in ranges)
+        {
+            AssertEx.Equal(cursor, range.RangeOffset!.Value, kind);
+            AssertEx.True(range.RangeLength is > 0, kind);
+            AssertEx.Equal($"bytes={range.RangeOffset}-{range.RangeOffset + range.RangeLength - 1}",
+                range.OrderedHeaders.Single(item => item.Name == "Range").Value, kind);
+            cursor += range.RangeLength!.Value;
+        }
+        AssertEx.Equal(totalLength, cursor, kind);
+        var pinned = ranges.Single(item => item.RangeOffset == pinnedOffset && item.RangeLength == pinnedLength);
+        AssertEx.Equal($"{kind}-range", pinned.VectorId, kind);
+        AssertEx.True(ranges.Where(item => !ReferenceEquals(item, pinned)).All(item => item.VectorId.StartsWith($"{kind}-range-derived-", StringComparison.Ordinal)), kind);
     }
 
     private static void RemainsDefaultDisabledAndCapabilityClosed()
@@ -263,8 +309,224 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             AssertEx.False(first.Approval.ApprovalIds.SequenceEqual(second.Approval.ApprovalIds));
             AssertEx.False(first.WriteSink.ReceiptIds.SequenceEqual(second.WriteSink.ReceiptIds));
             AssertEx.False(first.WorkspaceRoot == second.WorkspaceRoot);
+            AssertEx.Equal(first.CursorGenerator.SourceSha256, second.CursorGenerator.SourceSha256);
+            AssertNoOpaqueRecoveryHandles(firstResult, first.WriteSink.ReceiptIds);
+            AssertNoOpaqueRecoveryHandles(secondResult, second.WriteSink.ReceiptIds);
         }
         finally { first.Dispose(); second.Dispose(); }
+    }
+
+    private static void ExecutesTheClosedProtectedContentEvidenceLedger()
+    {
+        var executed = new List<string>();
+        var expected = new[]
+        {
+            "evidence.same-content-different-volatile-identities",
+            "evidence.different-cursor-content",
+            "evidence.different-freshly-signed-license-content",
+            "receipt.content-digest-denial-matrix",
+            "evidence.recovered-failure-excludes-opaque-receipt-ids",
+            "evidence.recovery-required-excludes-opaque-receipt-ids"
+        };
+
+        Run("evidence.same-content-different-volatile-identities", () =>
+        {
+            var first = new RuntimeBridgeTestHarness(volatileIdentity: "LEDGER-FIRST", cursorEntropy: CursorEntropy(0x31));
+            var second = new RuntimeBridgeTestHarness(volatileIdentity: "LEDGER-SECOND", cursorEntropy: CursorEntropy(0x31));
+            try
+            {
+                var firstResult = first.Bridge.RunAsync(first.Invocation()).GetAwaiter().GetResult();
+                var secondResult = second.Bridge.RunAsync(second.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("simulated", firstResult.Status, firstResult.EvidenceJson);
+                AssertEx.Equal("simulated", secondResult.Status, secondResult.EvidenceJson);
+                AssertEx.Equal(firstResult.EvidenceJson, secondResult.EvidenceJson);
+                AssertEx.Equal(firstResult.EvidenceSha256, secondResult.EvidenceSha256);
+                AssertEx.False(first.Approval.ApprovalIds.SequenceEqual(second.Approval.ApprovalIds));
+                AssertEx.False(first.WriteSink.ReceiptIds.SequenceEqual(second.WriteSink.ReceiptIds));
+                AssertEx.True(first.WriteSink.Receipts.Select(item => item.ContentSha256)
+                    .SequenceEqual(second.WriteSink.Receipts.Select(item => item.ContentSha256), StringComparer.Ordinal));
+                AssertNoOpaqueRecoveryHandles(firstResult, first.WriteSink.ReceiptIds);
+                AssertNoOpaqueRecoveryHandles(secondResult, second.WriteSink.ReceiptIds);
+            }
+            finally { first.Dispose(); second.Dispose(); }
+        });
+
+        Run("evidence.different-cursor-content", () =>
+        {
+            var first = new RuntimeBridgeTestHarness(volatileIdentity: "CURSOR-A", cursorEntropy: CursorEntropy(0x41));
+            var second = new RuntimeBridgeTestHarness(volatileIdentity: "CURSOR-B", cursorEntropy: CursorEntropy(0x42));
+            try
+            {
+                var firstResult = first.Bridge.RunAsync(first.Invocation()).GetAwaiter().GetResult();
+                var secondResult = second.Bridge.RunAsync(second.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("simulated", firstResult.Status, firstResult.EvidenceJson);
+                AssertEx.Equal("simulated", secondResult.Status, secondResult.EvidenceJson);
+                var firstCursor = first.WriteSink.Receipts.Single(item => item.Name == "API_IMAGE_ASSET_CURSOR_SECRET");
+                var secondCursor = second.WriteSink.Receipts.Single(item => item.Name == "API_IMAGE_ASSET_CURSOR_SECRET");
+                AssertEx.False(firstCursor.ContentSha256 == secondCursor.ContentSha256);
+                AssertEx.False(first.WhatIf.Requests[1].ReceiptIdentitySha256s[1] == second.WhatIf.Requests[1].ReceiptIdentitySha256s[1]);
+                AssertEx.False(firstResult.FinalInput!.InputSha256 == secondResult.FinalInput!.InputSha256);
+                AssertEx.False(first.WhatIf.Requests[1].InputSha256 == second.WhatIf.Requests[1].InputSha256);
+                AssertEx.False(firstResult.EvidenceJson == secondResult.EvidenceJson);
+                AssertEx.False(firstResult.EvidenceSha256 == secondResult.EvidenceSha256);
+                AssertEx.True(first.CursorGenerator.ReturnedBuffer!.All(value => value == 0));
+                AssertEx.True(second.CursorGenerator.ReturnedBuffer!.All(value => value == 0));
+                AssertNoOpaqueRecoveryHandles(firstResult, first.WriteSink.ReceiptIds);
+                AssertNoOpaqueRecoveryHandles(secondResult, second.WriteSink.ReceiptIds);
+            }
+            finally { first.Dispose(); second.Dispose(); }
+        });
+
+        Run("evidence.different-freshly-signed-license-content", () =>
+        {
+            var first = new RuntimeBridgeTestHarness(licenseVariant: 1, cursorEntropy: CursorEntropy(0x51));
+            var second = new RuntimeBridgeTestHarness(licenseVariant: 2, cursorEntropy: CursorEntropy(0x51));
+            try
+            {
+                var firstResult = first.Bridge.RunAsync(first.Invocation()).GetAwaiter().GetResult();
+                var secondResult = second.Bridge.RunAsync(second.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("simulated", firstResult.Status, firstResult.EvidenceJson);
+                AssertEx.Equal("simulated", secondResult.Status, secondResult.EvidenceJson);
+                var firstLicense = first.WriteSink.Receipts.Single(item => item.Name == "API_LICENSE_SIGNED_PAYLOAD");
+                var secondLicense = second.WriteSink.Receipts.Single(item => item.Name == "API_LICENSE_SIGNED_PAYLOAD");
+                AssertEx.False(firstLicense.ContentSha256 == secondLicense.ContentSha256);
+                AssertEx.False(first.WhatIf.Requests[1].ReceiptIdentitySha256s[0] == second.WhatIf.Requests[1].ReceiptIdentitySha256s[0]);
+                AssertEx.False(firstResult.FinalInput!.InputSha256 == secondResult.FinalInput!.InputSha256);
+                AssertEx.False(firstResult.EvidenceSha256 == secondResult.EvidenceSha256);
+                AssertEx.True(first.LicenseTransport.ReturnedBuffer!.All(value => value == 0));
+                AssertEx.True(second.LicenseTransport.ReturnedBuffer!.All(value => value == 0));
+            }
+            finally { first.Dispose(); second.Dispose(); }
+        });
+
+        Run("receipt.content-digest-denial-matrix", () =>
+        {
+            foreach (var fault in new[]
+            {
+                RuntimeBridgeReceiptDigestFault.Missing,
+                RuntimeBridgeReceiptDigestFault.Uppercase,
+                RuntimeBridgeReceiptDigestFault.Stale,
+                RuntimeBridgeReceiptDigestFault.CrossPair
+            })
+            {
+                var harness = new RuntimeBridgeTestHarness(receiptDigestFault: fault);
+                try
+                {
+                    var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                    AssertEx.Equal("failed", result.Status, fault + ":" + result.EvidenceJson);
+                    AssertEx.Equal(1, harness.WriteSink.CallCount, fault.ToString());
+                    AssertEx.Equal(0, harness.CursorGenerator.CallCount, fault.ToString());
+                    AssertEx.Equal(1, harness.WhatIf.CallCount, fault.ToString());
+                    AssertEx.Equal(1, harness.Approval.CallCount, fault.ToString());
+                    AssertEx.Equal(0, harness.Handler.CallCount, fault.ToString());
+                }
+                finally { harness.Dispose(); }
+            }
+        });
+
+        Run("evidence.recovered-failure-excludes-opaque-receipt-ids", () =>
+        {
+            var harness = new RuntimeBridgeTestHarness(RuntimeBridgeTestFailure.SecondWhatIf, volatileIdentity: "RECOVERED");
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("failed", result.Status, result.EvidenceJson);
+                AssertEx.Equal(2, result.RecoveryCount);
+                AssertEx.Equal(0, result.OwnedReceipts.Count);
+                AssertNoOpaqueRecoveryHandles(result, harness.WriteSink.ReceiptIds);
+            }
+            finally { harness.Dispose(); }
+        });
+
+        Run("evidence.recovery-required-excludes-opaque-receipt-ids", () =>
+        {
+            var harness = new RuntimeBridgeTestHarness(
+                RuntimeBridgeTestFailure.SecondWhatIf | RuntimeBridgeTestFailure.CursorRecoveryAmbiguous,
+                volatileIdentity: "UNRECOVERED");
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("recovery-required", result.Status, result.EvidenceJson);
+                AssertEx.Equal(1, result.OwnedReceipts.Count);
+                AssertNoOpaqueRecoveryHandles(result, harness.WriteSink.ReceiptIds);
+            }
+            finally { harness.Dispose(); }
+        });
+
+        AssertEx.True(executed.SequenceEqual(expected, StringComparer.Ordinal),
+            "The protected-content evidence case ledger must execute every named row exactly once and in authority order.");
+        return;
+
+        void Run(string name, Action action)
+        {
+            AssertEx.False(executed.Contains(name, StringComparer.Ordinal), $"Duplicate executed case: {name}");
+            action();
+            executed.Add(name);
+        }
+    }
+
+    private static void ExecutesTheClosedHttpProtocolMatrix()
+    {
+        var executed = new List<string>();
+        var expected = (
+            from operation in Enum.GetValues<RuntimeBridgeHttpOperation>()
+            from fault in Enum.GetValues<RuntimeBridgeHttpFault>()
+            select $"http.{operation}.{fault}").ToArray();
+
+        foreach (var operation in Enum.GetValues<RuntimeBridgeHttpOperation>())
+        {
+            foreach (var fault in Enum.GetValues<RuntimeBridgeHttpFault>())
+            {
+                var name = $"http.{operation}.{fault}";
+                AssertEx.False(executed.Contains(name, StringComparer.Ordinal), $"Duplicate executed HTTP case: {name}");
+                var harness = new RuntimeBridgeTestHarness(
+                    portableStageMutation: PortableOwnedStageMutation.None,
+                    httpMutation: new(operation, fault));
+                try
+                {
+                    var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                    AssertEx.Equal("failed", result.Status, $"{name}: {result.EvidenceJson}");
+                    AssertEx.Equal("runtime_deployment_recovery_rehearsal_failed", result.SafeCode, name);
+                    AssertEx.False(result.AuthorizesDeployment, name);
+                    AssertEx.Equal(1, harness.ArtifactTransport.SessionCount, name);
+                    AssertEx.Equal(ExpectedArtifactAcquisitions(operation), harness.ArtifactTransport.AcquireCount, name);
+                    AssertEx.Equal(operation >= RuntimeBridgeHttpOperation.Receipt ? 1 : 0, harness.ArtifactTransport.ReceiptCount, name);
+                    AssertEx.Equal(operation == RuntimeBridgeHttpOperation.Protected ? 1 : 0, harness.LicenseTransport.CallCount, name);
+                    AssertEx.Equal(0, harness.WriteSink.CallCount, name);
+                    AssertEx.Equal(0, harness.Handler.CallCount, name);
+                    AssertEx.Equal(0, result.OwnedReceipts.Count, name);
+                    AssertEx.True(result.StageCleaned, name);
+                    AssertNoOpaqueRecoveryHandles(result, harness.WriteSink.ReceiptIds);
+                    executed.Add(name);
+                }
+                finally { harness.Dispose(); }
+            }
+        }
+
+        AssertEx.True(executed.SequenceEqual(expected, StringComparer.Ordinal),
+            "The closed HTTP protocol matrix must execute each named operation/fault row exactly once and in authority order.");
+
+        static int ExpectedArtifactAcquisitions(RuntimeBridgeHttpOperation operation) => operation switch
+        {
+            RuntimeBridgeHttpOperation.Session => 0,
+            RuntimeBridgeHttpOperation.ArtifactFull => 1,
+            RuntimeBridgeHttpOperation.ArtifactRange => 2,
+            RuntimeBridgeHttpOperation.Receipt or RuntimeBridgeHttpOperation.Protected => 29,
+            _ => throw new InvalidOperationException("Unknown HTTP operation.")
+        };
+    }
+
+    private static byte[] CursorEntropy(byte value) => Enumerable.Repeat(value, 32).Select(item => (byte)item).ToArray();
+
+    private static void AssertNoOpaqueRecoveryHandles(RuntimeBridgeResult result, IEnumerable<string> receiptIds)
+    {
+        AssertEx.False(result.EvidenceJson.Contains("recoveryReceiptIds", StringComparison.Ordinal));
+        AssertEx.False(result.EvidenceJson.Contains("\"receiptId\"", StringComparison.OrdinalIgnoreCase));
+        foreach (var receiptId in receiptIds)
+        {
+            AssertEx.False(result.EvidenceJson.Contains(receiptId, StringComparison.Ordinal));
+            AssertEx.False(result.EvidenceSha256.Contains(receiptId, StringComparison.Ordinal));
+        }
     }
 
     private static void RejectsEveryOwnedArtifactProtocolMutationBeforeProtectedEffects()
@@ -385,9 +647,9 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
 
     private static void RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent()
     {
-        foreach (var mutation in new[] { RuntimeBridgeTestFailure.StageMarkerMissing, RuntimeBridgeTestFailure.StageUnexpectedPath })
+        foreach (var mutation in new[] { PortableOwnedStageMutation.MarkerRemoval, PortableOwnedStageMutation.UnexpectedInventory })
         {
-            var harness = new RuntimeBridgeTestHarness(mutation);
+            var harness = new RuntimeBridgeTestHarness(portableStageMutation: mutation);
             try
             {
                 var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
@@ -395,9 +657,9 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
                 AssertEx.False(result.StageCleaned);
                 AssertEx.Equal(0, harness.LicenseTransport.CallCount);
                 AssertEx.Equal(0, harness.WriteSink.CallCount);
-                AssertEx.Equal(1, Directory.GetDirectories(harness.WorkspaceRoot).Length);
-                if (mutation == RuntimeBridgeTestFailure.StageUnexpectedPath)
-                    AssertEx.True(File.Exists(Path.Combine(Directory.GetDirectories(harness.WorkspaceRoot).Single(), "foreign.txt")));
+                AssertEx.Equal(0, harness.PortableStageStore!.DeleteCount);
+                if (mutation == PortableOwnedStageMutation.UnexpectedInventory)
+                    AssertEx.True(harness.PortableStageStore.UnownedPaths.Contains("foreign.txt"));
             }
             finally { harness.Dispose(); }
         }
@@ -469,11 +731,36 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         ProvesPortableStoreDirectLeasePathAndCleanupRules();
     }
 
+    private static void NativeWindowsStageDeniesCreateRegistrationAndCleanupSubstitutionRaces()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var harness = new RuntimeBridgeTestHarness(probeNativeStageRaces: true);
+        try
+        {
+            var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+            AssertEx.Equal("simulated", result.Status, result.EvidenceJson);
+            AssertEx.True(result.StageCleaned);
+            AssertEx.True(harness.NativeStageRaceProbe!.ProbeCount >= 3);
+            AssertEx.Equal(harness.NativeStageRaceProbe.ProbeCount, harness.NativeStageRaceProbe.DeniedCount,
+                string.Join(',', harness.NativeStageRaceProbe.UnexpectedOperations));
+            AssertEx.Equal(0, harness.NativeStageRaceProbe.UnexpectedSuccessCount, string.Join(',', harness.NativeStageRaceProbe.UnexpectedOperations));
+            AssertEx.Equal(0, Directory.GetDirectories(harness.WorkspaceRoot).Length);
+        }
+        finally { harness.Dispose(); }
+    }
+
     private static void ProvesPortableStoreDirectLeasePathAndCleanupRules()
     {
         var capability = RuntimeBridgeSyntheticTestCapability.CreateForTestSupport();
         var store = new RuntimeBridgeTestHarness.TestOwnedStageStore(capability, PortableOwnedStageMutation.None);
-        var lease = store.Create("portable-root", "inv_PORTABLE_DIRECT_0001");
+        var lease = store.Create("portable-root", "inv_PORTABLE_DIRECT_0001",
+        [
+            new("api.zip", false),
+            new("api", true),
+            new("portal", true),
+            new("portal/.pm365", true),
+            new("portal/.pm365/provenance.json", false)
+        ]);
         store.AssertOwned(lease);
         foreach (var unsafePath in new[] { "", " ", "/rooted", "C:/rooted", "../escape", "a/../escape", "a/./file", "a//file", "a/ /file", "a\\file", "a:stream", "a/\0file" })
             AssertEx.Throws<InvalidDataException>(() => store.WriteFileExclusive(lease, unsafePath, [0x01]));
@@ -499,7 +786,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         AssertEx.False(store.Cleanup(lease));
 
         var noDeleteStore = new RuntimeBridgeTestHarness.TestOwnedStageStore(capability, PortableOwnedStageMutation.CleanupUnexpectedInventory);
-        var noDeleteLease = noDeleteStore.Create("portable-root", "inv_PORTABLE_DIRECT_0003");
+        var noDeleteLease = noDeleteStore.Create("portable-root", "inv_PORTABLE_DIRECT_0003", [new("owned.txt", false)]);
         noDeleteStore.WriteFileExclusive(noDeleteLease, "owned.txt", [0x06]);
         AssertEx.False(noDeleteStore.Cleanup(noDeleteLease));
         AssertEx.Equal(0, noDeleteStore.DeleteCount);
@@ -507,7 +794,7 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         AssertEx.True(noDeleteLease.OwnershipMarker.Any(value => value != 0));
 
         var unsupported = new RuntimeBridgeTestHarness.TestOwnedStageStore(capability, PortableOwnedStageMutation.Unsupported);
-        AssertEx.Throws<PlatformNotSupportedException>(() => unsupported.Create("portable-root", "inv_PORTABLE_DIRECT_0004"));
+        AssertEx.Throws<PlatformNotSupportedException>(() => unsupported.Create("portable-root", "inv_PORTABLE_DIRECT_0004", [new("owned.txt", false)]));
     }
 
     private static void ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary()

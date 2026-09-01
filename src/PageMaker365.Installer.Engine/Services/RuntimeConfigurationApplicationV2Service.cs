@@ -192,7 +192,12 @@ public sealed class RuntimeConfigurationApplicationV2Service
             Binding = preliminary.Binding,
             ApiPublicSettings = preliminary.ApiPublicSettings,
             PortalPublicSettings = preliminary.PortalPublicSettings,
-            ApiVersionedProtectedSettingReferences = references
+            ApiVersionedProtectedSettingReferences = references,
+            ProtectedContentBindings =
+            [
+                new RuntimeBridgeProtectedContentBinding(licenseReceipt.Name, licenseReceipt.ContentSha256),
+                new RuntimeBridgeProtectedContentBinding(cursorReceipt.Name, cursorReceipt.ContentSha256)
+            ]
         };
         var canonical = FormatCanonicalFinalInput(final);
         return new RuntimeConfigurationFinalizedDeploymentInputV2
@@ -203,6 +208,7 @@ public sealed class RuntimeConfigurationApplicationV2Service
             ApiPublicSettings = final.ApiPublicSettings,
             PortalPublicSettings = final.PortalPublicSettings,
             ApiVersionedProtectedSettingReferences = final.ApiVersionedProtectedSettingReferences,
+            ProtectedContentBindings = final.ProtectedContentBindings,
             CanonicalJson = canonical,
             InputSha256 = Sha256(Encoding.UTF8.GetBytes(canonical))
         };
@@ -426,6 +432,12 @@ public sealed class RuntimeConfigurationApplicationV2Service
             {
                 writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("mode", item.Mode);
                 writer.WriteString("keyVaultReference", item.KeyVaultReference); writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WritePropertyName("protectedContentBindings"); writer.WriteStartArray();
+            foreach (var item in input.ProtectedContentBindings)
+            {
+                writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("contentSha256", item.ContentSha256); writer.WriteEndObject();
             }
             writer.WriteEndArray();
             writer.WriteEndObject();

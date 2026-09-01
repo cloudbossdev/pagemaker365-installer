@@ -18,13 +18,20 @@ internal sealed record RuntimeBridgeOwnedStageLease(
     string StageRoot,
     byte[] OwnershipMarker);
 
+internal sealed record RuntimeBridgeOwnedStageEntry(string RelativePath, bool IsDirectory);
+
 internal interface IRuntimeBridgeOwnedStageStore : IRuntimeBridgeSyntheticTestSeam
 {
-    RuntimeBridgeOwnedStageLease Create(string trustedRoot, string invocationId);
+    RuntimeBridgeOwnedStageLease Create(string trustedRoot, string invocationId, IReadOnlyList<RuntimeBridgeOwnedStageEntry> inventory);
     void AssertOwned(RuntimeBridgeOwnedStageLease lease);
     void CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath);
     void WriteFileExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath, ReadOnlySpan<byte> bytes);
     bool Cleanup(RuntimeBridgeOwnedStageLease lease);
+}
+
+internal interface IRuntimeBridgeOwnedStageRaceProbe : IRuntimeBridgeSyntheticTestSeam
+{
+    void Probe(string operation, string path);
 }
 
 internal sealed record RuntimeBridgeInvocation(
@@ -34,7 +41,23 @@ internal sealed record RuntimeBridgeInvocation(
     string InstallerVersion,
     bool Enabled);
 
-internal sealed record RuntimeBridgeArtifactSession(string SessionId, DateTimeOffset ExpiresAt);
+internal sealed record RuntimeBridgeHttpHeader(string Name, string Value);
+
+internal sealed record RuntimeBridgeArtifactSession(string SessionId, DateTimeOffset ExpiresAt)
+{
+    internal string Method { get; init; } = "";
+    internal string Path { get; init; } = "";
+    internal string Query { get; init; } = "";
+    internal string Fragment { get; init; } = "";
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> RequestHeaders { get; init; } = [];
+    internal string RequestContentType { get; init; } = "";
+    internal byte[] RequestBodyUtf8 { get; init; } = [];
+    internal int StatusCode { get; init; }
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> ResponseHeaders { get; init; } = [];
+    internal string ResponseContentType { get; init; } = "";
+    internal string? Location { get; init; }
+    internal byte[] ResponseBodyUtf8 { get; init; } = [];
+}
 
 internal sealed record RuntimeBridgeArtifactRequest(
     string VectorId,
@@ -44,7 +67,16 @@ internal sealed record RuntimeBridgeArtifactRequest(
     string SessionId,
     string IfMatch,
     long? RangeOffset,
-    int? RangeLength);
+    int? RangeLength)
+{
+    internal string Method { get; init; } = "GET";
+    internal string Path { get; init; } = "";
+    internal string Query { get; init; } = "";
+    internal string Fragment { get; init; } = "";
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> OrderedHeaders { get; init; } = [];
+    internal string? ContentType { get; init; }
+    internal byte[] BodyUtf8 { get; init; } = [];
+}
 
 internal sealed record RuntimeBridgeArtifactResponse(
     string ArtifactKind,
@@ -66,13 +98,32 @@ internal sealed record RuntimeBridgeArtifactResponse(
     string Pragma,
     string ContentTypeOptions,
     bool NoRedirect,
-    byte[] Body);
+    byte[] Body)
+{
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> OrderedHeaders { get; init; } = [];
+    internal string ContentType { get; init; } = "application/zip";
+    internal string? Location { get; init; }
+}
 
 internal sealed record RuntimeBridgeArtifactReceipt(
     string SessionId,
     string PackageHash,
     string Status,
-    int MutationCount);
+    int MutationCount)
+{
+    internal string Method { get; init; } = "";
+    internal string Path { get; init; } = "";
+    internal string Query { get; init; } = "";
+    internal string Fragment { get; init; } = "";
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> RequestHeaders { get; init; } = [];
+    internal string RequestContentType { get; init; } = "";
+    internal byte[] RequestBodyUtf8 { get; init; } = [];
+    internal int StatusCode { get; init; }
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> ResponseHeaders { get; init; } = [];
+    internal string ResponseContentType { get; init; } = "";
+    internal string? Location { get; init; }
+    internal byte[] ResponseBodyUtf8 { get; init; } = [];
+}
 
 internal interface IRuntimeBridgeArtifactTransport : IRuntimeBridgeSyntheticTestSeam
 {
@@ -92,7 +143,23 @@ internal sealed record RuntimeBridgeProtectedLicenseResponse(
     string ContentTypeOptions,
     string Vary,
     bool NoRedirect,
-    byte[] SignedLicenseUtf8);
+    byte[] SignedLicenseUtf8)
+{
+    internal string Method { get; init; } = "";
+    internal string Path { get; init; } = "";
+    internal string Query { get; init; } = "";
+    internal string Fragment { get; init; } = "";
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> RequestHeaders { get; init; } = [];
+    internal string RequestContentType { get; init; } = "";
+    internal byte[] RequestBodyUtf8 { get; init; } = [];
+    internal int StatusCode { get; init; }
+    internal IReadOnlyList<RuntimeBridgeHttpHeader> ResponseHeaders { get; init; } = [];
+    internal string ResponseContentType { get; init; } = "";
+    internal string? Location { get; init; }
+    internal byte[] ResponseBodyUtf8 { get; init; } = [];
+    internal int ProtectedReadCount { get; init; }
+    internal int RedemptionCount { get; init; }
+}
 
 internal interface IRuntimeBridgeProtectedLicenseTransport : IRuntimeBridgeSyntheticTestSeam
 {
@@ -139,6 +206,8 @@ internal sealed record RuntimeBridgeProtectedWriteReceipt(
     string ApprovalDigest,
     string Outcome,
     int WriteCount);
+
+internal sealed record RuntimeBridgeProtectedContentBinding(string Name, string ContentSha256);
 
 internal interface IRuntimeBridgeProtectedWriteSink : IRuntimeBridgeSyntheticTestSeam
 {
@@ -284,6 +353,7 @@ internal sealed class RuntimeConfigurationFinalizedDeploymentInputV2
     internal IReadOnlyList<RuntimeConfigurationApplicationTypedSettingV2> ApiPublicSettings { get; init; } = [];
     internal IReadOnlyList<RuntimeConfigurationApplicationTypedSettingV2> PortalPublicSettings { get; init; } = [];
     internal IReadOnlyList<RuntimeConfigurationApplicationProtectedReferenceV2> ApiVersionedProtectedSettingReferences { get; init; } = [];
+    internal IReadOnlyList<RuntimeBridgeProtectedContentBinding> ProtectedContentBindings { get; init; } = [];
     internal string CanonicalJson { get; init; } = "";
     internal string InputSha256 { get; init; } = "";
 }
