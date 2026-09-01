@@ -159,6 +159,10 @@ internal enum RuntimeBridgeNativeStageAttack
     EnumerationSecondWriter,
     CleanupIdentitySubstitution
 }
+internal enum RuntimeBridgeFileSymbolicLinkCapability { Established, OsDenied }
+internal sealed record RuntimeBridgeFileSymbolicLinkCapabilityResult(
+    RuntimeBridgeFileSymbolicLinkCapability Capability,
+    int NativeErrorCode);
 internal enum RuntimeBridgeReceiptNestedFault
 {
     None,
@@ -376,6 +380,57 @@ internal sealed class RuntimeBridgeTestHarness
         internal List<string> UnexpectedOperations { get; } = [];
         internal bool AttackApplied { get; private set; }
         internal string? ForeignPath { get; private set; }
+        internal string? ForeignTargetPath { get; private set; }
+        internal string? ForeignTargetRoot { get; private set; }
+        internal string? ForeignTargetSha256 { get; private set; }
+
+        internal static RuntimeBridgeFileSymbolicLinkCapabilityResult ProbeFileSymbolicLinkCapability()
+        {
+            if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("native_file_symbolic_link_probe_requires_windows");
+            var root = NewOwnedTemporaryPath("pm365-file-symbolic-link-capability-");
+            var target = Path.Combine(root, "owned-target.bin");
+            var link = Path.Combine(root, "owned-link.bin");
+            var content = Encoding.ASCII.GetBytes("pagemaker365-owned-symbolic-link-capability\n");
+            try
+            {
+                if (Directory.Exists(root) || File.Exists(root)) throw new IOException("native_symbolic_link_probe_path_collision");
+                Directory.CreateDirectory(root);
+                using (var stream = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    stream.Write(content);
+                try
+                {
+                    File.CreateSymbolicLink(link, target);
+                }
+                catch (Exception ex) when (IsExactSymbolicLinkAccessDenial(ex))
+                {
+                    var nativeCode = NativeErrorCode(ex);
+                    CleanupCapabilityProbe(root, target, link);
+                    return new(RuntimeBridgeFileSymbolicLinkCapability.OsDenied, nativeCode);
+                }
+
+                var linkInfo = new FileInfo(link);
+                if (!File.Exists(link) || (File.GetAttributes(link) & FileAttributes.ReparsePoint) == 0 ||
+                    string.IsNullOrWhiteSpace(linkInfo.LinkTarget))
+                    throw new InvalidDataException("native_symbolic_link_probe_not_reparse_link");
+                var resolved = linkInfo.ResolveLinkTarget(returnFinalTarget: true) ??
+                    throw new InvalidDataException("native_symbolic_link_probe_target_unresolved");
+                if (!string.Equals(Path.GetFullPath(resolved.FullName), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase) ||
+                    !File.ReadAllBytes(resolved.FullName).SequenceEqual(content))
+                    throw new InvalidDataException("native_symbolic_link_probe_target_identity_invalid");
+                File.Delete(link);
+                if (File.Exists(link) || !File.Exists(target) || !File.ReadAllBytes(target).SequenceEqual(content))
+                    throw new InvalidDataException("native_symbolic_link_probe_link_delete_changed_target");
+                File.Delete(target);
+                Directory.Delete(root, recursive: false);
+                AssertCapabilityProbeClean(root, target, link);
+                return new(RuntimeBridgeFileSymbolicLinkCapability.Established, 0);
+            }
+            catch
+            {
+                CleanupCapabilityProbe(root, target, link);
+                throw;
+            }
+        }
 
         public void Probe(string operation, string path)
         {
@@ -418,7 +473,16 @@ internal sealed class RuntimeBridgeTestHarness
                         if (!CreateHardLinkNative(replacement, path, IntPtr.Zero)) throw new IOException("native_hardlink_denied");
                         ForeignPath = replacement; break;
                     case RuntimeBridgeNativeStageAttack.FileSymbolicAlias:
-                        File.CreateSymbolicLink(replacement, path); ForeignPath = replacement; break;
+                        if (!TryCreateForeignSymbolicAlias(replacement, out var foreignRoot, out var foreignTarget, out var foreignSha256))
+                        {
+                            DeniedCount++;
+                            return;
+                        }
+                        ForeignPath = replacement;
+                        ForeignTargetRoot = foreignRoot;
+                        ForeignTargetPath = foreignTarget;
+                        ForeignTargetSha256 = foreignSha256;
+                        break;
                     case RuntimeBridgeNativeStageAttack.TrueDirectoryJunction:
                         CreateJunction(replacement, path); ForeignPath = replacement; break;
                     case RuntimeBridgeNativeStageAttack.EnumerationSecondWriter:
@@ -432,6 +496,92 @@ internal sealed class RuntimeBridgeTestHarness
             catch (UnauthorizedAccessException) { DeniedCount++; }
             catch (PlatformNotSupportedException) { UnavailableCount++; }
         }
+
+        internal void AssertForeignSymbolicAliasSurvives()
+        {
+            if (ForeignPath is null || ForeignTargetPath is null || ForeignTargetRoot is null || ForeignTargetSha256 is null)
+                throw new InvalidDataException("native_foreign_symbolic_alias_identity_missing");
+            var link = new FileInfo(ForeignPath);
+            if (!File.Exists(ForeignPath) || (File.GetAttributes(ForeignPath) & FileAttributes.ReparsePoint) == 0 ||
+                string.IsNullOrWhiteSpace(link.LinkTarget))
+                throw new InvalidDataException("native_foreign_symbolic_alias_missing");
+            var resolved = link.ResolveLinkTarget(returnFinalTarget: true) ??
+                throw new InvalidDataException("native_foreign_symbolic_alias_unresolved");
+            if (!string.Equals(Path.GetFullPath(resolved.FullName), Path.GetFullPath(ForeignTargetPath), StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(ForeignTargetPath) ||
+                !string.Equals(Sha256(File.ReadAllBytes(ForeignTargetPath)), ForeignTargetSha256, StringComparison.Ordinal))
+                throw new InvalidDataException("native_foreign_symbolic_alias_target_changed");
+        }
+
+        internal void CleanupForeignSymbolicAliasForTest()
+        {
+            if (ForeignPath is not null && File.Exists(ForeignPath)) File.Delete(ForeignPath);
+            if (ForeignTargetPath is not null && File.Exists(ForeignTargetPath)) File.Delete(ForeignTargetPath);
+            if (ForeignTargetRoot is not null && Directory.Exists(ForeignTargetRoot)) Directory.Delete(ForeignTargetRoot, recursive: false);
+            if ((ForeignPath is not null && File.Exists(ForeignPath)) ||
+                (ForeignTargetPath is not null && File.Exists(ForeignTargetPath)) ||
+                (ForeignTargetRoot is not null && Directory.Exists(ForeignTargetRoot)))
+                throw new InvalidDataException("native_foreign_symbolic_alias_cleanup_failed");
+        }
+
+        private static bool TryCreateForeignSymbolicAlias(string link, out string root, out string target, out string sha256)
+        {
+            root = NewOwnedTemporaryPath("pm365-file-symbolic-alias-target-");
+            target = Path.Combine(root, "foreign-owned-target.bin");
+            sha256 = string.Empty;
+            var content = Encoding.ASCII.GetBytes("pagemaker365-foreign-owned-symbolic-target\n");
+            try
+            {
+                if (Directory.Exists(root) || File.Exists(root)) throw new IOException("native_foreign_symbolic_target_collision");
+                Directory.CreateDirectory(root);
+                using (var stream = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    stream.Write(content);
+                sha256 = Sha256(content);
+                File.CreateSymbolicLink(link, target);
+                return true;
+            }
+            catch (Exception ex) when (IsExactSymbolicLinkAccessDenial(ex))
+            {
+                File.Delete(target);
+                Directory.Delete(root, recursive: false);
+                root = string.Empty;
+                target = string.Empty;
+                sha256 = string.Empty;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                if (File.Exists(link)) File.Delete(link);
+                if (File.Exists(target)) File.Delete(target);
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: false);
+                throw new InvalidDataException("native_foreign_symbolic_alias_setup_failed", ex);
+            }
+        }
+
+        private static string NewOwnedTemporaryPath(string prefix) =>
+            Path.Combine(Path.GetTempPath(), prefix + Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant());
+
+        private static bool IsExactSymbolicLinkAccessDenial(Exception exception) =>
+            exception is IOException or UnauthorizedAccessException && NativeErrorCode(exception) is 5 or 1314;
+
+        private static int NativeErrorCode(Exception exception) => exception.HResult & 0xFFFF;
+
+        private static void CleanupCapabilityProbe(string root, string target, string link)
+        {
+            if (File.Exists(link)) File.Delete(link);
+            if (File.Exists(target)) File.Delete(target);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: false);
+            AssertCapabilityProbeClean(root, target, link);
+        }
+
+        private static void AssertCapabilityProbeClean(string root, string target, string link)
+        {
+            if (File.Exists(link) || File.Exists(target) || Directory.Exists(root))
+                throw new InvalidDataException("native_symbolic_link_probe_cleanup_failed");
+        }
+
+        private static string Sha256(byte[] bytes) =>
+            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
         private static bool Applies(string operation, RuntimeBridgeNativeStageAttack value) => value switch
         {

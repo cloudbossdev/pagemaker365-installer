@@ -40,6 +40,18 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
     private static void NativeWindowsStageExecutesTheClosedAliasAndWriterRaceMatrix()
     {
         if (!OperatingSystem.IsWindows()) return;
+        var symbolicLinkCapability = RuntimeBridgeTestHarness.TestNativeStageRaceProbe.ProbeFileSymbolicLinkCapability();
+        Console.WriteLine($"NATIVE_FILE_SYMBOLIC_LINK_CAPABILITY={symbolicLinkCapability.Capability};NATIVE_ERROR={symbolicLinkCapability.NativeErrorCode}");
+        var symbolicLinkOsDenied = NativeCase(RuntimeBridgeNativeStageAttack.FileSymbolicAlias, false, "simulated",
+            "runtime_deployment_recovery_rehearsal_completed", true, true);
+        var symbolicLinkEstablished = NativeCase(RuntimeBridgeNativeStageAttack.FileSymbolicAlias, true, "cleanup-required",
+            "runtime_deployment_recovery_stage_cleanup_required", false, false);
+        var symbolicLinkExpected = symbolicLinkCapability.Capability switch
+        {
+            RuntimeBridgeFileSymbolicLinkCapability.OsDenied => symbolicLinkOsDenied,
+            RuntimeBridgeFileSymbolicLinkCapability.Established => symbolicLinkEstablished,
+            _ => throw new InvalidDataException("native_file_symbolic_link_capability_invalid")
+        };
         var ledger = new[]
         {
             NativeCase(RuntimeBridgeNativeStageAttack.TrustedRootBeforeBind, true, "failed", "runtime_deployment_recovery_rehearsal_failed", true, false),
@@ -54,11 +66,11 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
             NativeCase(RuntimeBridgeNativeStageAttack.FileBeforeBind, false, "simulated", "runtime_deployment_recovery_rehearsal_completed", true, true),
             NativeCase(RuntimeBridgeNativeStageAttack.FileCaseAlias, false, "simulated", "runtime_deployment_recovery_rehearsal_completed", true, true),
             NativeCase(RuntimeBridgeNativeStageAttack.FileHardlinkAlias, true, "cleanup-required", "runtime_deployment_recovery_stage_cleanup_required", false, false),
-            NativeCase(RuntimeBridgeNativeStageAttack.FileSymbolicAlias, false, "simulated", "runtime_deployment_recovery_rehearsal_completed", true, true),
+            symbolicLinkExpected,
             NativeCase(RuntimeBridgeNativeStageAttack.TrueDirectoryJunction, true, "cleanup-required", "runtime_deployment_recovery_stage_cleanup_required", false, false),
             NativeCase(RuntimeBridgeNativeStageAttack.EnumerationSecondWriter, true, "cleanup-required", "runtime_deployment_recovery_stage_cleanup_required", false, false),
-            new NativeStageExpected(RuntimeBridgeNativeStageAttack.CleanupIdentitySubstitution, true, "cleanup-required",
-                "runtime_deployment_recovery_stage_cleanup_required", false, 1, 2, 1, 2, 2, 1, 0)
+            NativeCase(RuntimeBridgeNativeStageAttack.CleanupIdentitySubstitution, true, "cleanup-required",
+                "runtime_deployment_recovery_stage_cleanup_required", false, true)
         };
         AssertEx.Equal(16, ledger.Length);
         AssertEx.True(Enum.GetValues<RuntimeBridgeNativeStageAttack>().SequenceEqual(ledger.Select(row => row.Attack)),
@@ -74,32 +86,41 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
                 AssertEx.True(probe.AttackApplied, id);
                 AssertEx.Equal(1, probe.ProbeCount, id);
                 AssertEx.Equal(0, probe.UnavailableCount, id);
-                AssertEx.Equal(expected.AttackEstablished ? 0 : 1, probe.DeniedCount, id);
-                AssertEx.Equal(expected.AttackEstablished ? 1 : 0, probe.UnexpectedSuccessCount, id);
+                AssertEx.Equal(expected.DeniedCount, probe.DeniedCount, id);
+                AssertEx.Equal(expected.UnexpectedSuccessCount, probe.UnexpectedSuccessCount, id);
                 AssertEx.Equal(expected.Status, result.Status, id);
                 AssertEx.Equal(expected.SafeCode, result.SafeCode, id);
                 AssertEx.Equal(expected.StageCleaned, result.StageCleaned, id);
                 AssertEx.False(result.AuthorizesDeployment, id);
-                AssertEx.Equal(1, harness.ArtifactTransport.SessionCount, id);
-                AssertEx.Equal(29, harness.ArtifactTransport.AcquireCount, id);
-                AssertEx.Equal(1, harness.ArtifactTransport.ReceiptCount, id);
+                AssertEx.Equal(expected.SessionCalls, harness.ArtifactTransport.SessionCount, id);
+                AssertEx.Equal(expected.ArtifactCalls, harness.ArtifactTransport.AcquireCount, id);
+                AssertEx.Equal(expected.ReceiptCalls, harness.ArtifactTransport.ReceiptCount, id);
                 AssertEx.Equal(expected.LicenseCalls, harness.LicenseTransport.CallCount, id);
                 AssertEx.Equal(expected.Writes, harness.WriteSink.CallCount, id);
                 AssertEx.Equal(expected.RandomGenerations, harness.CursorGenerator.CallCount, id);
                 AssertEx.Equal(expected.Previews, harness.WhatIf.CallCount, id);
-                AssertEx.Equal(harness.WhatIf.Results.Count, result.WhatIfCount, id);
+                AssertEx.Equal(expected.Previews, result.WhatIfCount, id);
                 AssertEx.Equal(expected.Approvals, harness.Approval.CallCount, id);
-                AssertEx.Equal(harness.Approval.Receipts.Count, result.ApprovalCount, id);
+                AssertEx.Equal(expected.Approvals, result.ApprovalCount, id);
                 AssertEx.Equal(expected.HandlerCalls, harness.Handler.CallCount, id);
                 AssertEx.Equal(expected.Recoveries, harness.Recovery.CallCount, id);
-                if (expected.AttackEstablished)
+                if (expected.Attack == RuntimeBridgeNativeStageAttack.FileSymbolicAlias && expected.AttackEstablished)
+                    probe.AssertForeignSymbolicAliasSurvives();
+                else if (expected.AttackEstablished)
                     AssertEx.True(probe.ForeignPath is not null && (File.Exists(probe.ForeignPath) || Directory.Exists(probe.ForeignPath)), id);
                 else
+                {
                     AssertEx.True(probe.ForeignPath is null, id);
+                    AssertEx.True(probe.ForeignTargetPath is null, id);
+                }
+                if (expected.Attack == RuntimeBridgeNativeStageAttack.FileSymbolicAlias && expected.StageCleaned)
+                    AssertEx.Equal(0, Directory.GetDirectories(harness.WorkspaceRoot, "pm365-synthetic-runtime-*", SearchOption.TopDirectoryOnly).Length, id);
             }
             finally
             {
-                var foreign = harness.NativeStageRaceProbe?.ForeignPath;
+                var probe = harness.NativeStageRaceProbe;
+                var foreign = probe?.ForeignPath;
+                if (probe?.ForeignTargetPath is not null) probe.CleanupForeignSymbolicAliasForTest();
                 harness.Dispose();
                 if (foreign is not null)
                 {
@@ -113,11 +134,12 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
 
     private static NativeStageExpected NativeCase(RuntimeBridgeNativeStageAttack attack, bool established, string status,
         string safeCode, bool stageCleaned, bool completed) => new(attack, established, status, safeCode, stageCleaned,
-            completed ? 1 : 0, completed ? 2 : 0, completed ? 1 : 0, completed ? 2 : 0, completed ? 2 : 0,
-            completed ? 1 : 0, 0);
+            established ? 0 : 1, established ? 1 : 0, 1, 29, 1, completed ? 1 : 0, completed ? 2 : 0,
+            completed ? 1 : 0, completed ? 2 : 0, completed ? 2 : 0, completed ? 1 : 0, 0);
 
     private sealed record NativeStageExpected(RuntimeBridgeNativeStageAttack Attack, bool AttackEstablished, string Status,
-        string SafeCode, bool StageCleaned, int LicenseCalls, int Writes, int RandomGenerations, int Previews,
+        string SafeCode, bool StageCleaned, int DeniedCount, int UnexpectedSuccessCount, int SessionCalls,
+        int ArtifactCalls, int ReceiptCalls, int LicenseCalls, int Writes, int RandomGenerations, int Previews,
         int Approvals, int HandlerCalls, int Recoveries);
 
     private static void NativeWindowsCancellationTableCoversEveryCreateBindAndCleanupBoundary()
