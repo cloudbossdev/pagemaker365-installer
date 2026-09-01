@@ -16,6 +16,11 @@ type RuntimeSecretReference = {
   keyVaultSecretName: string
 }
 
+type RuntimeApplicationSetting = {
+  name: string
+  value: string
+}
+
 @description('Dedicated PageMaker365 resource group name.')
 @minLength(1)
 param resourceGroupName string
@@ -79,6 +84,18 @@ param resourceNames ResourceNames
 @description('Secret-name-only App Service references. Values are never deployment parameters in this template.')
 param runtimeSecretReferences RuntimeSecretReference[]
 
+@description('Default-disabled package-0.7 runtime-configuration application gate.')
+param enableRuntimeConfigurationProjectionV2 bool = false
+
+@description('Exact validated projection-v2 API public settings.')
+param apiRuntimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+
+@description('Exact validated projection-v2 portal public settings.')
+param portalRuntimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+
+@description('Key-Vault-reference-only projection-v2 API protected settings.')
+param apiRuntimeConfigurationProtectedSettingReferences RuntimeApplicationSetting[] = []
+
 @description('Immutable PageMaker365 runtime release identifier.')
 @minLength(1)
 @maxLength(128)
@@ -127,6 +144,10 @@ module pageMaker365 'main.bicep' = {
     filePreviewAllowedFrameOrigins: filePreviewAllowedFrameOrigins
     resourceNames: resourceNames
     runtimeSecretReferences: runtimeSecretReferences
+    enableRuntimeConfigurationProjectionV2: enableRuntimeConfigurationProjectionV2
+    apiRuntimeConfigurationPublicSettings: apiRuntimeConfigurationPublicSettings
+    portalRuntimeConfigurationPublicSettings: portalRuntimeConfigurationPublicSettings
+    apiRuntimeConfigurationProtectedSettingReferences: apiRuntimeConfigurationProtectedSettingReferences
     runtimeReleaseId: runtimeReleaseId
     runtimeVersion: runtimeVersion
     deploymentExportId: deploymentExportId

@@ -213,6 +213,7 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
         AssertEx.Equal("0.5", new PrivateRuntimeDeliveryPackageService().ValidateJson(File.ReadAllText(Path.Combine(v05Directory, "customer-install-0.5.json")), LoadHistoricalTrust(v05Directory), ValidationTime).ContractVersion);
         AssertEx.Equal("0.6", new PrivateRuntimeDeliveryV06PackageService().ValidateJson(File.ReadAllText(Path.Combine(v06Directory, "customer-install-0.6.json")), LoadHistoricalTrust(v06Directory), ValidationTime).ContractVersion);
         AssertEx.Equal("0.7", fixture.Service.ValidateJson(fixture.PackageJson, fixture.Trust, ValidationTime).ContractVersion);
+        RuntimeConfigurationApplicationV2Tests.RunAll();
         return Task.CompletedTask;
     }
 

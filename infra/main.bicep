@@ -32,6 +32,11 @@ type RuntimeSecretReference = {
   keyVaultSecretName: string
 }
 
+type RuntimeApplicationSetting = {
+  name: string
+  value: string
+}
+
 @description('The PageMaker365 application name for this customer deployment.')
 @minLength(1)
 param appName string
@@ -90,6 +95,18 @@ param resourceNames ResourceNames
 
 @description('Secret-name-only App Service references. Values are provisioned separately through a secure ARM parameter.')
 param runtimeSecretReferences RuntimeSecretReference[]
+
+@description('Default-disabled package-0.7 runtime-configuration application gate.')
+param enableRuntimeConfigurationProjectionV2 bool = false
+
+@description('Exact validated projection-v2 API public settings.')
+param apiRuntimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+
+@description('Exact validated projection-v2 portal public settings.')
+param portalRuntimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+
+@description('Key-Vault-reference-only projection-v2 API protected settings.')
+param apiRuntimeConfigurationProtectedSettingReferences RuntimeApplicationSetting[] = []
 
 @description('Immutable PageMaker365 runtime release identifier.')
 @minLength(1)
@@ -198,6 +215,9 @@ module apiApp 'modules/api-app-service.bicep' = {
     keyVaultUri: keyVault.outputs.keyVaultUri
     keyVaultName: resourceNames.keyVaultName
     runtimeSecretReferences: runtimeSecretReferences
+    enableRuntimeConfigurationProjectionV2: enableRuntimeConfigurationProjectionV2
+    runtimeConfigurationPublicSettings: apiRuntimeConfigurationPublicSettings
+    runtimeConfigurationProtectedSettingReferences: apiRuntimeConfigurationProtectedSettingReferences
     customerTenantId: customerTenantId
     apiClientId: apiClientId
     portalOrigin: portalDefaultOrigin
@@ -219,6 +239,8 @@ module portalApp 'modules/frontend-app-service.bicep' = {
     applicationInsightsConnectionString: appInsights.outputs.connectionString
     apiUrl: apiApp.outputs.apiUrl
     runtimeReleaseId: runtimeReleaseId
+    enableRuntimeConfigurationProjectionV2: enableRuntimeConfigurationProjectionV2
+    runtimeConfigurationPublicSettings: portalRuntimeConfigurationPublicSettings
     customerTenantId: customerTenantId
     portalClientId: portalClientId
     apiClientId: apiClientId

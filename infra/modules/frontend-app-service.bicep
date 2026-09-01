@@ -67,6 +67,105 @@ param filePreviewAllowedFrameOrigins string
 @maxLength(128)
 param runtimeReleaseId string
 
+type RuntimeApplicationSetting = {
+  name: string
+  value: string
+}
+
+@description('Default-disabled package-0.7 runtime-configuration application gate.')
+param enableRuntimeConfigurationProjectionV2 bool = false
+
+@description('Exact validated projection-v2 portal public settings. Empty unless the application gate is enabled.')
+param runtimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+
+var projectionV2RuntimeAppSettings = runtimeConfigurationPublicSettings
+
+var legacyRuntimeAppSettings = [
+  {
+    name: 'NODE_ENV'
+    value: 'production'
+  }
+  {
+    name: 'WEB_API_BASE_URL'
+    value: apiUrl
+  }
+  {
+    name: 'WEB_ENTRA_CLIENT_ID'
+    value: portalClientId
+  }
+  {
+    name: 'WEB_ENTRA_TENANT_ID'
+    value: customerTenantId
+  }
+  {
+    name: 'WEB_ENTRA_AUTHORITY'
+    value: 'https://login.microsoftonline.com/${customerTenantId}'
+  }
+  {
+    name: 'WEB_API_SCOPE'
+    value: 'api://${apiClientId}/access_as_user'
+  }
+  {
+    name: 'WEB_RUNTIME_ENVIRONMENT'
+    value: runtimeEnvironment
+  }
+  {
+    name: 'WEB_PRODUCT_NAME'
+    value: 'PageMaker365'
+  }
+  {
+    name: 'WEB_PRODUCT_LOGO_URL'
+    value: '/branding/pagemaker365-logo.png'
+  }
+  {
+    name: 'WEB_CUSTOMER_DISPLAY_NAME'
+    value: customerDisplayName
+  }
+  {
+    name: 'WEB_CUSTOMER_SHORT_NAME'
+    value: customerShortName
+  }
+  {
+    name: 'WEB_ENABLE_WEB_PART_WORKBENCH'
+    value: 'false'
+  }
+  {
+    name: 'WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
+    value: filePreviewAllowedFrameOrigins
+  }
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: applicationInsightsConnectionString
+  }
+  {
+    name: 'PM365_RUNTIME_RELEASE_ID'
+    value: runtimeReleaseId
+  }
+  {
+    name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+    value: 'false'
+  }
+  {
+    name: 'ENABLE_ORYX_BUILD'
+    value: 'false'
+  }
+]
+
+var projectionV2PlatformAppSettings = [
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: applicationInsightsConnectionString
+  }
+  {
+    name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+    value: 'false'
+  }
+  {
+    name: 'ENABLE_ORYX_BUILD'
+    value: 'false'
+  }
+]
+
 resource frontendApp 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
@@ -87,76 +186,7 @@ resource frontendApp 'Microsoft.Web/sites@2023-12-01' = {
       appCommandLine: 'node .pm365/start-portal-runtime.mjs'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
-      appSettings: [
-        {
-          name: 'NODE_ENV'
-          value: 'production'
-        }
-        {
-          name: 'WEB_API_BASE_URL'
-          value: apiUrl
-        }
-        {
-          name: 'WEB_ENTRA_CLIENT_ID'
-          value: portalClientId
-        }
-        {
-          name: 'WEB_ENTRA_TENANT_ID'
-          value: customerTenantId
-        }
-        {
-          name: 'WEB_ENTRA_AUTHORITY'
-          value: 'https://login.microsoftonline.com/${customerTenantId}'
-        }
-        {
-          name: 'WEB_API_SCOPE'
-          value: 'api://${apiClientId}/access_as_user'
-        }
-        {
-          name: 'WEB_RUNTIME_ENVIRONMENT'
-          value: runtimeEnvironment
-        }
-        {
-          name: 'WEB_PRODUCT_NAME'
-          value: 'PageMaker365'
-        }
-        {
-          name: 'WEB_PRODUCT_LOGO_URL'
-          value: '/branding/pagemaker365-logo.png'
-        }
-        {
-          name: 'WEB_CUSTOMER_DISPLAY_NAME'
-          value: customerDisplayName
-        }
-        {
-          name: 'WEB_CUSTOMER_SHORT_NAME'
-          value: customerShortName
-        }
-        {
-          name: 'WEB_ENABLE_WEB_PART_WORKBENCH'
-          value: 'false'
-        }
-        {
-          name: 'WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
-          value: filePreviewAllowedFrameOrigins
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: applicationInsightsConnectionString
-        }
-        {
-          name: 'PM365_RUNTIME_RELEASE_ID'
-          value: runtimeReleaseId
-        }
-        {
-          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'false'
-        }
-        {
-          name: 'ENABLE_ORYX_BUILD'
-          value: 'false'
-        }
-      ]
+      appSettings: enableRuntimeConfigurationProjectionV2 ? concat(projectionV2RuntimeAppSettings, projectionV2PlatformAppSettings) : legacyRuntimeAppSettings
     }
   }
 }

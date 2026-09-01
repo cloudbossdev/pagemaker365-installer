@@ -124,4 +124,154 @@ try {
     Remove-Item -LiteralPath $tamperedConfigPath -Force -ErrorAction SilentlyContinue
 }
 
+$v07FixturePath = Join-Path $repoRoot 'tests\PageMaker365.Installer.Engine.Tests\Fixtures\private-runtime-delivery-v3\customer-install-0.7.json'
+$v07Package = Get-Content -LiteralPath $v07FixturePath -Raw | ConvertFrom-Json -Depth 40
+$projection = $v07Package.runtimeConfiguration
+
+function ConvertTo-ApplicationSetting {
+    param([object] $Setting)
+    $value = if ($Setting.value -is [System.Array]) {
+        @($Setting.value) -join ','
+    } elseif ($Setting.value -is [bool]) {
+        ([string]$Setting.value).ToLowerInvariant()
+    } else {
+        [string]$Setting.value
+    }
+    [ordered]@{ name = [string]$Setting.name; value = $value }
+}
+
+$apiPublic = @($projection.publicSettings | Where-Object targetApp -eq 'api' | ForEach-Object { ConvertTo-ApplicationSetting $_ })
+$portalPublic = @($projection.publicSettings | Where-Object targetApp -eq 'portal' | ForEach-Object { ConvertTo-ApplicationSetting $_ })
+$vaultOrigin = [string]($projection.publicSettings | Where-Object name -eq 'API_AZURE_KEY_VAULT_URL').value
+$protectedReferences = @(
+    $projection.protectedSettings | ForEach-Object {
+        $uri = "${vaultOrigin}/secrets/$([string]$_.reference.secretName)"
+        if ([string]$_.mode -ceq 'customer-azure-key-vault-reference') {
+            $uri += "/$([string]$_.reference.secretVersion)"
+        }
+        [ordered]@{
+            name = [string]$_.name
+            mode = [string]$_.mode
+            keyVaultReference = "@Microsoft.KeyVault(SecretUri=$uri)"
+        }
+    }
+)
+$license = $projection.protectedSettings | Where-Object name -eq 'API_LICENSE_SIGNED_PAYLOAD'
+$cursor = $projection.protectedSettings | Where-Object name -eq 'API_IMAGE_ASSET_CURSOR_SECRET'
+$rollbackTargets = @(
+    $apiPublic | ForEach-Object { "api:$($_.name)" }
+    $portalPublic | ForEach-Object { "portal:$($_.name)" }
+    $protectedReferences | ForEach-Object { "api:$($_.name)" }
+)
+$applicationPlan = [ordered]@{
+    contractVersion = 'pagemaker365.runtime-configuration-application.v2'
+    packageHash = [string]$v07Package.controlPlane.packageHash
+    projectionSha256 = [string]$projection.projectionSha256
+    binding = [ordered]@{
+        customerId = [string]$projection.binding.customerId
+        installationId = [string]$projection.binding.installationId
+        environmentId = [string]$projection.binding.environmentId
+        tenantId = [string]$projection.binding.tenantId
+        azureSubscriptionId = [string]$projection.binding.azureSubscriptionId
+        deploymentExportId = [string]$projection.binding.deploymentExportId
+        runtimeReleaseId = [string]$projection.binding.runtimeReleaseId
+        runtimeVersion = [string]$projection.binding.runtimeVersion
+        manifestSha256 = [string]$projection.binding.manifestSha256
+    }
+    apiPublicSettings = $apiPublic
+    portalPublicSettings = $portalPublic
+    apiProtectedSettingReferences = $protectedReferences
+    licenseAcquisition = [ordered]@{
+        contractVersion = [string]$license.reference.contractVersion
+        opaqueReference = [string]$license.reference.opaqueReference
+        vaultResourceId = [string]$license.reference.vaultResourceId
+        secretName = [string]$license.reference.secretName
+    }
+    cursorGeneration = [ordered]@{
+        generationAlgorithm = [string]$cursor.reference.generationAlgorithm
+        minimumEntropyBytes = [int]$cursor.reference.minimumEntropyBytes
+        vaultResourceId = [string]$cursor.reference.vaultResourceId
+        secretName = [string]$cursor.reference.secretName
+    }
+    rollback = [ordered]@{
+        strategy = 'restore-previous-app-setting-state'
+        targetQualifiedSettings = $rollbackTargets
+        containsValues = $false
+    }
+}
+$planJson = ($applicationPlan | ConvertTo-Json -Depth 40 -Compress) + "`n"
+$planHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData(
+    [System.Text.UTF8Encoding]::new($false, $true).GetBytes($planJson))).ToLowerInvariant()
+
+$script:applicationProcessStarts = 0
+$script:applicationCloudCalls = 0
+function Start-Process { $script:applicationProcessStarts++; throw 'Application input generation started a process.' }
+function New-AzResourceGroupDeployment { $script:applicationCloudCalls++; throw 'Application input generation invoked Azure.' }
+
+try {
+    & (Get-Module PageMaker365.Install) {
+        param($Json, $Hash)
+        New-PM365RuntimeConfigurationV2ApplicationInput -PlanJson $Json -ExpectedPlanSha256 $Hash
+    } $planJson $planHash | Out-Null
+    throw 'Projection-v2 application input was enabled without explicit approval.'
+} catch [System.IO.InvalidDataException] {
+    Assert-True ($_.Exception.Message -eq 'runtime_configuration_application_v2_disabled') 'Default-disabled application must return the exact denial.'
+}
+
+$applicationInput = & (Get-Module PageMaker365.Install) {
+    param($Json, $Hash)
+    New-PM365RuntimeConfigurationV2ApplicationInput `
+        -PlanJson $Json `
+        -ExpectedPlanSha256 $Hash `
+        -EnableRuntimeConfigurationProjectionV2
+} $planJson $planHash
+Assert-True ($applicationInput.enableRuntimeConfigurationProjectionV2) 'Application input must carry the explicit enabled gate.'
+Assert-True (@($applicationInput.apiRuntimeConfigurationPublicSettings).Count -eq 31) 'Application input must contain exactly 31 API public settings.'
+Assert-True (@($applicationInput.portalRuntimeConfigurationPublicSettings).Count -eq 11) 'Application input must contain exactly 11 portal public settings.'
+Assert-True (@($applicationInput.apiRuntimeConfigurationProtectedSettingReferences).Count -eq 4) 'Application input must contain exactly four protected Key Vault references.'
+Assert-True (-not (($applicationInput | ConvertTo-Json -Depth 20) -match 'psr_')) 'Opaque license references must not enter Bicep parameters.'
+Assert-True ($script:applicationProcessStarts -eq 0 -and $script:applicationCloudCalls -eq 0) 'Application input generation must remain offline.'
+
+try {
+    & (Get-Module PageMaker365.Install) {
+        param($Json, $Hash)
+        New-PM365RuntimeConfigurationV2ApplicationInput -PlanJson ($Json.Replace('Customer', 'Tampered', [StringComparison]::Ordinal)) -ExpectedPlanSha256 $Hash -EnableRuntimeConfigurationProjectionV2
+    } $planJson $planHash | Out-Null
+    throw 'Application input accepted bytes that do not match the trusted plan digest.'
+} catch [System.IO.InvalidDataException] {
+    Assert-True ($_.Exception.Message -eq 'runtime_configuration_application_v2_plan_hash') 'Tampered application bytes must fail at the plan hash.'
+}
+
+$expandedPlan = $planJson | ConvertFrom-Json -Depth 40
+$expandedPlan | Add-Member -NotePropertyName unknownDeploymentParameter -NotePropertyValue 'denied'
+$expandedJson = ($expandedPlan | ConvertTo-Json -Depth 40 -Compress) + "`n"
+$expandedHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData(
+    [System.Text.UTF8Encoding]::new($false, $true).GetBytes($expandedJson))).ToLowerInvariant()
+try {
+    & (Get-Module PageMaker365.Install) {
+        param($Json, $Hash)
+        New-PM365RuntimeConfigurationV2ApplicationInput -PlanJson $Json -ExpectedPlanSha256 $Hash -EnableRuntimeConfigurationProjectionV2
+    } $expandedJson $expandedHash | Out-Null
+    throw 'Application input accepted an unknown deployment parameter.'
+} catch [System.IO.InvalidDataException] {
+    Assert-True ($_.Exception.Message -eq 'runtime_configuration_application_v2_plan_shape') 'Unknown deployment parameters must fail closed.'
+}
+
+$mainTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\main.bicep') -Raw
+$subscriptionTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\subscription.bicep') -Raw
+$apiTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\api-app-service.bicep') -Raw
+$portalTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\frontend-app-service.bicep') -Raw
+foreach ($template in @($mainTemplate, $subscriptionTemplate, $apiTemplate, $portalTemplate)) {
+    Assert-True ($template.Contains('param enableRuntimeConfigurationProjectionV2 bool = false')) 'Every Bicep application boundary must default the v2 gate to false.'
+    Assert-True (-not $template.Contains('opaqueReference')) 'Bicep templates must not receive the protected license acquisition reference.'
+}
+Assert-True ($apiTemplate.Contains('enableRuntimeConfigurationProjectionV2 ? concat(projectionV2RuntimeAppSettings, projectionV2PlatformAppSettings) : legacyRuntimeAppSettings')) 'API Bicep must preserve the exact legacy branch when disabled.'
+Assert-True ($portalTemplate.Contains('enableRuntimeConfigurationProjectionV2 ? concat(projectionV2RuntimeAppSettings, projectionV2PlatformAppSettings) : legacyRuntimeAppSettings')) 'Portal Bicep must preserve the exact legacy branch when disabled.'
+Assert-True (-not $apiTemplate.Contains('API_WEBPART_TEST_ARTIFACTS_ENABLED')) 'API Bicep must not represent production-forbidden settings.'
+Assert-True ([regex]::Matches($portalTemplate, "name: 'WEB_ENABLE_WEB_PART_WORKBENCH'").Count -eq 1) 'Optional Workbench configuration must remain legacy-only.'
+$projectionPlatformStart = $portalTemplate.IndexOf('var projectionV2PlatformAppSettings', [StringComparison]::Ordinal)
+$portalResourceStart = $portalTemplate.IndexOf('resource frontendApp', [StringComparison]::Ordinal)
+$projectionPlatform = $portalTemplate.Substring($projectionPlatformStart, $portalResourceStart - $projectionPlatformStart)
+Assert-True (-not $projectionPlatform.Contains("name: 'PM365_RUNTIME_RELEASE_ID'", [StringComparison]::Ordinal)) 'Projection v2 must not invent a portal runtime-release setting absent from the catalog.'
+
 Write-Host 'Runtime configuration reference contract tests passed.'

@@ -34,8 +34,22 @@ type RuntimeSecretReference = {
   keyVaultSecretName: string
 }
 
+type RuntimeApplicationSetting = {
+  name: string
+  value: string
+}
+
 @description('Secret-name-only runtime App Service references.')
 param runtimeSecretReferences RuntimeSecretReference[]
+
+@description('Default-disabled package-0.7 runtime-configuration application gate.')
+param enableRuntimeConfigurationProjectionV2 bool = false
+
+@description('Exact validated projection-v2 API public settings. Empty unless the application gate is enabled.')
+param runtimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+
+@description('Key-Vault-reference-only projection-v2 API protected settings. Empty unless the application gate is enabled.')
+param runtimeConfigurationProtectedSettingReferences RuntimeApplicationSetting[] = []
 
 @description('Customer Entra tenant ID used for token validation and Microsoft Graph OBO.')
 @minLength(36)
@@ -75,6 +89,90 @@ var runtimeSecretAppSettings = [for secret in runtimeSecretReferences: {
   value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=${secret.keyVaultSecretName})'
 }]
 
+var legacyRuntimeAppSettings = concat([
+  {
+    name: 'NODE_ENV'
+    value: 'production'
+  }
+  {
+    name: 'API_ENV'
+    value: 'production'
+  }
+  {
+    name: 'API_HOST'
+    value: '0.0.0.0'
+  }
+  {
+    name: 'API_CORS_ORIGIN'
+    value: portalOrigin
+  }
+  {
+    name: 'API_ENTRA_TENANT_ID'
+    value: customerTenantId
+  }
+  {
+    name: 'API_ENTRA_AUDIENCE'
+    value: 'api://${apiClientId}'
+  }
+  {
+    name: 'API_ENTRA_CLIENT_ID'
+    value: apiClientId
+  }
+  {
+    name: 'API_AZURE_KEY_VAULT_URL'
+    value: keyVaultUri
+  }
+  {
+    name: 'API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
+    value: filePreviewAllowedFrameOrigins
+  }
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: applicationInsightsConnectionString
+  }
+  {
+    name: 'PM365_PRODUCT'
+    value: 'PageMaker365'
+  }
+  {
+    name: 'PM365_DEPLOYMENT_EXPORT_ID'
+    value: deploymentExportId
+  }
+  {
+    name: 'PM365_RUNTIME_RELEASE_ID'
+    value: runtimeReleaseId
+  }
+  {
+    name: 'PM365_RUNTIME_VERSION'
+    value: runtimeVersion
+  }
+  {
+    name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+    value: 'false'
+  }
+  {
+    name: 'ENABLE_ORYX_BUILD'
+    value: 'false'
+  }
+], runtimeSecretAppSettings)
+
+var projectionV2RuntimeAppSettings = concat(runtimeConfigurationPublicSettings, runtimeConfigurationProtectedSettingReferences)
+
+var projectionV2PlatformAppSettings = [
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: applicationInsightsConnectionString
+  }
+  {
+    name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+    value: 'false'
+  }
+  {
+    name: 'ENABLE_ORYX_BUILD'
+    value: 'false'
+  }
+]
+
 resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
@@ -96,72 +194,7 @@ resource apiApp 'Microsoft.Web/sites@2023-12-01' = {
       appCommandLine: 'node dist/index.js'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
-      appSettings: concat([
-        {
-          name: 'NODE_ENV'
-          value: 'production'
-        }
-        {
-          name: 'API_ENV'
-          value: 'production'
-        }
-        {
-          name: 'API_HOST'
-          value: '0.0.0.0'
-        }
-        {
-          name: 'API_CORS_ORIGIN'
-          value: portalOrigin
-        }
-        {
-          name: 'API_ENTRA_TENANT_ID'
-          value: customerTenantId
-        }
-        {
-          name: 'API_ENTRA_AUDIENCE'
-          value: 'api://${apiClientId}'
-        }
-        {
-          name: 'API_ENTRA_CLIENT_ID'
-          value: apiClientId
-        }
-        {
-          name: 'API_AZURE_KEY_VAULT_URL'
-          value: keyVaultUri
-        }
-        {
-          name: 'API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS'
-          value: filePreviewAllowedFrameOrigins
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: applicationInsightsConnectionString
-        }
-        {
-          name: 'PM365_PRODUCT'
-          value: 'PageMaker365'
-        }
-        {
-          name: 'PM365_DEPLOYMENT_EXPORT_ID'
-          value: deploymentExportId
-        }
-        {
-          name: 'PM365_RUNTIME_RELEASE_ID'
-          value: runtimeReleaseId
-        }
-        {
-          name: 'PM365_RUNTIME_VERSION'
-          value: runtimeVersion
-        }
-        {
-          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'false'
-        }
-        {
-          name: 'ENABLE_ORYX_BUILD'
-          value: 'false'
-        }
-      ], runtimeSecretAppSettings)
+      appSettings: enableRuntimeConfigurationProjectionV2 ? concat(projectionV2RuntimeAppSettings, projectionV2PlatformAppSettings) : legacyRuntimeAppSettings
     }
   }
 }
