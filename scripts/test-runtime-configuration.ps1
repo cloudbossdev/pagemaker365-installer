@@ -124,4 +124,108 @@ try {
     Remove-Item -LiteralPath $tamperedConfigPath -Force -ErrorAction SilentlyContinue
 }
 
+$v07FixturePath = Join-Path $repoRoot 'tests\PageMaker365.Installer.Engine.Tests\Fixtures\private-runtime-delivery-v3\customer-install-0.7.json'
+$fixtureDirectory = Split-Path -Parent $v07FixturePath
+$canonicalPackageJson = Get-Content -LiteralPath $v07FixturePath -Raw
+$catalogJson = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'runtime-configuration.catalog.json') -Raw
+$catalogSchemaJson = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'runtime-configuration.schema.json') -Raw
+$publicKeyPem = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'signing-public-key.pem') -Raw
+$trustRecord = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'signing-trust.json') -Raw | ConvertFrom-Json
+$validationTime = [DateTimeOffset]::new(2026, 8, 31, 12, 0, 0, [TimeSpan]::Zero)
+$engineOutput = Join-Path $repoRoot 'tests\PageMaker365.Installer.Engine.Tests\bin\Debug\net8.0'
+foreach ($assemblyName in @('BouncyCastle.Cryptography.dll', 'PageMaker365.Installer.Engine.dll')) {
+    $assemblyPath = Join-Path $engineOutput $assemblyName
+    Assert-True (Test-Path -LiteralPath $assemblyPath) "Runtime-configuration test requires built engine assembly: $assemblyName"
+    [void][Reflection.Assembly]::LoadFrom($assemblyPath)
+}
+
+$script:applicationProcessStarts = 0
+$script:applicationCloudCalls = 0
+function Start-Process { $script:applicationProcessStarts++; throw 'Application input generation started a process.' }
+function New-AzResourceGroupDeployment { $script:applicationCloudCalls++; throw 'Application input generation invoked Azure.' }
+
+try {
+    & (Get-Module PageMaker365.Install) {
+        param($Package, $KeyId, $PublicKey, $At, $Catalog, $Schema)
+        New-PM365RuntimeConfigurationV2ApplicationInput -CanonicalPackageJson $Package -TrustedSigningKeyId $KeyId -TrustedSigningPublicKeyPem $PublicKey -ValidationTime $At -RuntimeConfigurationCatalogJson $Catalog -RuntimeConfigurationCatalogSchemaJson $Schema
+    } $canonicalPackageJson $trustRecord.keyId $publicKeyPem $validationTime $catalogJson $catalogSchemaJson | Out-Null
+    throw 'Projection-v2 application input was enabled without explicit approval.'
+} catch [System.IO.InvalidDataException] {
+    Assert-True ($_.Exception.Message -eq 'runtime_configuration_application_v2_disabled') 'Default-disabled application must return the exact denial.'
+}
+
+$applicationInput = & (Get-Module PageMaker365.Install) {
+    param($Package, $KeyId, $PublicKey, $At, $Catalog, $Schema)
+    New-PM365RuntimeConfigurationV2ApplicationInput -CanonicalPackageJson $Package -TrustedSigningKeyId $KeyId -TrustedSigningPublicKeyPem $PublicKey -ValidationTime $At -RuntimeConfigurationCatalogJson $Catalog -RuntimeConfigurationCatalogSchemaJson $Schema -EnableRuntimeConfigurationProjectionV2
+} $canonicalPackageJson $trustRecord.keyId $publicKeyPem $validationTime $catalogJson $catalogSchemaJson
+Assert-True ($applicationInput.enableRuntimeConfigurationProjectionV2) 'Application input must carry the explicit enabled gate.'
+Assert-True (@($applicationInput.apiRuntimeConfiguration.Keys).Count -eq 31) 'Application input must contain exactly 31 closed API public settings.'
+Assert-True (@($applicationInput.portalRuntimeConfiguration.Keys).Count -eq 11) 'Application input must contain exactly 11 closed portal public settings.'
+Assert-True (@($applicationInput.apiRuntimeConfigurationVersionedReferences.Keys).Count -eq 2) 'Application input must contain only two already-versioned references.'
+Assert-True ($applicationInput.apiRuntimeConfiguration.API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST -is [bool]) 'Boolean values must remain typed through the PowerShell boundary.'
+Assert-True ($applicationInput.apiRuntimeConfiguration.API_LICENSE_VALIDATION_GRACE_HOURS -is [int]) 'Integer values must remain typed through the PowerShell boundary.'
+Assert-True ($applicationInput.apiRuntimeConfiguration.API_CORS_ORIGIN -is [string[]]) 'String-list values must remain typed through the PowerShell boundary.'
+Assert-True (-not (($applicationInput | ConvertTo-Json -Depth 20) -match 'psr_')) 'Opaque license references must not enter Bicep parameters.'
+Assert-True (-not (($applicationInput | ConvertTo-Json -Depth 20) -match 'license-payload|image-cursor-secret')) 'Pending license and cursor destinations must not become premature Bicep app settings.'
+Assert-True ($script:applicationProcessStarts -eq 0 -and $script:applicationCloudCalls -eq 0) 'Application input generation must remain offline.'
+
+try {
+    & (Get-Module PageMaker365.Install) {
+        param($Package, $KeyId, $PublicKey, $At, $Catalog, $Schema)
+        New-PM365RuntimeConfigurationV2ApplicationInput -CanonicalPackageJson ($Package.Replace('"product": "PageMaker365"', '"product": "Tampered"', [StringComparison]::Ordinal)) -TrustedSigningKeyId $KeyId -TrustedSigningPublicKeyPem $PublicKey -ValidationTime $At -RuntimeConfigurationCatalogJson $Catalog -RuntimeConfigurationCatalogSchemaJson $Schema -EnableRuntimeConfigurationProjectionV2
+    } $canonicalPackageJson $trustRecord.keyId $publicKeyPem $validationTime $catalogJson $catalogSchemaJson | Out-Null
+    throw 'Application input accepted altered package bytes.'
+} catch [System.IO.InvalidDataException] {
+    Assert-True ($_.Exception.Message -match 'customer_install_v07_|runtime_configuration_') 'Tampered package bytes must fail inside owned validation.'
+} catch {
+    Assert-True ($_.Exception.ToString() -match 'customer_install_v07_|runtime_configuration_') "Tampered package bytes must fail inside owned validation: $($_.Exception)"
+}
+
+$wrongBooleanPackage = $canonicalPackageJson.Replace('"value": true', '"value": "true"', [StringComparison]::Ordinal)
+try {
+    & (Get-Module PageMaker365.Install) {
+        param($Package, $KeyId, $PublicKey, $At, $Catalog, $Schema)
+        New-PM365RuntimeConfigurationV2ApplicationInput -CanonicalPackageJson $Package -TrustedSigningKeyId $KeyId -TrustedSigningPublicKeyPem $PublicKey -ValidationTime $At -RuntimeConfigurationCatalogJson $Catalog -RuntimeConfigurationCatalogSchemaJson $Schema -EnableRuntimeConfigurationProjectionV2
+    } $wrongBooleanPackage $trustRecord.keyId $publicKeyPem $validationTime $catalogJson $catalogSchemaJson | Out-Null
+    throw 'Application input string-converted a boolean value.'
+} catch [System.IO.InvalidDataException] {
+    Assert-True ($_.Exception.Message.Contains('runtime_configuration_projection_v2_value_type', [StringComparison]::Ordinal)) 'Wrong-type-but-string-convertible values must fail before conversion.'
+} catch {
+    Assert-True ($_.Exception.ToString().Contains('runtime_configuration_projection_v2_value_type', [StringComparison]::Ordinal)) 'Wrong-type-but-string-convertible values must fail before conversion.'
+}
+
+$mainTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\main.bicep') -Raw
+$subscriptionTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\subscription.bicep') -Raw
+$apiTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\api-app-service.bicep') -Raw
+$portalTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'infra\modules\frontend-app-service.bicep') -Raw
+foreach ($template in @($mainTemplate, $subscriptionTemplate, $apiTemplate, $portalTemplate)) {
+    Assert-True ($template.Contains('param enableRuntimeConfigurationProjectionV2 bool = false')) 'Every Bicep application boundary must default the v2 gate to false.'
+    Assert-True (-not $template.Contains('opaqueReference')) 'Bicep templates must not receive the protected license acquisition reference.'
+    Assert-True (-not $template.Contains('RuntimeApplicationSetting')) 'Bicep must not expose generic caller-defined name/value arrays.'
+}
+Assert-True ($apiTemplate.Contains('enableRuntimeConfigurationProjectionV2 ? concat(projectionV2RuntimeAppSettings, projectionV2PlatformAppSettings) : legacyRuntimeAppSettings')) 'API Bicep must preserve the exact legacy branch when disabled.'
+Assert-True ($portalTemplate.Contains('enableRuntimeConfigurationProjectionV2 ? concat(projectionV2RuntimeAppSettings, projectionV2PlatformAppSettings) : legacyRuntimeAppSettings')) 'Portal Bicep must preserve the exact legacy branch when disabled.'
+Assert-True ($apiTemplate.Contains('type ApiRuntimeConfigurationV2 = {') -and $apiTemplate.Contains('API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST: bool') -and $apiTemplate.Contains('API_LICENSE_VALIDATION_GRACE_HOURS: int')) 'API Bicep must retain value types until fixed app-setting construction.'
+Assert-True ($portalTemplate.Contains('type PortalRuntimeConfigurationV2 = {') -and $portalTemplate.Contains('WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS: string[]')) 'Portal Bicep must use a sealed typed contract.'
+$apiProjectionStart = $apiTemplate.IndexOf('var projectionV2RuntimeAppSettings', [StringComparison]::Ordinal)
+$apiProjectionEnd = $apiTemplate.IndexOf('var projectionV2PlatformAppSettings', [StringComparison]::Ordinal)
+$apiProjection = $apiTemplate.Substring($apiProjectionStart, $apiProjectionEnd - $apiProjectionStart)
+$apiProjectionNames = @([regex]::Matches($apiProjection, "\{ name: '([A-Z0-9_]+)'", [System.Text.RegularExpressions.RegexOptions]::CultureInvariant) | ForEach-Object { $_.Groups[1].Value })
+$expectedApiProjectionNames = @($applicationInput.apiRuntimeConfiguration.Keys) + @($applicationInput.apiRuntimeConfigurationVersionedReferences.Keys)
+Assert-True ($apiProjectionNames.Count -eq 33 -and -not (Compare-Object $expectedApiProjectionNames $apiProjectionNames -SyncWindow 0)) 'API projection must construct the parser-authorized 31+2 settings in exact order.'
+$portalProjectionStart = $portalTemplate.IndexOf('var projectionV2RuntimeAppSettings', [StringComparison]::Ordinal)
+$portalProjectionEnd = $portalTemplate.IndexOf('var legacyRuntimeAppSettings', [StringComparison]::Ordinal)
+$portalProjection = $portalTemplate.Substring($portalProjectionStart, $portalProjectionEnd - $portalProjectionStart)
+$portalProjectionNames = @([regex]::Matches($portalProjection, "\{ name: '(WEB_[A-Z0-9_]+)'", [System.Text.RegularExpressions.RegexOptions]::CultureInvariant) | ForEach-Object { $_.Groups[1].Value })
+Assert-True ($portalProjectionNames.Count -eq 11 -and -not (Compare-Object @($applicationInput.portalRuntimeConfiguration.Keys) $portalProjectionNames -SyncWindow 0)) 'Portal projection must construct the parser-authorized 11 settings in exact order.'
+foreach ($deniedName in @('PORT', 'API_CONNECTOR_ENTITLEMENTS_SYNC_URL', 'API_WEB_PART_ENTITLEMENTS_SYNC_URL', 'API_WEBPART_TEST_ARTIFACTS_ENABLED', 'WEB_ENABLE_WEB_PART_WORKBENCH')) {
+    Assert-True ($deniedName -notin $apiProjectionNames -and $deniedName -notin $portalProjectionNames) "Projection Bicep must not represent omitted, conditional, optional, or forbidden setting $deniedName."
+}
+Assert-True (-not $apiTemplate.Contains('API_WEBPART_TEST_ARTIFACTS_ENABLED')) 'API Bicep must not represent production-forbidden settings.'
+Assert-True ([regex]::Matches($portalTemplate, "name: 'WEB_ENABLE_WEB_PART_WORKBENCH'").Count -eq 1) 'Optional Workbench configuration must remain legacy-only.'
+$projectionPlatformStart = $portalTemplate.IndexOf('var projectionV2PlatformAppSettings', [StringComparison]::Ordinal)
+$portalResourceStart = $portalTemplate.IndexOf('resource frontendApp', [StringComparison]::Ordinal)
+$projectionPlatform = $portalTemplate.Substring($projectionPlatformStart, $portalResourceStart - $projectionPlatformStart)
+Assert-True (-not $projectionPlatform.Contains("name: 'PM365_RUNTIME_RELEASE_ID'", [StringComparison]::Ordinal)) 'Projection v2 must not invent a portal runtime-release setting absent from the catalog.'
+
 Write-Host 'Runtime configuration reference contract tests passed.'
