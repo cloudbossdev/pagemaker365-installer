@@ -215,6 +215,7 @@ internal static class PrivateRuntimeDeliveryV07FixtureTests
         AssertEx.Equal("0.7", fixture.Service.ValidateJson(fixture.PackageJson, fixture.Trust, ValidationTime).ContractVersion);
         RuntimeConfigurationApplicationV2Tests.RunAll();
         PrivateRuntimeV07CrossRepositoryRehearsalFixtureTests.RunAll();
+        RuntimeDeploymentRecoveryBridgeTests.RunAll();
         return Task.CompletedTask;
     }
 

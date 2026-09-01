@@ -150,6 +150,64 @@ public sealed class RuntimeConfigurationApplicationV2Service
         }
     }
 
+    internal RuntimeConfigurationFinalizedDeploymentInputV2 FinalizeDeploymentInput(
+        string canonicalPackageJson,
+        RuntimeBridgeProtectedWriteReceipt licenseReceipt,
+        RuntimeBridgeProtectedWriteReceipt cursorReceipt,
+        bool enabled = false)
+    {
+        if (!enabled) Fail("runtime_configuration_finalization_v2_disabled");
+        ArgumentNullException.ThrowIfNull(licenseReceipt);
+        ArgumentNullException.ThrowIfNull(cursorReceipt);
+
+        var authorized = Authorize(canonicalPackageJson);
+        var preliminary = CreateDeploymentInput(canonicalPackageJson, enabled: true);
+        ValidateFinalReceipt(authorized.Package, authorized.License, licenseReceipt,
+            "API_LICENSE_SIGNED_PAYLOAD", "control-plane-protected-setting-delivery");
+        ValidateFinalReceipt(authorized.Package, authorized.Cursor, cursorReceipt,
+            "API_IMAGE_ASSET_CURSOR_SECRET", "installer-generated-key-vault-secret");
+        if (licenseReceipt.ReceiptId == cursorReceipt.ReceiptId ||
+            licenseReceipt.KeyVaultReference == cursorReceipt.KeyVaultReference)
+            Fail("runtime_configuration_finalization_v2_receipt_reuse");
+
+        var references = preliminary.ApiVersionedProtectedSettingReferences.Concat(
+        [
+            new RuntimeConfigurationApplicationProtectedReferenceV2
+            {
+                Name = licenseReceipt.Name,
+                Mode = licenseReceipt.Mode,
+                KeyVaultReference = licenseReceipt.KeyVaultReference
+            },
+            new RuntimeConfigurationApplicationProtectedReferenceV2
+            {
+                Name = cursorReceipt.Name,
+                Mode = cursorReceipt.Mode,
+                KeyVaultReference = cursorReceipt.KeyVaultReference
+            }
+        ]).ToArray();
+        var final = new RuntimeConfigurationFinalizedDeploymentInputV2
+        {
+            PackageHash = preliminary.PackageHash,
+            ProjectionSha256 = preliminary.ProjectionSha256,
+            Binding = preliminary.Binding,
+            ApiPublicSettings = preliminary.ApiPublicSettings,
+            PortalPublicSettings = preliminary.PortalPublicSettings,
+            ApiVersionedProtectedSettingReferences = references
+        };
+        var canonical = FormatCanonicalFinalInput(final);
+        return new RuntimeConfigurationFinalizedDeploymentInputV2
+        {
+            PackageHash = final.PackageHash,
+            ProjectionSha256 = final.ProjectionSha256,
+            Binding = final.Binding,
+            ApiPublicSettings = final.ApiPublicSettings,
+            PortalPublicSettings = final.PortalPublicSettings,
+            ApiVersionedProtectedSettingReferences = final.ApiVersionedProtectedSettingReferences,
+            CanonicalJson = canonical,
+            InputSha256 = Sha256(Encoding.UTF8.GetBytes(canonical))
+        };
+    }
+
     private AuthorizedProjection Authorize(string canonicalPackageJson)
     {
         var package = packageService.ValidateJson(canonicalPackageJson, trust, validationTime);
@@ -176,6 +234,35 @@ public sealed class RuntimeConfigurationApplicationV2Service
         RuntimeVersion = package.RuntimeVersion,
         ManifestSha256 = package.ManifestSha256
     };
+
+    private static void ValidateFinalReceipt(
+        PrivateRuntimeDeliveryPackageV07 package,
+        object pending,
+        RuntimeBridgeProtectedWriteReceipt receipt,
+        string expectedName,
+        string expectedMode)
+    {
+        var destination = pending switch
+        {
+            PendingLicenseDescriptor license => (license.VaultResourceId, license.SecretName),
+            PendingCursorDescriptor cursor => (cursor.VaultResourceId, cursor.SecretName),
+            _ => throw new InvalidDataException("runtime_configuration_finalization_v2_pending")
+        };
+        if (receipt.Name != expectedName || receipt.Mode != expectedMode ||
+            receipt.VaultResourceId != destination.Item1 || receipt.SecretName != destination.Item2 ||
+            receipt.PackageHash != package.PackageHash || receipt.Outcome != "written" || receipt.WriteCount != 1 ||
+            !Regex.IsMatch(receipt.ReceiptId, "^rwr_[A-Za-z0-9_-]{16,96}$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(receipt.SecretVersion, "^[A-Za-z0-9]{16,64}$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(receipt.ContentSha256, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) ||
+            string.IsNullOrWhiteSpace(receipt.ApprovalDigest))
+            Fail("runtime_configuration_finalization_v2_receipt");
+
+        var vaultOrigin = package.RuntimeConfiguration.PublicSettings
+            .Single(item => item.Name == "API_AZURE_KEY_VAULT_URL").Value.GetString()!.TrimEnd('/');
+        var expectedReference = $"@Microsoft.KeyVault(SecretUri={vaultOrigin}/secrets/{receipt.SecretName}/{receipt.SecretVersion})";
+        if (!string.Equals(receipt.KeyVaultReference, expectedReference, StringComparison.Ordinal))
+            Fail("runtime_configuration_finalization_v2_reference");
+    }
 
     private static void AssertTrustedProjection(PrivateRuntimeDeliveryPackageV07 package, RuntimeConfigurationProjectionV2 projection)
     {
@@ -311,6 +398,36 @@ public sealed class RuntimeConfigurationApplicationV2Service
             foreach (var item in input.ApiVersionedProtectedSettingReferences) { writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("mode", item.Mode); writer.WriteString("keyVaultReference", item.KeyVaultReference); writer.WriteEndObject(); }
             writer.WriteEndArray();
             writer.WritePropertyName("rollback"); writer.WriteStartObject(); writer.WriteString("strategy", input.Rollback.Strategy); writer.WritePropertyName("targetQualifiedSettings"); writer.WriteStartArray(); foreach (var item in input.Rollback.TargetQualifiedSettings) writer.WriteStringValue(item); writer.WriteEndArray(); writer.WriteBoolean("containsValues", input.Rollback.ContainsValues); writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray()) + "\n";
+    }
+
+    private static string FormatCanonicalFinalInput(RuntimeConfigurationFinalizedDeploymentInputV2 input)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("contractVersion", input.ContractVersion);
+            writer.WriteString("packageHash", input.PackageHash);
+            writer.WriteString("projectionSha256", input.ProjectionSha256);
+            writer.WritePropertyName("binding");
+            writer.WriteStartObject();
+            writer.WriteString("customerId", input.Binding.CustomerId); writer.WriteString("installationId", input.Binding.InstallationId);
+            writer.WriteString("environmentId", input.Binding.EnvironmentId); writer.WriteString("tenantId", input.Binding.TenantId);
+            writer.WriteString("azureSubscriptionId", input.Binding.AzureSubscriptionId); writer.WriteString("deploymentExportId", input.Binding.DeploymentExportId);
+            writer.WriteString("runtimeReleaseId", input.Binding.RuntimeReleaseId); writer.WriteString("runtimeVersion", input.Binding.RuntimeVersion);
+            writer.WriteString("manifestSha256", input.Binding.ManifestSha256); writer.WriteEndObject();
+            WriteSettings(writer, "apiPublicSettings", input.ApiPublicSettings);
+            WriteSettings(writer, "portalPublicSettings", input.PortalPublicSettings);
+            writer.WritePropertyName("apiVersionedProtectedSettingReferences"); writer.WriteStartArray();
+            foreach (var item in input.ApiVersionedProtectedSettingReferences)
+            {
+                writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("mode", item.Mode);
+                writer.WriteString("keyVaultReference", item.KeyVaultReference); writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.ToArray()) + "\n";
