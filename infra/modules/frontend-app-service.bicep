@@ -67,18 +67,40 @@ param filePreviewAllowedFrameOrigins string
 @maxLength(128)
 param runtimeReleaseId string
 
-type RuntimeApplicationSetting = {
-  name: string
-  value: string
+@sealed()
+type PortalRuntimeConfigurationV2 = {
+  WEB_API_BASE_URL: string
+  WEB_ENTRA_CLIENT_ID: string
+  WEB_ENTRA_TENANT_ID: string
+  WEB_ENTRA_AUTHORITY: string
+  WEB_API_SCOPE: string
+  WEB_RUNTIME_ENVIRONMENT: string
+  WEB_PRODUCT_NAME: string
+  WEB_PRODUCT_LOGO_URL: string
+  WEB_CUSTOMER_DISPLAY_NAME: string
+  WEB_CUSTOMER_SHORT_NAME: string
+  WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS: string[]
 }
 
 @description('Default-disabled package-0.7 runtime-configuration application gate.')
 param enableRuntimeConfigurationProjectionV2 bool = false
 
-@description('Exact validated projection-v2 portal public settings. Empty unless the application gate is enabled.')
-param runtimeConfigurationPublicSettings RuntimeApplicationSetting[] = []
+@description('Exact validated projection-v2 portal public settings. Null unless the application gate is enabled.')
+param runtimeConfiguration PortalRuntimeConfigurationV2?
 
-var projectionV2RuntimeAppSettings = runtimeConfigurationPublicSettings
+var projectionV2RuntimeAppSettings = [
+  { name: 'WEB_API_BASE_URL', value: runtimeConfiguration!.WEB_API_BASE_URL }
+  { name: 'WEB_ENTRA_CLIENT_ID', value: runtimeConfiguration!.WEB_ENTRA_CLIENT_ID }
+  { name: 'WEB_ENTRA_TENANT_ID', value: runtimeConfiguration!.WEB_ENTRA_TENANT_ID }
+  { name: 'WEB_ENTRA_AUTHORITY', value: runtimeConfiguration!.WEB_ENTRA_AUTHORITY }
+  { name: 'WEB_API_SCOPE', value: runtimeConfiguration!.WEB_API_SCOPE }
+  { name: 'WEB_RUNTIME_ENVIRONMENT', value: runtimeConfiguration!.WEB_RUNTIME_ENVIRONMENT }
+  { name: 'WEB_PRODUCT_NAME', value: runtimeConfiguration!.WEB_PRODUCT_NAME }
+  { name: 'WEB_PRODUCT_LOGO_URL', value: runtimeConfiguration!.WEB_PRODUCT_LOGO_URL }
+  { name: 'WEB_CUSTOMER_DISPLAY_NAME', value: runtimeConfiguration!.WEB_CUSTOMER_DISPLAY_NAME }
+  { name: 'WEB_CUSTOMER_SHORT_NAME', value: runtimeConfiguration!.WEB_CUSTOMER_SHORT_NAME }
+  { name: 'WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS', value: join(runtimeConfiguration!.WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS, ',') }
+]
 
 var legacyRuntimeAppSettings = [
   {

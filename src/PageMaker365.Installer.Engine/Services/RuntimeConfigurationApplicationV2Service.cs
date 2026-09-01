@@ -1,4 +1,5 @@
-using System.Globalization;
+using System.Buffers;
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -18,11 +19,15 @@ public sealed class CryptographicRuntimeConfigurationCursorSecretGenerator : IRu
 }
 
 /// <summary>
-/// Produces the closed, redacted deployment input for a signed package 0.7.
+/// Produces a closed, redacted deployment input from signed package 0.7 bytes.
 /// It has no process, network, persistence, Key Vault, or deployment behavior.
 /// </summary>
-public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliveryV07PackageService packageService)
+public sealed class RuntimeConfigurationApplicationV2Service
 {
+    private readonly PrivateRuntimeDeliveryV07PackageService packageService;
+    private readonly PackageTrustOptions trust;
+    private readonly DateTimeOffset validationTime;
+
     private static readonly string[] ApiPublicNames =
     [
         "API_APP_VERSION", "API_ENV", "API_HOST", "API_CORS_ORIGIN", "API_ENTRA_TENANT_ID",
@@ -52,106 +57,125 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
         ("API_IMAGE_ASSET_CURSOR_SECRET", "installer-generated-key-vault-secret")
     ];
 
-    public RuntimeConfigurationApplicationV2Plan CreatePlan(
-        string canonicalPackageJson,
+    public RuntimeConfigurationApplicationV2Service(
+        PrivateRuntimeDeliveryV07PackageService packageService,
         PackageTrustOptions trust,
-        bool enabled = false,
-        DateTimeOffset? now = null)
+        DateTimeOffset validationTime)
+    {
+        ArgumentNullException.ThrowIfNull(packageService);
+        ArgumentNullException.ThrowIfNull(trust);
+        this.packageService = packageService;
+        this.trust = new PackageTrustOptions
+        {
+            TrustedPublicKeysById = new Dictionary<string, string>(trust.TrustedPublicKeysById, StringComparer.OrdinalIgnoreCase)
+        };
+        this.validationTime = validationTime;
+    }
+
+    public RuntimeConfigurationApplicationV2DeploymentInput CreateDeploymentInput(
+        string canonicalPackageJson,
+        bool enabled = false)
     {
         if (!enabled) Fail("runtime_configuration_application_v2_disabled");
-        ArgumentNullException.ThrowIfNull(trust);
-
-        // Re-enter through the accepted parser so this layer cannot consume a
-        // caller-constructed approximation of a validated package.
-        var package = packageService.ValidateJson(canonicalPackageJson, trust, now);
-        var projection = package.RuntimeConfiguration;
-        AssertTrustedProjection(package, projection);
-
-        var publicSettings = projection.PublicSettings;
-        var api = ConvertPublicSettings(publicSettings.Take(ApiPublicNames.Length).ToArray(), "api", ApiPublicNames);
-        var portal = ConvertPublicSettings(publicSettings.Skip(ApiPublicNames.Length).ToArray(), "portal", PortalPublicNames);
-        var protectedReferences = ConvertVersionedProtectedSettings(projection.ProtectedSettings, publicSettings);
-        var license = projection.ProtectedSettings.Single(item => item.Name == "API_LICENSE_SIGNED_PAYLOAD");
-        var cursor = projection.ProtectedSettings.Single(item => item.Name == "API_IMAGE_ASSET_CURSOR_SECRET");
+        var authorized = Authorize(canonicalPackageJson);
+        var projection = authorized.Package.RuntimeConfiguration;
+        var api = CopyPublicSettings(projection.PublicSettings.Take(ApiPublicNames.Length).ToArray(), "api", ApiPublicNames);
+        var portal = CopyPublicSettings(projection.PublicSettings.Skip(ApiPublicNames.Length).ToArray(), "portal", PortalPublicNames);
+        var protectedReferences = ConvertVersionedProtectedSettings(projection.ProtectedSettings, projection.PublicSettings);
         var rollbackTargets = api.Select(item => $"api:{item.Name}")
             .Concat(portal.Select(item => $"portal:{item.Name}"))
             .Concat(protectedReferences.Select(item => $"api:{item.Name}"))
             .ToArray();
 
-        var plan = new RuntimeConfigurationApplicationV2Plan
+        var input = new RuntimeConfigurationApplicationV2DeploymentInput
         {
-            PackageHash = package.PackageHash,
+            PackageHash = authorized.Package.PackageHash,
             ProjectionSha256 = projection.ProjectionSha256,
-            Binding = new RuntimeConfigurationApplicationBindingV2
-            {
-                CustomerId = package.CustomerId,
-                InstallationId = package.InstallationId,
-                EnvironmentId = package.EnvironmentId,
-                TenantId = package.TenantId,
-                AzureSubscriptionId = package.AzureSubscriptionId,
-                DeploymentExportId = package.DeploymentExportId,
-                RuntimeReleaseId = package.ReleaseId,
-                RuntimeVersion = package.RuntimeVersion,
-                ManifestSha256 = package.ManifestSha256
-            },
+            Binding = CreateBinding(authorized.Package),
             ApiPublicSettings = api,
             PortalPublicSettings = portal,
-            ApiProtectedSettingReferences = protectedReferences,
-            LicenseAcquisition = new RuntimeConfigurationApplicationLicenseDescriptorV2
-            {
-                ContractVersion = license.Reference.ContractVersion!,
-                OpaqueReference = license.Reference.OpaqueReference!,
-                VaultResourceId = license.Reference.VaultResourceId,
-                SecretName = license.Reference.SecretName
-            },
-            CursorGeneration = new RuntimeConfigurationApplicationCursorDescriptorV2
-            {
-                GenerationAlgorithm = cursor.Reference.GenerationAlgorithm!,
-                MinimumEntropyBytes = cursor.Reference.MinimumEntropyBytes!.Value,
-                VaultResourceId = cursor.Reference.VaultResourceId,
-                SecretName = cursor.Reference.SecretName
-            },
+            ApiVersionedProtectedSettingReferences = protectedReferences,
             Rollback = new RuntimeConfigurationRollbackPlanV2
             {
                 TargetQualifiedSettings = rollbackTargets,
                 ContainsValues = false
             }
         };
-        var canonical = FormatCanonicalPlan(plan);
-        return CopyWithCanonicalIdentity(plan, canonical, Sha256(Encoding.UTF8.GetBytes(canonical)));
+        var canonical = FormatCanonicalInput(input);
+        return CopyWithCanonicalIdentity(input, canonical, Sha256(Encoding.UTF8.GetBytes(canonical)));
     }
 
     public void GenerateCursorSecret(
-        RuntimeConfigurationApplicationV2Plan plan,
+        string canonicalPackageJson,
         IRuntimeConfigurationCursorSecretGenerator generator,
         IRuntimeConfigurationProtectedSecretCallback callback,
-        bool enabled = false)
+        bool enabled = false,
+        CancellationToken cancellationToken = default)
     {
         if (!enabled) Fail("runtime_configuration_cursor_generation_disabled");
-        ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(generator);
         ArgumentNullException.ThrowIfNull(callback);
-        AssertPlanIdentity(plan);
+        cancellationToken.ThrowIfCancellationRequested();
+        var cursor = Authorize(canonicalPackageJson).Cursor;
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var entropy = generator.Generate(plan.CursorGeneration.MinimumEntropyBytes);
-        if (entropy is null || entropy.Length < plan.CursorGeneration.MinimumEntropyBytes)
-        {
-            if (entropy is not null) CryptographicOperations.ZeroMemory(entropy);
-            Fail("runtime_configuration_cursor_entropy_invalid");
-        }
-
+        byte[]? entropy = null;
         byte[]? encoded = null;
         try
         {
-            encoded = Encoding.ASCII.GetBytes(Convert.ToBase64String(entropy!).TrimEnd('=').Replace('+', '-').Replace('/', '_'));
-            callback.Accept(plan.CursorGeneration, encoded);
+            entropy = generator.Generate(cursor.MinimumEntropyBytes);
+            if (entropy is null) throw new InvalidDataException("runtime_configuration_cursor_entropy_invalid");
+            if (entropy.Length < cursor.MinimumEntropyBytes)
+                Fail("runtime_configuration_cursor_entropy_invalid");
+            cancellationToken.ThrowIfCancellationRequested();
+
+            encoded = new byte[Base64.GetMaxEncodedToUtf8Length(entropy.Length)];
+            var status = Base64.EncodeToUtf8(entropy, encoded, out var consumed, out var written);
+            if (status != OperationStatus.Done || consumed != entropy.Length)
+                Fail("runtime_configuration_cursor_encoding_invalid");
+            while (written > 0 && encoded[written - 1] == (byte)'=') written--;
+            for (var index = 0; index < written; index++)
+            {
+                if (encoded[index] == (byte)'+') encoded[index] = (byte)'-';
+                else if (encoded[index] == (byte)'/') encoded[index] = (byte)'_';
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            callback.Accept(cursor.VaultResourceId, cursor.SecretName, encoded.AsMemory(0, written), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(entropy);
+            if (entropy is not null) CryptographicOperations.ZeroMemory(entropy);
             if (encoded is not null) CryptographicOperations.ZeroMemory(encoded);
         }
     }
+
+    private AuthorizedProjection Authorize(string canonicalPackageJson)
+    {
+        var package = packageService.ValidateJson(canonicalPackageJson, trust, validationTime);
+        var projection = package.RuntimeConfiguration;
+        AssertTrustedProjection(package, projection);
+        AssertProtectedSettings(projection.ProtectedSettings, projection.PublicSettings);
+        var license = projection.ProtectedSettings[2];
+        var cursor = projection.ProtectedSettings[3];
+        return new AuthorizedProjection(
+            package,
+            new PendingLicenseDescriptor(license.Reference.ContractVersion!, license.Reference.OpaqueReference!, license.Reference.VaultResourceId, license.Reference.SecretName),
+            new PendingCursorDescriptor(cursor.Reference.MinimumEntropyBytes!.Value, cursor.Reference.VaultResourceId, cursor.Reference.SecretName));
+    }
+
+    private static RuntimeConfigurationApplicationBindingV2 CreateBinding(PrivateRuntimeDeliveryPackageV07 package) => new()
+    {
+        CustomerId = package.CustomerId,
+        InstallationId = package.InstallationId,
+        EnvironmentId = package.EnvironmentId,
+        TenantId = package.TenantId,
+        AzureSubscriptionId = package.AzureSubscriptionId,
+        DeploymentExportId = package.DeploymentExportId,
+        RuntimeReleaseId = package.ReleaseId,
+        RuntimeVersion = package.RuntimeVersion,
+        ManifestSha256 = package.ManifestSha256
+    };
 
     private static void AssertTrustedProjection(PrivateRuntimeDeliveryPackageV07 package, RuntimeConfigurationProjectionV2 projection)
     {
@@ -182,39 +206,49 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
             Fail("runtime_configuration_application_v2_policy");
     }
 
-    private static IReadOnlyList<RuntimeConfigurationApplicationSettingV2> ConvertPublicSettings(
+    private static IReadOnlyList<RuntimeConfigurationApplicationTypedSettingV2> CopyPublicSettings(
         IReadOnlyList<RuntimeConfigurationPublicSettingV2> settings,
         string target,
         IReadOnlyList<string> expectedNames)
     {
         if (settings.Count != expectedNames.Count) Fail("runtime_configuration_application_v2_public_shape");
-        var result = new List<RuntimeConfigurationApplicationSettingV2>(settings.Count);
+        var result = new List<RuntimeConfigurationApplicationTypedSettingV2>(settings.Count);
         for (var index = 0; index < settings.Count; index++)
         {
             var setting = settings[index];
             if (setting.TargetApp != target || setting.Name != expectedNames[index]) Fail("runtime_configuration_application_v2_public_shape");
-            result.Add(new RuntimeConfigurationApplicationSettingV2 { Name = setting.Name, Value = ToEnvironmentValue(setting) });
+            ValidateTypedValue(setting.ValueType, setting.Value);
+            result.Add(new RuntimeConfigurationApplicationTypedSettingV2
+            {
+                TargetApp = setting.TargetApp,
+                Name = setting.Name,
+                ValueType = setting.ValueType,
+                Value = setting.Value.Clone()
+            });
         }
         return result;
     }
 
-    private static string ToEnvironmentValue(RuntimeConfigurationPublicSettingV2 setting) => setting.ValueType switch
+    private static void ValidateTypedValue(string valueType, JsonElement value)
     {
-        "string" when setting.Value.ValueKind == JsonValueKind.String => setting.Value.GetString()!,
-        "string-list" when setting.Value.ValueKind == JsonValueKind.Array => string.Join(",", setting.Value.EnumerateArray().Select(item => item.GetString()!)),
-        "integer" when setting.Value.ValueKind == JsonValueKind.Number && setting.Value.TryGetInt32(out var number) => number.ToString(CultureInfo.InvariantCulture),
-        "boolean" when setting.Value.ValueKind is JsonValueKind.True or JsonValueKind.False => setting.Value.GetBoolean() ? "true" : "false",
-        _ => throw new InvalidDataException("runtime_configuration_application_v2_public_type")
-    };
+        var valid = valueType switch
+        {
+            "string" => value.ValueKind == JsonValueKind.String,
+            "string-list" => value.ValueKind == JsonValueKind.Array && value.EnumerateArray().All(item => item.ValueKind == JsonValueKind.String),
+            "integer" => value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out _),
+            "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+            _ => false
+        };
+        if (!valid) Fail("runtime_configuration_application_v2_public_type");
+    }
 
-    private static IReadOnlyList<RuntimeConfigurationApplicationProtectedReferenceV2> ConvertVersionedProtectedSettings(
+    private static void AssertProtectedSettings(
         IReadOnlyList<RuntimeConfigurationProtectedSettingV2> settings,
         IReadOnlyList<RuntimeConfigurationPublicSettingV2> publicSettings)
     {
         if (settings.Count != ProtectedSettings.Length) Fail("runtime_configuration_application_v2_protected_shape");
         var vaultOrigin = publicSettings.Single(item => item.Name == "API_AZURE_KEY_VAULT_URL").Value.GetString()!;
         var vaultName = new Uri(vaultOrigin).Host.Split('.')[0];
-        var result = new List<RuntimeConfigurationApplicationProtectedReferenceV2>(settings.Count);
         for (var index = 0; index < settings.Count; index++)
         {
             var item = settings[index];
@@ -222,81 +256,84 @@ public sealed class RuntimeConfigurationApplicationV2Service(PrivateRuntimeDeliv
             if (item.TargetApp != "api" || item.Name != expected.Name || item.Mode != expected.Mode ||
                 !item.Reference.VaultResourceId.EndsWith($"/vaults/{vaultName}", StringComparison.OrdinalIgnoreCase))
                 Fail("runtime_configuration_application_v2_protected_shape");
-            if (item.Mode != "customer-azure-key-vault-reference") continue;
-            var secretUri = $"{vaultOrigin}/secrets/{item.Reference.SecretName}/{item.Reference.SecretVersion}";
-            result.Add(new RuntimeConfigurationApplicationProtectedReferenceV2
-            {
-                Name = item.Name,
-                Mode = item.Mode,
-                KeyVaultReference = $"@Microsoft.KeyVault(SecretUri={secretUri})"
-            });
         }
-        return result;
     }
 
-    private static void AssertPlanIdentity(RuntimeConfigurationApplicationV2Plan plan)
+    private static IReadOnlyList<RuntimeConfigurationApplicationProtectedReferenceV2> ConvertVersionedProtectedSettings(
+        IReadOnlyList<RuntimeConfigurationProtectedSettingV2> settings,
+        IReadOnlyList<RuntimeConfigurationPublicSettingV2> publicSettings)
     {
-        if (plan.ContractVersion != RuntimeConfigurationApplicationV2Plan.ContractVersionValue ||
-            plan.ApiPublicSettings.Count != 31 || plan.PortalPublicSettings.Count != 11 ||
-            plan.ApiProtectedSettingReferences.Count != 2 || plan.CursorGeneration.GenerationAlgorithm != "random-base64url" ||
-            plan.CursorGeneration.MinimumEntropyBytes != 32 || plan.Rollback.ContainsValues ||
-            plan.CanonicalJson != FormatCanonicalPlan(plan) ||
-            !FixedEquals(plan.PlanSha256, Sha256(Encoding.UTF8.GetBytes(plan.CanonicalJson))))
-            Fail("runtime_configuration_application_v2_plan_identity");
+        AssertProtectedSettings(settings, publicSettings);
+        var vaultOrigin = publicSettings.Single(item => item.Name == "API_AZURE_KEY_VAULT_URL").Value.GetString()!;
+        return settings.Take(2).Select(item => new RuntimeConfigurationApplicationProtectedReferenceV2
+        {
+            Name = item.Name,
+            Mode = item.Mode,
+            KeyVaultReference = $"@Microsoft.KeyVault(SecretUri={vaultOrigin}/secrets/{item.Reference.SecretName}/{item.Reference.SecretVersion})"
+        }).ToArray();
     }
 
-    private static RuntimeConfigurationApplicationV2Plan CopyWithCanonicalIdentity(RuntimeConfigurationApplicationV2Plan plan, string json, string digest) => new()
+    private static RuntimeConfigurationApplicationV2DeploymentInput CopyWithCanonicalIdentity(
+        RuntimeConfigurationApplicationV2DeploymentInput input,
+        string json,
+        string digest) => new()
     {
-        PackageHash = plan.PackageHash,
-        ProjectionSha256 = plan.ProjectionSha256,
-        Binding = plan.Binding,
-        ApiPublicSettings = plan.ApiPublicSettings,
-        PortalPublicSettings = plan.PortalPublicSettings,
-        ApiProtectedSettingReferences = plan.ApiProtectedSettingReferences,
-        LicenseAcquisition = plan.LicenseAcquisition,
-        CursorGeneration = plan.CursorGeneration,
-        Rollback = plan.Rollback,
+        PackageHash = input.PackageHash,
+        ProjectionSha256 = input.ProjectionSha256,
+        Binding = input.Binding,
+        ApiPublicSettings = input.ApiPublicSettings,
+        PortalPublicSettings = input.PortalPublicSettings,
+        ApiVersionedProtectedSettingReferences = input.ApiVersionedProtectedSettingReferences,
+        Rollback = input.Rollback,
         CanonicalJson = json,
-        PlanSha256 = digest
+        InputSha256 = digest
     };
 
-    private static string FormatCanonicalPlan(RuntimeConfigurationApplicationV2Plan plan)
+    private static string FormatCanonicalInput(RuntimeConfigurationApplicationV2DeploymentInput input)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
-            writer.WriteString("contractVersion", plan.ContractVersion);
-            writer.WriteString("packageHash", plan.PackageHash);
-            writer.WriteString("projectionSha256", plan.ProjectionSha256);
+            writer.WriteString("contractVersion", input.ContractVersion);
+            writer.WriteString("packageHash", input.PackageHash);
+            writer.WriteString("projectionSha256", input.ProjectionSha256);
             writer.WritePropertyName("binding");
             writer.WriteStartObject();
-            writer.WriteString("customerId", plan.Binding.CustomerId); writer.WriteString("installationId", plan.Binding.InstallationId);
-            writer.WriteString("environmentId", plan.Binding.EnvironmentId); writer.WriteString("tenantId", plan.Binding.TenantId);
-            writer.WriteString("azureSubscriptionId", plan.Binding.AzureSubscriptionId); writer.WriteString("deploymentExportId", plan.Binding.DeploymentExportId);
-            writer.WriteString("runtimeReleaseId", plan.Binding.RuntimeReleaseId); writer.WriteString("runtimeVersion", plan.Binding.RuntimeVersion);
-            writer.WriteString("manifestSha256", plan.Binding.ManifestSha256); writer.WriteEndObject();
-            WriteSettings(writer, "apiPublicSettings", plan.ApiPublicSettings);
-            WriteSettings(writer, "portalPublicSettings", plan.PortalPublicSettings);
-            writer.WritePropertyName("apiProtectedSettingReferences"); writer.WriteStartArray();
-            foreach (var item in plan.ApiProtectedSettingReferences) { writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("mode", item.Mode); writer.WriteString("keyVaultReference", item.KeyVaultReference); writer.WriteEndObject(); }
+            writer.WriteString("customerId", input.Binding.CustomerId); writer.WriteString("installationId", input.Binding.InstallationId);
+            writer.WriteString("environmentId", input.Binding.EnvironmentId); writer.WriteString("tenantId", input.Binding.TenantId);
+            writer.WriteString("azureSubscriptionId", input.Binding.AzureSubscriptionId); writer.WriteString("deploymentExportId", input.Binding.DeploymentExportId);
+            writer.WriteString("runtimeReleaseId", input.Binding.RuntimeReleaseId); writer.WriteString("runtimeVersion", input.Binding.RuntimeVersion);
+            writer.WriteString("manifestSha256", input.Binding.ManifestSha256); writer.WriteEndObject();
+            WriteSettings(writer, "apiPublicSettings", input.ApiPublicSettings);
+            WriteSettings(writer, "portalPublicSettings", input.PortalPublicSettings);
+            writer.WritePropertyName("apiVersionedProtectedSettingReferences"); writer.WriteStartArray();
+            foreach (var item in input.ApiVersionedProtectedSettingReferences) { writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("mode", item.Mode); writer.WriteString("keyVaultReference", item.KeyVaultReference); writer.WriteEndObject(); }
             writer.WriteEndArray();
-            writer.WritePropertyName("licenseAcquisition"); writer.WriteStartObject(); writer.WriteString("contractVersion", plan.LicenseAcquisition.ContractVersion); writer.WriteString("opaqueReference", plan.LicenseAcquisition.OpaqueReference); writer.WriteString("vaultResourceId", plan.LicenseAcquisition.VaultResourceId); writer.WriteString("secretName", plan.LicenseAcquisition.SecretName); writer.WriteEndObject();
-            writer.WritePropertyName("cursorGeneration"); writer.WriteStartObject(); writer.WriteString("generationAlgorithm", plan.CursorGeneration.GenerationAlgorithm); writer.WriteNumber("minimumEntropyBytes", plan.CursorGeneration.MinimumEntropyBytes); writer.WriteString("vaultResourceId", plan.CursorGeneration.VaultResourceId); writer.WriteString("secretName", plan.CursorGeneration.SecretName); writer.WriteEndObject();
-            writer.WritePropertyName("rollback"); writer.WriteStartObject(); writer.WriteString("strategy", plan.Rollback.Strategy); writer.WritePropertyName("targetQualifiedSettings"); writer.WriteStartArray(); foreach (var item in plan.Rollback.TargetQualifiedSettings) writer.WriteStringValue(item); writer.WriteEndArray(); writer.WriteBoolean("containsValues", plan.Rollback.ContainsValues); writer.WriteEndObject();
+            writer.WritePropertyName("rollback"); writer.WriteStartObject(); writer.WriteString("strategy", input.Rollback.Strategy); writer.WritePropertyName("targetQualifiedSettings"); writer.WriteStartArray(); foreach (var item in input.Rollback.TargetQualifiedSettings) writer.WriteStringValue(item); writer.WriteEndArray(); writer.WriteBoolean("containsValues", input.Rollback.ContainsValues); writer.WriteEndObject();
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.ToArray()) + "\n";
     }
 
-    private static void WriteSettings(Utf8JsonWriter writer, string name, IReadOnlyList<RuntimeConfigurationApplicationSettingV2> settings)
+    private static void WriteSettings(Utf8JsonWriter writer, string name, IReadOnlyList<RuntimeConfigurationApplicationTypedSettingV2> settings)
     {
         writer.WritePropertyName(name); writer.WriteStartArray();
-        foreach (var item in settings) { writer.WriteStartObject(); writer.WriteString("name", item.Name); writer.WriteString("value", item.Value); writer.WriteEndObject(); }
+        foreach (var item in settings)
+        {
+            writer.WriteStartObject(); writer.WriteString("targetApp", item.TargetApp); writer.WriteString("name", item.Name);
+            writer.WriteString("valueType", item.ValueType); writer.WritePropertyName("value"); item.Value.WriteTo(writer); writer.WriteEndObject();
+        }
         writer.WriteEndArray();
     }
 
     private static string Sha256(byte[] value) => Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
-    private static bool FixedEquals(string left, string right) => CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(left), Encoding.ASCII.GetBytes(right));
     private static void Fail(string code) => throw new InvalidDataException(code);
+
+    private sealed record AuthorizedProjection(
+        PrivateRuntimeDeliveryPackageV07 Package,
+        PendingLicenseDescriptor License,
+        PendingCursorDescriptor Cursor);
+    private sealed record PendingLicenseDescriptor(string ContractVersion, string OpaqueReference, string VaultResourceId, string SecretName);
+    private sealed record PendingCursorDescriptor(int MinimumEntropyBytes, string VaultResourceId, string SecretName);
 }
