@@ -24,6 +24,7 @@ internal interface IRuntimeBridgeOwnedStageStore : IRuntimeBridgeSyntheticTestSe
 {
     RuntimeBridgeOwnedStageLease Create(string trustedRoot, string invocationId, IReadOnlyList<RuntimeBridgeOwnedStageEntry> inventory);
     void AssertOwned(RuntimeBridgeOwnedStageLease lease);
+    void AssertComplete(RuntimeBridgeOwnedStageLease lease);
     void CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath);
     void WriteFileExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath, ReadOnlySpan<byte> bytes);
     bool Cleanup(RuntimeBridgeOwnedStageLease lease);
@@ -32,6 +33,11 @@ internal interface IRuntimeBridgeOwnedStageStore : IRuntimeBridgeSyntheticTestSe
 internal interface IRuntimeBridgeOwnedStageRaceProbe : IRuntimeBridgeSyntheticTestSeam
 {
     void Probe(string operation, string path);
+}
+
+internal interface IRuntimeBridgeCancellationProbe : IRuntimeBridgeSyntheticTestSeam
+{
+    void Probe(string phase);
 }
 
 internal sealed record RuntimeBridgeInvocation(

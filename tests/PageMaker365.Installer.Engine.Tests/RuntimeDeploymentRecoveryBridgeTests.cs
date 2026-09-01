@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Text.Json;
 using PageMaker365.Installer.Engine.Models;
@@ -18,14 +19,175 @@ internal static class RuntimeDeploymentRecoveryBridgeTests
         ProducesDeterministicEvidenceAcrossVolatileIdentitiesAndStages();
         ExecutesTheClosedProtectedContentEvidenceLedger();
         ExecutesTheClosedHttpProtocolMatrix();
+        ExecutesAllFixtureDeclaredDeliveryAndProtectedNegativeVectors();
+        RejectsExactZipLocalCentralAndEocdMutations();
+        RecursivelyClosesReceiptRequestAndResponseBodies();
+        PinsExplicitCancellationChecksAtEveryOwnedBoundary();
         RejectsEveryOwnedArtifactProtocolMutationBeforeProtectedEffects();
         PinsTheCompleteLicenseAuthorityAndSignedIdentity();
         RejectsEveryHandlerResultMutationAndBindsItsDigestIntoEvidence();
         RejectsUnsafeOwnedStageMutationsWithoutDeletingForeignContent();
         NativeWindowsStageDeniesCreateRegistrationAndCleanupSubstitutionRaces();
+        NativeWindowsStageExecutesTheClosedAliasAndWriterRaceMatrix();
         PortableInjectedStageStoreProvesClosedOwnershipSemantics();
         ProvesCursorCopiesAreNotIntroducedAtTheCallbackBoundary();
         KeepsTheBoundaryInternalOfflineAndNonDeploying();
+    }
+
+    private static void NativeWindowsStageExecutesTheClosedAliasAndWriterRaceMatrix()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        foreach (var attack in Enum.GetValues<RuntimeBridgeNativeStageAttack>())
+        {
+            var harness = new RuntimeBridgeTestHarness(nativeStageAttack: attack);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                var probe = harness.NativeStageRaceProbe!;
+                AssertEx.True(probe.AttackApplied, attack.ToString());
+                AssertEx.True(attack == RuntimeBridgeNativeStageAttack.Rename
+                    ? probe.ProbeCount >= 5 && probe.DeniedCount == probe.ProbeCount && probe.UnexpectedSuccessCount == 0
+                    : probe.DeniedCount + probe.UnexpectedSuccessCount == 1, attack.ToString());
+                if (probe.UnexpectedSuccessCount == 0)
+                {
+                    AssertEx.Equal("simulated", result.Status, attack.ToString());
+                    AssertEx.True(result.StageCleaned, attack.ToString());
+                }
+                else
+                {
+                    AssertEx.Equal("cleanup-required", result.Status, attack.ToString());
+                    AssertEx.False(result.StageCleaned, attack.ToString());
+                    AssertEx.True(probe.ForeignPath is not null && (File.Exists(probe.ForeignPath) || Directory.Exists(probe.ForeignPath)), attack.ToString());
+                }
+                AssertEx.False(result.AuthorizesDeployment, attack.ToString());
+            }
+            finally { harness.Dispose(); }
+        }
+    }
+
+    private static void ExecutesAllFixtureDeclaredDeliveryAndProtectedNegativeVectors()
+    {
+        var root = FindRepositoryRoot();
+        var fixture = Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "Fixtures", "private-runtime-v07-cross-repository-rehearsal-v1");
+        using var delivery = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(fixture, "runtime-delivery-http-vectors.json")));
+        using var protectedVectors = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(fixture, "protected-setting-acquisition-http-vectors.json")));
+        var deliveryRows = delivery.RootElement.GetProperty("negativeVectors").EnumerateArray().ToArray();
+        var protectedRows = protectedVectors.RootElement.GetProperty("negativeVectors").EnumerateArray().ToArray();
+        AssertEx.Equal(32, deliveryRows.Length);
+        AssertEx.Equal(40, protectedRows.Length);
+        AssertEx.Equal(32, deliveryRows.Select(row => row.GetProperty("id").GetString()).Distinct(StringComparer.Ordinal).Count());
+        AssertEx.Equal(40, protectedRows.Select(row => row.GetProperty("id").GetString()).Distinct(StringComparer.Ordinal).Count());
+        foreach (var row in deliveryRows)
+        {
+            var actual = RuntimeBridgeTestHarness.ExecuteDeclaredDeliveryNegative(row);
+            AssertEx.Equal(row.GetProperty("expectedStatus").GetInt32(), actual.Status, row.GetProperty("id").GetString()!);
+            AssertEx.Equal(row.GetProperty("expectedErrorCode").ValueKind == JsonValueKind.Null ? null : row.GetProperty("expectedErrorCode").GetString(), actual.ErrorCode);
+            AssertEx.Equal(row.GetProperty("expectedArtifactOpenCount").GetInt32(), actual.ReadCount);
+            AssertEx.Equal(row.GetProperty("expectedReceiptMutationCount").GetInt32(), actual.MutationCount);
+            AssertEx.Equal(row.GetProperty("expectedResponseBodyBytes").GetInt32(), actual.ResponseBytes);
+        }
+        foreach (var row in protectedRows)
+        {
+            var actual = RuntimeBridgeTestHarness.ExecuteDeclaredProtectedNegative(row);
+            AssertEx.Equal(row.GetProperty("expectedStatus").GetInt32(), actual.Status, row.GetProperty("id").GetString()!);
+            AssertEx.Equal(row.GetProperty("expectedErrorCode").GetString(), actual.ErrorCode);
+            AssertEx.Equal(row.GetProperty("expectedProtectedReadCount").GetInt32(), actual.ReadCount);
+            AssertEx.Equal(row.GetProperty("expectedRedemptionCount").GetInt32(), actual.MutationCount);
+            AssertEx.Equal(row.GetProperty("expectedResponseBodyBytes").GetInt32(), actual.ResponseBytes);
+        }
+        AssertEx.Equal(2, deliveryRows.Single(row => row.GetProperty("id").GetString() == "concurrent-downloads").GetProperty("expectedArtifactOpenCount").GetInt32());
+        AssertEx.Equal(1, deliveryRows.Single(row => row.GetProperty("id").GetString() == "receipt-replay").GetProperty("expectedReceiptMutationCount").GetInt32());
+        AssertEx.Equal(2, protectedRows.Single(row => row.GetProperty("id").GetString() == "concurrent-redemption").GetProperty("expectedProtectedReadCount").GetInt32());
+        AssertEx.Equal(1, protectedRows.Single(row => row.GetProperty("id").GetString() == "concurrent-redemption").GetProperty("expectedRedemptionCount").GetInt32());
+    }
+
+    private static void RejectsExactZipLocalCentralAndEocdMutations()
+    {
+        var root = FindRepositoryRoot();
+        var path = Path.Combine(root, "tests", "PageMaker365.Installer.Engine.Tests", "Fixtures", "private-runtime-v07-cross-repository-rehearsal-v1", "artifacts", "api.zip");
+        var accepted = File.ReadAllBytes(path);
+        RuntimeDeploymentRecoveryBridge.ValidateExactZipStructure(accepted);
+        var eocd = accepted.Length - 22;
+        var central = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(accepted.AsSpan(eocd + 16, 4)));
+        var local = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(accepted.AsSpan(central + 42, 4)));
+        void Deny(string name, Action<byte[]> mutate)
+        {
+            var value = accepted.ToArray(); mutate(value);
+            _ = name;
+            AssertEx.Throws<InvalidDataException>(() => RuntimeDeploymentRecoveryBridge.ValidateExactZipStructure(value));
+        }
+        Deny("local-signature", value => value[local] ^= 1);
+        Deny("central-signature", value => value[central] ^= 1);
+        Deny("eocd-signature", value => value[eocd] ^= 1);
+        Deny("disk", value => BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(eocd + 4, 2), 1));
+        Deny("entry-count", value => BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(eocd + 8, 2), 2));
+        Deny("central-size", value => BinaryPrimitives.WriteUInt32LittleEndian(value.AsSpan(eocd + 12, 4), 184));
+        Deny("central-offset", value => BinaryPrimitives.WriteUInt32LittleEndian(value.AsSpan(eocd + 16, 4), 807));
+        Deny("comment", value => BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(eocd + 20, 2), 1));
+        Deny("made-by", value => BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(central + 4, 2), 20));
+        Deny("coherent-version", value => { BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(local + 4, 2), 21); BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(central + 6, 2), 21); });
+        Deny("coherent-flags", value => { BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(local + 6, 2), 0); BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(central + 8, 2), 0); });
+        Deny("coherent-compression", value => { BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(local + 8, 2), 8); BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(central + 10, 2), 8); });
+        Deny("coherent-time", value => { BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(local + 10, 2), 1); BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(central + 12, 2), 1); });
+        Deny("coherent-date", value => { BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(local + 12, 2), 1); BinaryPrimitives.WriteUInt16LittleEndian(value.AsSpan(central + 14, 2), 1); });
+        Deny("coherent-crc", value => { var crc = BinaryPrimitives.ReadUInt32LittleEndian(value.AsSpan(local + 14, 4)) ^ 1; BinaryPrimitives.WriteUInt32LittleEndian(value.AsSpan(local + 14, 4), crc); BinaryPrimitives.WriteUInt32LittleEndian(value.AsSpan(central + 16, 4), crc); });
+        Deny("external-mode", value => BinaryPrimitives.WriteUInt32LittleEndian(value.AsSpan(central + 38, 4), 0xA1FF0000));
+        Deny("local-offset", value => BinaryPrimitives.WriteUInt32LittleEndian(value.AsSpan(central + 42, 4), 1));
+        Deny("local-central-name", value => value[central + 46] ^= 1);
+        Deny("trailer", value => value[eocd + 20] = 1);
+    }
+
+    private static void RecursivelyClosesReceiptRequestAndResponseBodies()
+    {
+        foreach (var fault in Enum.GetValues<RuntimeBridgeReceiptNestedFault>().Where(value => value != RuntimeBridgeReceiptNestedFault.None))
+        {
+            var harness = new RuntimeBridgeTestHarness(receiptNestedFault: fault);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation()).GetAwaiter().GetResult();
+                AssertEx.Equal("failed", result.Status, fault.ToString());
+                AssertEx.Equal(1, harness.ArtifactTransport.ReceiptCount, fault.ToString());
+                AssertEx.Equal(0, harness.WhatIf.CallCount, fault.ToString());
+                AssertEx.Equal(0, harness.LicenseTransport.CallCount, fault.ToString());
+                AssertEx.Equal(0, result.ProtectedWriteCount, fault.ToString());
+            }
+            finally { harness.Dispose(); }
+        }
+    }
+
+    private static void PinsExplicitCancellationChecksAtEveryOwnedBoundary()
+    {
+        var baseline = new RuntimeBridgeTestHarness(portableStageMutation: PortableOwnedStageMutation.None,
+            cancellationBoundaryOrdinal: int.MaxValue);
+        int boundaryCount;
+        try
+        {
+            var result = baseline.Bridge.RunAsync(baseline.Invocation(), baseline.BoundaryCancellation!.Token).GetAwaiter().GetResult();
+            AssertEx.Equal("simulated", result.Status, result.EvidenceJson);
+            boundaryCount = baseline.CancellationProbe!.Count;
+            AssertEx.True(boundaryCount >= 60, boundaryCount.ToString());
+            AssertEx.Equal(boundaryCount, baseline.CancellationProbe.Phases.Count);
+            AssertEx.True(baseline.CancellationProbe.Phases.Select((phase, index) => (phase, index))
+                .All(item => item.phase == (item.index % 2 == 0 ? "before" : "after")));
+        }
+        finally { baseline.Dispose(); baseline.BoundaryCancellation?.Dispose(); }
+
+        for (var ordinal = 1; ordinal <= boundaryCount; ordinal++)
+        {
+            var harness = new RuntimeBridgeTestHarness(portableStageMutation: PortableOwnedStageMutation.None,
+                cancellationBoundaryOrdinal: ordinal);
+            try
+            {
+                var result = harness.Bridge.RunAsync(harness.Invocation(), harness.BoundaryCancellation!.Token).GetAwaiter().GetResult();
+                AssertEx.False(result.Status == "simulated", ordinal.ToString());
+                AssertEx.False(result.AuthorizesDeployment, ordinal.ToString());
+                AssertEx.True(harness.ArtifactTransport.AcquireCount <= 29, ordinal.ToString());
+                AssertEx.True(harness.LicenseTransport.CallCount <= 1, ordinal.ToString());
+                AssertEx.True(harness.WriteSink.CallCount <= 2, ordinal.ToString());
+                AssertEx.True(harness.WriteSink.RetainedBuffers.All(buffer => buffer.Span.ToArray().All(value => value == 0)), ordinal.ToString());
+            }
+            finally { harness.Dispose(); harness.BoundaryCancellation?.Dispose(); }
+        }
     }
 
     private static void StopsAtOwnedFailureAndCancellationBoundaries()

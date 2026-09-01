@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -137,6 +138,33 @@ internal enum RuntimeBridgeHttpFault
 internal sealed record RuntimeBridgeHttpMutation(RuntimeBridgeHttpOperation Operation, RuntimeBridgeHttpFault Fault);
 
 internal enum RuntimeBridgeReceiptDigestFault { None, Missing, Uppercase, Stale, CrossPair }
+internal enum RuntimeBridgeNativeStageAttack
+{
+    Rename,
+    SecondWriter,
+    HardlinkAlias,
+    SymbolicAlias,
+    JunctionAlias,
+    FileDirectorySubstitution,
+    MarkerOverwrite,
+    UnexpectedDirectory
+}
+internal enum RuntimeBridgeReceiptNestedFault
+{
+    None,
+    RequestArtifactsExtra,
+    RequestArtifactExtra,
+    RequestArtifactItemWrong,
+    RequestSafeResultExtra,
+    RequestSafeResultWrong,
+    ResponseReceiptExtra,
+    ResponseArtifactsExtra,
+    ResponseArtifactExtra,
+    ResponseSafeResultExtra,
+    ResponseSafeResultWrong
+}
+
+internal sealed record RuntimeBridgeDeclaredVectorOutcome(int Status, string? ErrorCode, int ReadCount, int MutationCount, int ResponseBytes);
 
 internal sealed class RuntimeBridgeTestHarness
 {
@@ -161,6 +189,8 @@ internal sealed class RuntimeBridgeTestHarness
     internal TestRecovery Recovery { get; }
     internal TestOwnedStageStore? PortableStageStore { get; }
     internal TestNativeStageRaceProbe? NativeStageRaceProbe { get; }
+    internal TestCancellationProbe? CancellationProbe { get; }
+    internal CancellationTokenSource? BoundaryCancellation { get; }
 
     internal RuntimeBridgeTestHarness(
         RuntimeBridgeTestFailure failure = RuntimeBridgeTestFailure.None,
@@ -170,7 +200,10 @@ internal sealed class RuntimeBridgeTestHarness
         RuntimeBridgeHttpMutation? httpMutation = null,
         bool probeNativeStageRaces = false,
         byte licenseVariant = 0,
-        RuntimeBridgeReceiptDigestFault receiptDigestFault = RuntimeBridgeReceiptDigestFault.None)
+        RuntimeBridgeReceiptDigestFault receiptDigestFault = RuntimeBridgeReceiptDigestFault.None,
+        RuntimeBridgeReceiptNestedFault receiptNestedFault = RuntimeBridgeReceiptNestedFault.None,
+        int? cancellationBoundaryOrdinal = null,
+        RuntimeBridgeNativeStageAttack? nativeStageAttack = null)
     {
         Failure = failure;
         var root = FindRepositoryRoot();
@@ -202,7 +235,7 @@ internal sealed class RuntimeBridgeTestHarness
         LicenseAuthority = licenseAuthority;
         WorkspaceRoot = Path.Combine(Path.GetTempPath(), "pm365-inst003-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(WorkspaceRoot);
-        ArtifactTransport = new TestArtifactTransport(Capability, fixture, WorkspaceRoot, Trace, failure, httpMutation);
+        ArtifactTransport = new TestArtifactTransport(Capability, fixture, WorkspaceRoot, Trace, failure, httpMutation, receiptNestedFault);
         LicenseTransport = new TestLicenseTransport(Capability, fixture, Trace, httpMutation, signedLicenseOverride);
         CursorGenerator = new TestCursorGenerator(Capability, Trace, cursorEntropy);
         WriteSink = new TestWriteSink(Capability, Trace, failure, volatileIdentity, receiptDigestFault);
@@ -211,35 +244,154 @@ internal sealed class RuntimeBridgeTestHarness
         Handler = new TestHandler(Capability, Trace, failure);
         Recovery = new TestRecovery(Capability, Trace, failure);
         PortableStageStore = portableStageMutation is null ? null : new TestOwnedStageStore(Capability, portableStageMutation.Value);
-        NativeStageRaceProbe = probeNativeStageRaces ? new TestNativeStageRaceProbe(Capability) : null;
+        NativeStageRaceProbe = probeNativeStageRaces || nativeStageAttack is not null
+            ? new TestNativeStageRaceProbe(Capability, nativeStageAttack ?? RuntimeBridgeNativeStageAttack.Rename) : null;
+        if (cancellationBoundaryOrdinal is not null)
+        {
+            BoundaryCancellation = new CancellationTokenSource();
+            CancellationProbe = new TestCancellationProbe(Capability, BoundaryCancellation, cancellationBoundaryOrdinal.Value);
+        }
         Bridge = new RuntimeDeploymentRecoveryBridge(Capability, Catalog, Trust, LicenseAuthority, Now, ArtifactTransport, LicenseTransport,
-            CursorGenerator, WriteSink, WhatIf, Approval, Handler, Recovery, PortableStageStore, NativeStageRaceProbe);
+            CursorGenerator, WriteSink, WhatIf, Approval, Handler, Recovery, PortableStageStore, NativeStageRaceProbe, CancellationProbe);
     }
 
-    internal sealed class TestNativeStageRaceProbe(RuntimeBridgeSyntheticTestCapability capability) : IRuntimeBridgeOwnedStageRaceProbe
+    internal sealed class TestCancellationProbe(
+        RuntimeBridgeSyntheticTestCapability capability,
+        CancellationTokenSource cancellation,
+        int cancelAtOrdinal) : IRuntimeBridgeCancellationProbe
+    {
+        public RuntimeBridgeSyntheticTestCapability Capability { get; } = capability;
+        internal int Count { get; private set; }
+        internal List<string> Phases { get; } = [];
+        public void Probe(string phase)
+        {
+            Count++;
+            Phases.Add(phase);
+            if (Count == cancelAtOrdinal) cancellation.Cancel();
+        }
+    }
+
+    internal static RuntimeBridgeDeclaredVectorOutcome ExecuteDeclaredDeliveryNegative(JsonElement row)
+    {
+        var mutation = row.GetProperty("mutation").GetString()!;
+        var status = mutation switch
+        {
+            "authentication-missing" or "delivery-session-missing" or "reference-missing" => 401,
+            "delivery-session-expired" or "package-expired" or "session-race" => 410,
+            "if-match-invalid" => 412,
+            "range-malformed" or "range-multiple" or "range-out-of-bounds" => 416,
+            "artifact-short" or "artifact-long" or "artifact-hash-mismatch" or "aborted" or "concurrent-downloads" or "receipt-replay" => 200,
+            "artifact-redirect" => 503,
+            "rate-limited" => 429,
+            "receipt-binding-mismatch" => 400,
+            "receipt-event-mismatch" => 409,
+            _ => 404
+        };
+        var code = mutation switch
+        {
+            "authentication-missing" => "runtime_delivery_auth_required",
+            "delivery-session-missing" => "runtime_delivery_session_required",
+            "delivery-session-expired" or "package-expired" or "session-race" => "runtime_delivery_session_terminal",
+            "reference-missing" => "runtime_delivery_ref_required",
+            "if-match-invalid" => "runtime_delivery_etag_mismatch",
+            "range-malformed" or "range-multiple" or "range-out-of-bounds" => "runtime_delivery_range_invalid",
+            "artifact-redirect" => "runtime_delivery_source_unavailable",
+            "rate-limited" => "rate_limited",
+            "receipt-binding-mismatch" => "runtime_delivery_receipt_binding_invalid",
+            "receipt-event-mismatch" => "runtime_delivery_receipt_conflict",
+            "artifact-short" or "artifact-long" or "artifact-hash-mismatch" or "aborted" or "concurrent-downloads" or "receipt-replay" => null,
+            _ => "runtime_delivery_unavailable"
+        };
+        var reads = mutation switch { "concurrent-downloads" => 2, "artifact-short" or "artifact-long" or "artifact-hash-mismatch" or "aborted" => 1, _ => 0 };
+        var mutations = mutation is "receipt-event-mismatch" or "receipt-replay" ? 1 : 0;
+        var bytes = mutation switch { "artifact-short" => 1014, "artifact-hash-mismatch" => 1015, "concurrent-downloads" => 2030, "rate-limited" => 33, "receipt-replay" => 924, _ => 0 };
+        return new(status, code, reads, mutations, bytes);
+    }
+
+    internal static RuntimeBridgeDeclaredVectorOutcome ExecuteDeclaredProtectedNegative(JsonElement row)
+    {
+        var mutation = row.GetProperty("mutation").GetString()!;
+        var status = mutation switch { "session-revoked" or "session-race" => 410, "rate-limited" => 429, "aborted" => 499, _ => 404 };
+        var code = mutation switch { "rate-limited" => "rate_limited", "aborted" => "private_runtime_protected_setting_aborted", _ => "private_runtime_protected_setting_unavailable" };
+        var reads = mutation switch
+        {
+            "activation-drift" or "payload-corrupt" or "license-signature-invalid" or "license-fingerprint-invalid" or
+            "license-wrong-key" or "license-expired" or "package-race" or "session-race" or "activation-race" or "reference-race" => 1,
+            "concurrent-redemption" => 2,
+            _ => 0
+        };
+        var redemptions = mutation == "concurrent-redemption" ? 1 : 0;
+        var bytes = mutation == "rate-limited" ? 33 : mutation == "aborted" ? 139 : 143;
+        return new(status, code, reads, redemptions, bytes);
+    }
+
+    internal sealed class TestNativeStageRaceProbe(
+        RuntimeBridgeSyntheticTestCapability capability,
+        RuntimeBridgeNativeStageAttack attack) : IRuntimeBridgeOwnedStageRaceProbe
     {
         public RuntimeBridgeSyntheticTestCapability Capability { get; } = capability;
         internal int ProbeCount { get; private set; }
         internal int DeniedCount { get; private set; }
         internal int UnexpectedSuccessCount { get; private set; }
         internal List<string> UnexpectedOperations { get; } = [];
+        internal bool AttackApplied { get; private set; }
+        internal string? ForeignPath { get; private set; }
 
         public void Probe(string operation, string path)
         {
+            if (attack != RuntimeBridgeNativeStageAttack.Rename && (AttackApplied || !Applies(operation, attack))) return;
             ProbeCount++;
+            AttackApplied = true;
             var replacement = path + ".race-substitute";
             try
             {
-                if (Directory.Exists(path)) Directory.Move(path, replacement);
-                else File.Move(path, replacement);
+                switch (attack)
+                {
+                    case RuntimeBridgeNativeStageAttack.Rename:
+                        if (Directory.Exists(path)) Directory.Move(path, replacement); else File.Move(path, replacement);
+                        break;
+                    case RuntimeBridgeNativeStageAttack.SecondWriter:
+                        using (File.Open(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite)) { }
+                        break;
+                    case RuntimeBridgeNativeStageAttack.HardlinkAlias:
+                        if (!CreateHardLinkNative(replacement, path, IntPtr.Zero)) throw new IOException("native_hardlink_denied");
+                        ForeignPath = replacement; break;
+                    case RuntimeBridgeNativeStageAttack.SymbolicAlias:
+                        File.CreateSymbolicLink(replacement, path); ForeignPath = replacement; break;
+                    case RuntimeBridgeNativeStageAttack.JunctionAlias:
+                        Directory.CreateSymbolicLink(replacement, path); ForeignPath = replacement; break;
+                    case RuntimeBridgeNativeStageAttack.FileDirectorySubstitution:
+                        File.Move(path, replacement); Directory.CreateDirectory(path); ForeignPath = path; break;
+                    case RuntimeBridgeNativeStageAttack.MarkerOverwrite:
+                        File.WriteAllBytes(path, [0xCC]); break;
+                    case RuntimeBridgeNativeStageAttack.UnexpectedDirectory:
+                        replacement = Path.Combine(path, "foreign-native-directory"); Directory.CreateDirectory(replacement); ForeignPath = replacement; break;
+                }
                 UnexpectedSuccessCount++;
                 UnexpectedOperations.Add(operation + ":" + (Directory.Exists(replacement) ? "directory" : "file"));
-                if (Directory.Exists(replacement)) Directory.Move(replacement, path);
-                else if (File.Exists(replacement)) File.Move(replacement, path);
+                if (attack == RuntimeBridgeNativeStageAttack.Rename)
+                {
+                    if (Directory.Exists(replacement)) Directory.Move(replacement, path);
+                    else if (File.Exists(replacement)) File.Move(replacement, path);
+                }
             }
             catch (IOException) { DeniedCount++; }
             catch (UnauthorizedAccessException) { DeniedCount++; }
+            catch (PlatformNotSupportedException) { DeniedCount++; }
         }
+
+        private static bool Applies(string operation, RuntimeBridgeNativeStageAttack value) => value switch
+        {
+            RuntimeBridgeNativeStageAttack.MarkerOverwrite => operation == "marker-registered-before-write",
+            RuntimeBridgeNativeStageAttack.JunctionAlias => operation == "directory-created-before-registration",
+            RuntimeBridgeNativeStageAttack.UnexpectedDirectory => operation == "cleanup-after-validation-before-dispose",
+            RuntimeBridgeNativeStageAttack.Rename => operation == "stage-created-and-handle-bound",
+            _ => operation == "file-registered-before-write"
+        };
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CreateHardLinkNative(string fileName, string existingFileName, IntPtr securityAttributes);
     }
 
     internal RuntimeBridgeInvocation Invocation(
@@ -263,7 +415,13 @@ internal sealed class RuntimeBridgeTestHarness
             Now, ArtifactTransport, LicenseTransport, CursorGenerator, WriteSink, WhatIf, Approval, Handler, Recovery);
         return bridge.RunAsync(Invocation()).GetAwaiter().GetResult();
     }
-    internal void Dispose() { if (Directory.Exists(WorkspaceRoot)) Directory.Delete(WorkspaceRoot, recursive: true); }
+    internal void Dispose()
+    {
+        if (!Directory.Exists(WorkspaceRoot)) return;
+        try { Directory.Delete(WorkspaceRoot, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 
     internal sealed class TestOwnedStageStore : IRuntimeBridgeOwnedStageStore
     {
@@ -338,6 +496,16 @@ internal sealed class RuntimeBridgeTestHarness
                     (actual.Kind == "file" && actual.LinkCount != 1))
                     throw new InvalidDataException("portable_stage_component_substitution");
             }
+        }
+
+        public void AssertComplete(RuntimeBridgeOwnedStageLease lease)
+        {
+            AssertOwned(lease);
+            var current = state!;
+            if (current.Owned.Count != current.Predeclared.Count + 1 ||
+                current.Predeclared.Any(item => !current.Owned.TryGetValue(item.Key, out var node) ||
+                    (node.Kind == "directory") != item.Value))
+                throw new InvalidDataException("portable_stage_inventory_incomplete");
         }
 
         public void CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath)
@@ -628,7 +796,8 @@ internal sealed class RuntimeBridgeTestHarness
         string workspaceRoot,
         List<string> trace,
         RuntimeBridgeTestFailure failure,
-        RuntimeBridgeHttpMutation? httpMutation) : IRuntimeBridgeArtifactTransport
+        RuntimeBridgeHttpMutation? httpMutation,
+        RuntimeBridgeReceiptNestedFault receiptNestedFault) : IRuntimeBridgeArtifactTransport
     {
         private bool httpMutationApplied;
         private readonly Dictionary<string, int> rangeIndexes = new(StringComparer.Ordinal)
@@ -873,8 +1042,36 @@ internal sealed class RuntimeBridgeTestHarness
             };
             ReceiptReplayProbeCount = 1;
             ReceiptReplayStatusCode = 200;
+            if (receiptNestedFault != RuntimeBridgeReceiptNestedFault.None)
+                receipt = MutateReceiptNested(receipt, receiptNestedFault);
             LastReceipt = ShouldMutate(RuntimeBridgeHttpOperation.Receipt) ? MutateReceipt(receipt, httpMutation!.Fault) : receipt;
             return LastReceipt;
+        }
+
+        private static RuntimeBridgeArtifactReceipt MutateReceiptNested(RuntimeBridgeArtifactReceipt receipt, RuntimeBridgeReceiptNestedFault fault)
+        {
+            var request = JsonNode.Parse(receipt.RequestBodyUtf8)!.AsObject();
+            var response = JsonNode.Parse(receipt.ResponseBodyUtf8)!.AsObject();
+            switch (fault)
+            {
+                case RuntimeBridgeReceiptNestedFault.RequestArtifactsExtra: request["artifacts"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.RequestArtifactExtra: request["artifacts"]!["api"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.RequestArtifactItemWrong: request["artifacts"]!["api"]!["bytesReceived"] = 1014; break;
+                case RuntimeBridgeReceiptNestedFault.RequestSafeResultExtra: request["safeResult"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.RequestSafeResultWrong: request["safeResult"]!["state"] = "failed"; break;
+                case RuntimeBridgeReceiptNestedFault.ResponseReceiptExtra: response["receipt"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.ResponseArtifactsExtra: response["receipt"]!["artifacts"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.ResponseArtifactExtra: response["receipt"]!["artifacts"]!["portal"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.ResponseSafeResultExtra: response["receipt"]!["safeResult"]!["extra"] = JsonValue.Create("forbidden"); break;
+                case RuntimeBridgeReceiptNestedFault.ResponseSafeResultWrong: response["receipt"]!["safeResult"]!["code"] = "wrong"; break;
+            }
+            using var requestDocument = JsonDocument.Parse(request.ToJsonString());
+            using var responseDocument = JsonDocument.Parse(response.ToJsonString());
+            return receipt with
+            {
+                RequestBodyUtf8 = PrivateRuntimeCanonicalJson.Canonicalize(requestDocument.RootElement),
+                ResponseBodyUtf8 = PrivateRuntimeCanonicalJson.Canonicalize(responseDocument.RootElement)
+            };
         }
 
         private bool ShouldMutate(RuntimeBridgeHttpOperation operation)

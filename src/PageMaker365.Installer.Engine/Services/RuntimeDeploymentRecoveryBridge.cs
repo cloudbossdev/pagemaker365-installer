@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -35,6 +36,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
     private readonly IRuntimeBridgeRecovery recovery;
     private readonly IRuntimeBridgeOwnedStageStore stageStore;
     private readonly IRuntimeBridgeOwnedStageRaceProbe? stageRaceProbe;
+    private readonly IRuntimeBridgeCancellationProbe? cancellationProbe;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<string, CachedInvocation> completed = new(StringComparer.Ordinal);
     private readonly Dictionary<string, OwnedStageState> ownedStages = new(StringComparer.OrdinalIgnoreCase);
@@ -54,7 +56,8 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         IRuntimeBridgeSyntheticHandler handler,
         IRuntimeBridgeRecovery recovery,
         IRuntimeBridgeOwnedStageStore? stageStore = null,
-        IRuntimeBridgeOwnedStageRaceProbe? stageRaceProbe = null)
+        IRuntimeBridgeOwnedStageRaceProbe? stageRaceProbe = null,
+        IRuntimeBridgeCancellationProbe? cancellationProbe = null)
     {
         this.capability = capability ?? throw new ArgumentNullException(nameof(capability));
         packageService = new PrivateRuntimeDeliveryV07PackageService(catalog ?? throw new ArgumentNullException(nameof(catalog)));
@@ -79,6 +82,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         this.recovery = RequireSeam(recovery);
         this.stageStore = stageStore is null ? this : RequireSeam(stageStore);
         this.stageRaceProbe = stageRaceProbe is null ? null : RequireSeam(stageRaceProbe);
+        this.cancellationProbe = cancellationProbe is null ? null : RequireSeam(cancellationProbe);
     }
 
     RuntimeBridgeSyntheticTestCapability IRuntimeBridgeSyntheticTestSeam.Capability => capability;
@@ -125,7 +129,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var package = packageService.ValidateJson(invocation.CanonicalPackageJson, packageTrust, now);
+            var package = AtBoundary(cancellationToken, () => packageService.ValidateJson(invocation.CanonicalPackageJson, packageTrust, now));
             ValidateProjectedLicenseTrust(package);
             evidenceState.PackageHash = package.PackageHash;
             evidenceState.ProjectionSha256 = package.RuntimeConfiguration.ProjectionSha256;
@@ -133,10 +137,10 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             evidenceState.DeploymentExportId = package.DeploymentExportId;
             evidenceState.ReleaseId = package.ReleaseId;
             evidenceState.RuntimeVersion = package.RuntimeVersion;
-            var preliminary = application.CreateDeploymentInput(invocation.CanonicalPackageJson, enabled: true);
+            var preliminary = AtBoundary(cancellationToken, () => application.CreateDeploymentInput(invocation.CanonicalPackageJson, enabled: true));
             trace.Add("package-authorized");
 
-            var session = artifacts.CreateSession(package, cancellationToken);
+            var session = AtBoundary(cancellationToken, () => artifacts.CreateSession(package, cancellationToken));
             if (session.SessionId != "rds_SYNTHETIC_W09_REHEARSAL_0001" ||
                 session.ExpiresAt != DateTimeOffset.Parse("2099-08-30T12:00:00.000Z") ||
                 session.Method != "POST" || session.Path != "/api/onboarding/installer/runtime-delivery-sessions" ||
@@ -154,7 +158,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             };
             trace.Add("artifact-protocol-validated");
             var verified = prepared.Select(item => item.Verified).ToArray();
-            var artifactReceipt = artifacts.SubmitReceipt(package, session, verified, cancellationToken);
+            var artifactReceipt = AtBoundary(cancellationToken, () => artifacts.SubmitReceipt(package, session, verified, cancellationToken));
             if (artifactReceipt.SessionId != session.SessionId || artifactReceipt.PackageHash != package.PackageHash ||
                 artifactReceipt.Status != "completed" || artifactReceipt.MutationCount != 1 ||
                 artifactReceipt.Method != "POST" || artifactReceipt.Path != "/api/onboarding/installer/runtime-delivery-receipts" ||
@@ -170,9 +174,9 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             if (!ValidateReceiptResponseBody(artifactReceipt.ResponseBodyUtf8, session, package)) Fail("runtime_bridge_artifact_receipt_response_invalid");
             trace.Add("receipt-response-validated");
             var inventory = prepared.SelectMany(item => item.Inventory).ToArray();
-            stage = stageStore.Create(invocation.WorkspaceRoot, invocation.InvocationId, inventory);
-            foreach (var artifact in prepared) StageArtifact(stage, artifact);
-            stageStore.AssertOwned(stage);
+            stage = AtBoundary(cancellationToken, () => stageStore.Create(invocation.WorkspaceRoot, invocation.InvocationId, inventory));
+            foreach (var artifact in prepared) StageArtifact(stage, artifact, cancellationToken);
+            AtBoundary(cancellationToken, () => stageStore.AssertComplete(stage));
             trace.Add("artifacts-verified");
             evidenceState.ArtifactIdentitySha256 = ArtifactIdentity(verified);
 
@@ -180,11 +184,11 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             var provisional = CreateProvisional(package, preliminary, pending, verified);
             var firstRequest = new RuntimeBridgeWhatIfRequest(
                 "provisional", package.PackageHash, provisional.IntentSha256, ArtifactIdentity(verified), null, []);
-            var firstPreview = ValidatePreview(whatIf.Preview(firstRequest, cancellationToken), firstRequest);
+            var firstPreview = ValidatePreview(AtBoundary(cancellationToken, () => whatIf.Preview(firstRequest, cancellationToken)), firstRequest);
             whatIfCount++;
             evidenceState.PreviewSha256s.Add(firstPreview.PreviewSha256);
             var firstChallenge = Challenge("provisional", package, provisional.IntentSha256, firstPreview, verified, provisional.RecoveryPlanSha256, null, []);
-            var firstApproval = ValidateApproval(approvals.Approve(firstChallenge, cancellationToken), firstChallenge);
+            var firstApproval = ValidateApproval(AtBoundary(cancellationToken, () => approvals.Approve(firstChallenge, cancellationToken)), firstChallenge);
             approvalCount++;
             var firstApprovalBinding = StableApprovalBinding(firstChallenge);
             evidenceState.ApprovalSha256s.Add(firstApprovalBinding);
@@ -193,7 +197,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             // D-017 authority: the at-most-once license acquisition/write precedes cursor generation/write.
             licenseAcquisitions++;
             var licenseDescriptor = pending.Single(item => item.Name == "API_LICENSE_SIGNED_PAYLOAD");
-            var response = licenses.AcquireOnce(package, session, licenseDescriptor, cancellationToken);
+            var response = AtBoundary(cancellationToken, () => licenses.AcquireOnce(package, session, licenseDescriptor, cancellationToken));
             try
             {
                 ValidateLicenseResponse(package, licenseDescriptor, response);
@@ -201,10 +205,10 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
                 ValidateSignedLicense(package, response.SignedLicenseUtf8);
                 trace.Add("license-signed-validated");
                 var licenseDigest = Sha256(response.SignedLicenseUtf8);
-                licenseReceipt = ValidateReceipt(writes.Write(new RuntimeBridgeProtectedWriteRequest(
+                licenseReceipt = ValidateReceipt(AtBoundary(cancellationToken, () => writes.Write(new RuntimeBridgeProtectedWriteRequest(
                     licenseDescriptor.Name, licenseDescriptor.Mode, licenseDescriptor.Reference.VaultResourceId,
                     licenseDescriptor.Reference.SecretName, package.PackageHash, firstApprovalBinding,
-                    response.SignedLicenseUtf8), cancellationToken), package, licenseDescriptor, firstApprovalBinding, licenseDigest);
+                    response.SignedLicenseUtf8), cancellationToken)), package, licenseDescriptor, firstApprovalBinding, licenseDigest);
             }
             finally
             {
@@ -215,44 +219,45 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
 
             var cursorDescriptor = pending.Single(item => item.Name == "API_IMAGE_ASSET_CURSOR_SECRET");
             var cursorCallback = new CursorWriteCallback(package, cursorDescriptor, firstApprovalBinding, writes);
-            application.GenerateCursorSecret(invocation.CanonicalPackageJson, cursorGenerator, cursorCallback, enabled: true, cancellationToken);
+            AtBoundary(cancellationToken, () => application.GenerateCursorSecret(invocation.CanonicalPackageJson, cursorGenerator, cursorCallback, enabled: true, cancellationToken));
             cursorReceipt = cursorCallback.Receipt ?? throw new InvalidDataException("runtime_bridge_cursor_receipt_missing");
             trace.Add("cursor-written-second");
             evidenceState.ReceiptIdentitySha256s.Add(ReceiptIdentity(cursorReceipt));
 
-            var finalInput = application.FinalizeDeploymentInput(invocation.CanonicalPackageJson, licenseReceipt, cursorReceipt, enabled: true);
+            var finalInput = AtBoundary(cancellationToken, () => application.FinalizeDeploymentInput(invocation.CanonicalPackageJson, licenseReceipt, cursorReceipt, enabled: true));
             if (finalInput.ApiPublicSettings.Count + finalInput.PortalPublicSettings.Count != 42 ||
                 finalInput.ApiVersionedProtectedSettingReferences.Count != 4)
                 Fail("runtime_bridge_final_input_shape");
             var receipts = new[] { ReceiptIdentity(licenseReceipt), ReceiptIdentity(cursorReceipt) };
             var secondRequest = new RuntimeBridgeWhatIfRequest(
                 "final", package.PackageHash, finalInput.InputSha256, ArtifactIdentity(verified), firstApprovalBinding, receipts);
-            var secondPreview = ValidatePreview(whatIf.Preview(secondRequest, cancellationToken), secondRequest);
+            var secondPreview = ValidatePreview(AtBoundary(cancellationToken, () => whatIf.Preview(secondRequest, cancellationToken)), secondRequest);
             whatIfCount++;
             evidenceState.PreviewSha256s.Add(secondPreview.PreviewSha256);
             var secondChallenge = Challenge("final", package, finalInput.InputSha256, secondPreview, verified, provisional.RecoveryPlanSha256, firstApprovalBinding, receipts);
-            var secondApproval = ValidateApproval(approvals.Approve(secondChallenge, cancellationToken), secondChallenge);
+            var secondApproval = ValidateApproval(AtBoundary(cancellationToken, () => approvals.Approve(secondChallenge, cancellationToken)), secondChallenge);
             approvalCount++;
             var secondApprovalBinding = StableApprovalBinding(secondChallenge);
             evidenceState.ApprovalSha256s.Add(secondApprovalBinding);
             if (secondApproval.ApprovalId == firstApproval.ApprovalId || secondApproval.ApprovalDigest == firstApproval.ApprovalDigest)
                 Fail("runtime_bridge_approval_reuse");
 
-            var simulation = handler.Simulate(new RuntimeBridgeSimulationRequest(
+            var simulation = AtBoundary(cancellationToken, () => handler.Simulate(new RuntimeBridgeSimulationRequest(
                 package.PackageHash, finalInput.InputSha256, secondPreview.PreviewSha256,
-                secondApprovalBinding, verified, AuthorizesDeployment: false), cancellationToken);
+                secondApprovalBinding, verified, AuthorizesDeployment: false), cancellationToken));
             handlerCount++;
             ValidateSimulationResult(simulation, package.PackageHash, finalInput.InputSha256, secondPreview.PreviewSha256,
                 secondApprovalBinding, verified);
             evidenceState.HandlerResultSha256 = simulation.ResultSha256;
             simulationAccepted = true;
             trace.Add("handler-simulated");
-            var cleaned = stageStore.Cleanup(stage);
+            var cleaned = AtBoundary(cancellationToken, () => stageStore.Cleanup(stage));
             if (!cleaned)
                 return Result("cleanup-required", "runtime_deployment_recovery_stage_cleanup_required", trace, [], null, false,
                     licenseAcquisitions, 2, whatIfCount, approvalCount, handlerCount, 0, evidenceState: evidenceState);
-            return Result("simulated", "runtime_deployment_recovery_rehearsal_completed", trace, [], finalInput, true,
-                licenseAcquisitions, 2, whatIfCount, approvalCount, handlerCount, 0, evidenceState: evidenceState);
+            var successful = AtBoundary(cancellationToken, () => Result("simulated", "runtime_deployment_recovery_rehearsal_completed", trace, [], finalInput, true,
+                licenseAcquisitions, 2, whatIfCount, approvalCount, handlerCount, 0, evidenceState: evidenceState));
+            return successful;
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
@@ -271,7 +276,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             {
                 try
                 {
-                    var result = recovery.Recover(receipt, CancellationToken.None);
+                    var result = AtBoundary(CancellationToken.None, () => recovery.Recover(receipt, CancellationToken.None));
                     if (result.ReceiptId != receipt.ReceiptId || result.Status != "recovered" || result.RecoveryCount != 1)
                         throw new InvalidDataException("runtime_bridge_recovery_invalid");
                     recoveries.Add(result);
@@ -283,7 +288,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
                     unrecovered.Add(receipt);
                 }
             }
-            var cleaned = stage is null || stageStore.Cleanup(stage);
+            var cleaned = stage is null || AtBoundary(CancellationToken.None, () => stageStore.Cleanup(stage));
             var ambiguity = error is RuntimeBridgeTerminalAmbiguityException;
             return Result(unrecovered.Count > 0 ? "recovery-required" : !cleaned ? "cleanup-required" : "failed",
                 unrecovered.Count > 0 ? "runtime_deployment_recovery_required" : !cleaned ? "runtime_deployment_recovery_stage_cleanup_required" :
@@ -306,7 +311,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             Path = $"/api/onboarding/installer/runtime-artifacts/{kind}",
             OrderedHeaders = ArtifactRequestHeaders(session.SessionId, reference, etag, null)
         };
-        var full = artifacts.Acquire(package, session, fullRequest, cancellationToken);
+        var full = AtBoundary(cancellationToken, () => artifacts.Acquire(package, session, fullRequest, cancellationToken));
         var bodyFile = $"artifacts/{kind}.zip";
         if (!full.NoRedirect || full.IsRange || full.StatusCode != 200 || full.VectorId != fullRequest.VectorId ||
             full.ArtifactReference != reference || full.PackageHash != package.PackageHash || full.SessionId != session.SessionId ||
@@ -329,7 +334,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
                 Path = $"/api/onboarding/installer/runtime-artifacts/{kind}",
                 OrderedHeaders = ArtifactRequestHeaders(session.SessionId, reference, etag, rangeValue)
             };
-            var range = artifacts.Acquire(package, session, request, cancellationToken);
+            var range = AtBoundary(cancellationToken, () => artifacts.Acquire(package, session, request, cancellationToken));
             if (!range.NoRedirect || !range.IsRange || range.StatusCode != 206 || range.VectorId != request.VectorId ||
                 range.ArtifactReference != reference || range.PackageHash != package.PackageHash || range.SessionId != session.SessionId ||
                 range.ETag != etag || range.AcceptRanges != "bytes" ||
@@ -349,6 +354,8 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             !FixedHexEquals(Sha256(reconstructedBytes), expected.Sha256))
             Fail("runtime_bridge_artifact_range_reconstruction_invalid");
 
+        ValidateExactZipStructure(acceptedBody);
+        cancellationToken.ThrowIfCancellationRequested();
         var entries = 0;
         var treeRows = new List<(string Path, string Hash)>();
         var extracted = new List<PreparedEntry>();
@@ -367,8 +374,10 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
                     Fail("runtime_bridge_archive_invalid");
                 if (entry.FullName.Contains(':', StringComparison.Ordinal) || entry.FullName.Contains('\\', StringComparison.Ordinal))
                     Fail("runtime_bridge_archive_invalid");
+                cancellationToken.ThrowIfCancellationRequested();
                 using var input = entry.Open();
                 using var output = new MemoryStream(); input.CopyTo(output);
+                cancellationToken.ThrowIfCancellationRequested();
                 var entryBytes = output.ToArray();
                 extracted.Add(new PreparedEntry(relative, entryBytes));
                 treeRows.Add(($"{entry.FullName}", Sha256(entryBytes)));
@@ -422,13 +431,113 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         return result;
     }
 
-    private void StageArtifact(RuntimeBridgeOwnedStageLease stage, PreparedArtifact artifact)
+    internal static void ValidateExactZipStructure(ReadOnlySpan<byte> archive)
     {
-        stageStore.AssertOwned(stage);
-        stageStore.WriteFileExclusive(stage, artifact.Verified.FileName, artifact.ArchiveBytes);
-        stageStore.CreateDirectoryExclusive(stage, artifact.Verified.ArtifactKind);
+        const uint LocalSignature = 0x04034b50;
+        const uint CentralSignature = 0x02014b50;
+        const uint EocdSignature = 0x06054b50;
+        const ushort Utf8Flag = 0x0800;
+        const uint RegularFileMode = 0x81A40000;
+        if (archive.Length < 22) Fail("runtime_bridge_archive_eocd_invalid");
+        var eocd = archive.Length - 22;
+        if (U32(archive, eocd) != EocdSignature || U16(archive, eocd + 4) != 0 || U16(archive, eocd + 6) != 0 ||
+            U16(archive, eocd + 8) != U16(archive, eocd + 10) || U16(archive, eocd + 10) is 0 or > 128 ||
+            U16(archive, eocd + 20) != 0)
+            Fail("runtime_bridge_archive_eocd_invalid");
+        var entryCount = U16(archive, eocd + 10);
+        var centralSize = U32(archive, eocd + 12);
+        var centralOffset = U32(archive, eocd + 16);
+        if (centralOffset > int.MaxValue || centralSize > int.MaxValue || centralOffset + centralSize != eocd)
+            Fail("runtime_bridge_archive_eocd_invalid");
+
+        var centralCursor = checked((int)centralOffset);
+        var expectedLocalOffset = 0;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < entryCount; index++)
+        {
+            RequireAvailable(archive, centralCursor, 46, "runtime_bridge_archive_central_invalid");
+            if (U32(archive, centralCursor) != CentralSignature || U16(archive, centralCursor + 4) != 0x0314 ||
+                U16(archive, centralCursor + 6) != 20 || U16(archive, centralCursor + 8) != Utf8Flag ||
+                U16(archive, centralCursor + 10) != 0 || U16(archive, centralCursor + 12) != 0 || U16(archive, centralCursor + 14) != 0 ||
+                U16(archive, centralCursor + 30) != 0 || U16(archive, centralCursor + 32) != 0 || U16(archive, centralCursor + 34) != 0 ||
+                U16(archive, centralCursor + 36) != 0 || U32(archive, centralCursor + 38) != RegularFileMode)
+                Fail("runtime_bridge_archive_central_invalid");
+            var crc = U32(archive, centralCursor + 16);
+            var compressed = U32(archive, centralCursor + 20);
+            var expanded = U32(archive, centralCursor + 24);
+            var nameLength = U16(archive, centralCursor + 28);
+            var localOffset = U32(archive, centralCursor + 42);
+            if (compressed != expanded || expanded > 4 * 1024 * 1024 || nameLength == 0 || localOffset != expectedLocalOffset)
+                Fail("runtime_bridge_archive_central_invalid");
+            RequireAvailable(archive, centralCursor + 46, nameLength, "runtime_bridge_archive_central_invalid");
+            var centralNameBytes = archive.Slice(centralCursor + 46, nameLength);
+            var name = DecodeZipName(centralNameBytes);
+            if (!names.Add(name)) Fail("runtime_bridge_archive_duplicate_entry");
+
+            var local = checked((int)localOffset);
+            RequireAvailable(archive, local, 30, "runtime_bridge_archive_local_invalid");
+            if (U32(archive, local) != LocalSignature || U16(archive, local + 4) != 20 || U16(archive, local + 6) != Utf8Flag ||
+                U16(archive, local + 8) != 0 || U16(archive, local + 10) != 0 || U16(archive, local + 12) != 0 ||
+                U32(archive, local + 14) != crc || U32(archive, local + 18) != compressed || U32(archive, local + 22) != expanded ||
+                U16(archive, local + 26) != nameLength || U16(archive, local + 28) != 0)
+                Fail("runtime_bridge_archive_local_invalid");
+            RequireAvailable(archive, local + 30, checked(nameLength + (int)compressed), "runtime_bridge_archive_local_invalid");
+            if (!archive.Slice(local + 30, nameLength).SequenceEqual(centralNameBytes)) Fail("runtime_bridge_archive_name_mismatch");
+            var content = archive.Slice(local + 30 + nameLength, checked((int)compressed));
+            if (Crc32(content) != crc) Fail("runtime_bridge_archive_crc_invalid");
+            expectedLocalOffset = checked(local + 30 + nameLength + (int)compressed);
+            centralCursor = checked(centralCursor + 46 + nameLength);
+        }
+        if (expectedLocalOffset != centralOffset || centralCursor != eocd) Fail("runtime_bridge_archive_layout_invalid");
+    }
+
+    private static string DecodeZipName(ReadOnlySpan<byte> bytes)
+    {
+        string name;
+        try { name = new UTF8Encoding(false, true).GetString(bytes); }
+        catch (DecoderFallbackException) { Fail("runtime_bridge_archive_name_invalid"); throw; }
+        if (name.Length == 0 || name.StartsWith("/", StringComparison.Ordinal) || name.EndsWith("/", StringComparison.Ordinal) ||
+            name.Contains('\\') || name.Contains(':') || name.Contains('\0') ||
+            name.Split('/').Any(part => part is "" or "." or ".."))
+            Fail("runtime_bridge_archive_name_invalid");
+        return name;
+    }
+
+    private static void RequireAvailable(ReadOnlySpan<byte> value, int offset, int length, string code)
+    {
+        if (offset < 0 || length < 0 || offset > value.Length - length) Fail(code);
+    }
+
+    private static ushort U16(ReadOnlySpan<byte> value, int offset)
+    {
+        RequireAvailable(value, offset, 2, "runtime_bridge_archive_truncated");
+        return BinaryPrimitives.ReadUInt16LittleEndian(value[offset..]);
+    }
+
+    private static uint U32(ReadOnlySpan<byte> value, int offset)
+    {
+        RequireAvailable(value, offset, 4, "runtime_bridge_archive_truncated");
+        return BinaryPrimitives.ReadUInt32LittleEndian(value[offset..]);
+    }
+
+    private static uint Crc32(ReadOnlySpan<byte> value)
+    {
+        var crc = uint.MaxValue;
+        foreach (var item in value)
+        {
+            crc ^= item;
+            for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xEDB88320u & (uint)-(int)(crc & 1));
+        }
+        return ~crc;
+    }
+
+    private void StageArtifact(RuntimeBridgeOwnedStageLease stage, PreparedArtifact artifact, CancellationToken cancellationToken)
+    {
+        AtBoundary(cancellationToken, () => stageStore.AssertOwned(stage));
+        AtBoundary(cancellationToken, () => stageStore.WriteFileExclusive(stage, artifact.Verified.FileName, artifact.ArchiveBytes));
+        AtBoundary(cancellationToken, () => stageStore.CreateDirectoryExclusive(stage, artifact.Verified.ArtifactKind));
         foreach (var entry in artifact.Entries)
-            stageStore.WriteFileExclusive(stage, entry.RelativePath, entry.Bytes);
+            AtBoundary(cancellationToken, () => stageStore.WriteFileExclusive(stage, entry.RelativePath, entry.Bytes));
     }
 
     private static RuntimeBridgeProvisionalIntent CreateProvisional(PrivateRuntimeDeliveryPackageV07 package, RuntimeConfigurationApplicationV2DeploymentInput input,
@@ -648,6 +757,15 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
     void IRuntimeBridgeOwnedStageStore.AssertOwned(RuntimeBridgeOwnedStageLease lease) =>
         AssertOwnedStage(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker);
 
+    void IRuntimeBridgeOwnedStageStore.AssertComplete(RuntimeBridgeOwnedStageLease lease)
+    {
+        AssertOwnedStage(lease.TrustedRoot, lease.StageRoot, lease.OwnershipMarker);
+        if (!ownedStages.TryGetValue(lease.StageRoot, out var state) || state is null ||
+            state.OwnedPaths.Count != state.DeclaredPaths.Count + 1 ||
+            state.DeclaredPaths.Any(item => !state.OwnedPaths.ContainsKey(item.Key)))
+            Fail("runtime_bridge_stage_inventory_incomplete");
+    }
+
     void IRuntimeBridgeOwnedStageStore.CreateDirectoryExclusive(RuntimeBridgeOwnedStageLease lease, string relativePath)
     {
         RequireSafeRelative(relativePath);
@@ -684,19 +802,16 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         var markerPath = Path.Combine(stageRoot, ".pm365-owned");
         try
         {
-            using (var stream = new FileStream(markerPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            var stageHandle = OpenOwnershipHandle(stageRoot, isDirectory: true);
+            var markerHandle = CreateFileNative(markerPath, 0x80000000u | 0x40000000u | 0x80u | 0x00010000u, 0, IntPtr.Zero, 1,
+                0x80u | 0x80000000u | 0x00200000u, IntPtr.Zero);
+            if (markerHandle.IsInvalid) Fail("runtime_bridge_stage_marker_create");
+            var markerIdentity = IdentityFromHandle(markerHandle, isDirectory: false);
+            var identities = new Dictionary<string, FileIdentity>(StringComparer.OrdinalIgnoreCase) { [markerPath] = markerIdentity };
+            var ownershipHandles = new Dictionary<string, SafeFileHandle>(StringComparer.OrdinalIgnoreCase)
             {
-                stream.Write(marker);
-                stream.Flush(flushToDisk: true);
-            }
-            var identities = new Dictionary<string, FileIdentity>(StringComparer.OrdinalIgnoreCase)
-            {
-                [markerPath] = GetIdentity(markerPath, isDirectory: false)
-            };
-            var ownershipHandles = new List<SafeFileHandle>
-            {
-                OpenOwnershipHandle(stageRoot, isDirectory: true),
-                OpenOwnershipHandle(markerPath, isDirectory: false)
+                [stageRoot] = stageHandle,
+                [markerPath] = markerHandle
             };
             var declared = inventory.Select(item =>
             {
@@ -705,7 +820,11 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             }).ToDictionary(item => item.Item1, item => item.IsDirectory, StringComparer.OrdinalIgnoreCase);
             if (declared.Count != inventory.Count) Fail("runtime_bridge_stage_inventory_invalid");
             ownedStages.Add(stageRoot, new OwnedStageState(invocationId, marker.ToArray(), GetIdentity(trustedRoot, isDirectory: true),
-                GetIdentity(stageRoot, isDirectory: true), identities, declared, ownershipHandles));
+                IdentityFromHandle(stageHandle, isDirectory: true), identities, declared, ownershipHandles));
+            stageRaceProbe?.Probe("stage-created-and-handle-bound", stageRoot);
+            stageRaceProbe?.Probe("marker-registered-before-write", markerPath);
+            RandomAccess.Write(markerHandle, marker, 0);
+            RandomAccess.FlushToDisk(markerHandle);
             AssertOwnedStage(trustedRoot, stageRoot, marker);
             return stageRoot;
         }
@@ -728,21 +847,27 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         if (GetIdentity(fullRoot, isDirectory: true) != state.RootIdentity || GetIdentity(fullStage, isDirectory: true) != state.StageIdentity)
             Fail("runtime_bridge_stage_identity_changed");
         var markerPath = Path.Combine(fullStage, ".pm365-owned");
-        if (!File.Exists(markerPath) || (File.GetAttributes(markerPath) & FileAttributes.ReparsePoint) != 0)
+        if (!File.Exists(markerPath))
             Fail("runtime_bridge_stage_ownership_invalid");
-        var actualMarker = File.ReadAllBytes(markerPath);
+        var markerHandle = state.OwnershipHandles.TryGetValue(markerPath, out var retainedMarker) && retainedMarker is not null
+            ? retainedMarker : throw new InvalidDataException("runtime_bridge_stage_ownership_invalid");
+        var actualMarker = new byte[marker.Length];
         try
         {
-            if (actualMarker.Length != marker.Length || !CryptographicOperations.FixedTimeEquals(actualMarker, marker))
+            var read = RandomAccess.Read(markerHandle, actualMarker, 0);
+            if (read != marker.Length || RandomAccess.GetLength(markerHandle) != marker.Length ||
+                !CryptographicOperations.FixedTimeEquals(actualMarker, marker))
                 Fail("runtime_bridge_stage_ownership_invalid");
         }
         finally { CryptographicOperations.ZeroMemory(actualMarker); }
         foreach (var path in Directory.EnumerateFileSystemEntries(fullStage, "*", SearchOption.AllDirectories))
         {
-            AssertSafeComponents(path);
             if (!state.OwnedPaths.TryGetValue(path, out var expectedIdentity)) Fail("runtime_bridge_stage_unexpected_path");
+            var ownedHandle = state.OwnershipHandles.TryGetValue(path, out var retained) && retained is not null
+                ? retained : throw new InvalidDataException("runtime_bridge_stage_unexpected_path");
             var isDirectory = Directory.Exists(path);
-            if (GetIdentity(path, isDirectory) != expectedIdentity) Fail("runtime_bridge_stage_identity_changed");
+            AssertSafeComponents(isDirectory ? path : Path.GetDirectoryName(path)!);
+            if (IdentityFromHandle(ownedHandle, isDirectory) != expectedIdentity) Fail("runtime_bridge_stage_identity_changed");
         }
     }
 
@@ -766,14 +891,14 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         AssertOwnedStage(trustedRoot, stageRoot, marker);
         AssertPathUnderStage(stageRoot, path);
         AssertDeclared(stageRoot, path, isDirectory: false);
-        var handle = CreateFileNative(path, 0x40000000u | 0x80u, 0, IntPtr.Zero, 1, 0x80u | 0x80000000u | 0x00200000u, IntPtr.Zero);
+        var handle = CreateFileNative(path, 0x40000000u | 0x80u | 0x00010000u, 0, IntPtr.Zero, 1, 0x80u | 0x80000000u | 0x00200000u, IntPtr.Zero);
         if (handle.IsInvalid) Fail("runtime_bridge_stage_collision");
         try
         {
+            RegisterOwnedHandle(stageRoot, path, isDirectory: false, handle, retainHandle: true);
+            stageRaceProbe?.Probe("file-registered-before-write", path);
             RandomAccess.Write(handle, bytes, 0);
             RandomAccess.FlushToDisk(handle);
-            stageRaceProbe?.Probe("file-created-before-registration", path);
-            RegisterOwnedHandle(stageRoot, path, isDirectory: false, handle, retainHandle: true);
         }
         catch { handle.Dispose(); throw; }
         AssertOwnedStage(trustedRoot, stageRoot, marker);
@@ -835,11 +960,9 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         if (!ownedStages.TryGetValue(stageRoot, out var state) || state is null) Fail("runtime_bridge_stage_ownership_invalid");
         var full = Path.GetFullPath(path);
         AssertDeclared(stageRoot, full, isDirectory);
-        if (!GetFileInformationByHandle(handle, out var info) || (!isDirectory && info.NumberOfLinks != 1))
-            Fail("runtime_bridge_stage_identity_unavailable");
-        var identity = new FileIdentity(info.VolumeSerialNumber, ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow);
+        var identity = IdentityFromHandle(handle, isDirectory);
         if (!state!.OwnedPaths.TryAdd(full, identity)) Fail("runtime_bridge_stage_collision");
-        if (retainHandle) state.OwnershipHandles.Add(handle);
+        if (retainHandle && !state.OwnershipHandles.TryAdd(full, handle)) Fail("runtime_bridge_stage_collision");
     }
 
     private void AssertDeclared(string stageRoot, string path, bool isDirectory)
@@ -856,20 +979,26 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
             AssertOwnedStage(trustedRoot, path, marker);
             if (!ownedStages.TryGetValue(path, out var state)) return false;
             stageRaceProbe?.Probe("cleanup-after-validation-before-dispose", path);
-            foreach (var handle in state.OwnershipHandles) handle.Dispose();
-            state.OwnershipHandles.Clear();
+            foreach (var owned in state.OwnedPaths.Keys)
+                if (!state.OwnershipHandles.TryGetValue(owned, out var handle) ||
+                    IdentityFromHandle(handle, Directory.Exists(owned)) != state.OwnedPaths[owned]) return false;
+            foreach (var owned in state.OwnedPaths.Keys.Where(File.Exists).OrderByDescending(item => item.Length))
+                if (!DeleteOwnedHandle(state.OwnershipHandles[owned])) return false;
             foreach (var owned in state.OwnedPaths.Keys.Where(File.Exists).OrderByDescending(item => item.Length))
             {
-                if (GetIdentity(owned, isDirectory: false) != state.OwnedPaths[owned]) return false;
-                File.Delete(owned);
+                state.OwnershipHandles[owned].Dispose();
+                state.OwnershipHandles.Remove(owned);
             }
-            foreach (var owned in state.OwnedPaths.Keys.Where(Directory.Exists).OrderByDescending(item => item.Length))
+            foreach (var owned in state.OwnedPaths.Keys.Where(Directory.Exists).OrderByDescending(item => item.Count(c => c == Path.DirectorySeparatorChar)))
             {
-                if (GetIdentity(owned, isDirectory: true) != state.OwnedPaths[owned]) return false;
-                Directory.Delete(owned, recursive: false);
+                if (!DeleteOwnedHandle(state.OwnershipHandles[owned])) return false;
+                state.OwnershipHandles[owned].Dispose();
+                state.OwnershipHandles.Remove(owned);
             }
-            if (GetIdentity(path, isDirectory: true) != state.StageIdentity) return false;
-            Directory.Delete(path, recursive: false);
+            if (!state.OwnershipHandles.TryGetValue(path, out var stageHandle) || IdentityFromHandle(stageHandle, true) != state.StageIdentity ||
+                !DeleteOwnedHandle(stageHandle)) return false;
+            stageHandle.Dispose();
+            state.OwnershipHandles.Remove(path);
             ownedStages.Remove(path);
             CryptographicOperations.ZeroMemory(state.Marker);
             CryptographicOperations.ZeroMemory(marker);
@@ -890,9 +1019,22 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         if (!isDirectory && info.NumberOfLinks != 1) Fail("runtime_bridge_stage_hardlink_denied");
         return new FileIdentity(info.VolumeSerialNumber, ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow);
     }
+    private static FileIdentity IdentityFromHandle(SafeFileHandle handle, bool isDirectory)
+    {
+        var info = default(ByHandleFileInformation);
+        if (handle.IsInvalid || !GetFileInformationByHandle(handle, out info) ||
+            (info.FileAttributes & (uint)FileAttributes.ReparsePoint) != 0 || (!isDirectory && info.NumberOfLinks != 1))
+            Fail(!isDirectory && info.NumberOfLinks != 1 ? "runtime_bridge_stage_hardlink_denied" : "runtime_bridge_stage_identity_unavailable");
+        return new FileIdentity(info.VolumeSerialNumber, ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow);
+    }
+    private static bool DeleteOwnedHandle(SafeFileHandle handle)
+    {
+        var disposition = new FileDispositionInformation { DeleteFile = true };
+        return SetFileInformationByHandle(handle, 4, ref disposition, (uint)Marshal.SizeOf<FileDispositionInformation>());
+    }
     private static SafeFileHandle OpenOwnershipHandle(string path, bool isDirectory)
     {
-        var handle = CreateFileNative(path, isDirectory ? 0x80u | 0x00010000u : 0x80u, 0x1 | 0x2, IntPtr.Zero, 3,
+        var handle = CreateFileNative(path, 0x80u | 0x00010000u, 0x1 | 0x2, IntPtr.Zero, 3,
             isDirectory ? 0x02000000u | 0x00200000u : 0x00200000u, IntPtr.Zero);
         if (handle.IsInvalid) Fail("runtime_bridge_stage_identity_unavailable");
         return handle;
@@ -903,7 +1045,28 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetFileInformationByHandle(SafeFileHandle file, out ByHandleFileInformation information);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetFileInformationByHandle(SafeFileHandle file, int informationClass,
+        ref FileDispositionInformation information, uint bufferSize);
     private static string Sha256(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    private T AtBoundary<T>(CancellationToken cancellationToken, Func<T> operation)
+    {
+        cancellationProbe?.Probe("before");
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = operation();
+        cancellationProbe?.Probe("after");
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
+    }
+    private void AtBoundary(CancellationToken cancellationToken, Action operation)
+    {
+        cancellationProbe?.Probe("before");
+        cancellationToken.ThrowIfCancellationRequested();
+        operation();
+        cancellationProbe?.Probe("after");
+        cancellationToken.ThrowIfCancellationRequested();
+    }
     private static bool FixedHexEquals(string left, string right)
     {
         var leftBytes = Encoding.ASCII.GetBytes(left);
@@ -966,27 +1129,25 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
     {
         try
         {
-            using var document = JsonDocument.Parse(bytes);
-            if (!bytes.SequenceEqual(PrivateRuntimeCanonicalJson.Canonicalize(document.RootElement))) return false;
-            var root = document.RootElement;
-            var names = root.EnumerateObject().Select(item => item.Name).ToArray();
-            if (!names.SequenceEqual(new[] { "artifacts", "contractVersion", "deliverySessionId", "eventId", "idempotencyKey", "installerVersion", "manifestSha256", "occurredAt", "outcome", "packageHash", "releaseId", "safeResult" }, StringComparer.Ordinal)) return false;
-            if (root.GetProperty("contractVersion").GetString() != "pagemaker365.runtime-delivery-receipt.v1" ||
-                root.GetProperty("deliverySessionId").GetString() != session.SessionId || root.GetProperty("packageHash").GetString() != package.PackageHash ||
-                root.GetProperty("releaseId").GetString() != package.ReleaseId || root.GetProperty("manifestSha256").GetString() != package.ManifestSha256 ||
-                root.GetProperty("eventId").GetString() != "synthetic-w09-verified" || root.GetProperty("idempotencyKey").GetString() != "synthetic-w09-receipt" ||
-                root.GetProperty("occurredAt").GetString() != "2026-08-30T12:00:00.000Z" || root.GetProperty("installerVersion").GetString() != "0.0.0-synthetic" ||
-                root.GetProperty("outcome").GetString() != "completed") return false;
-            foreach (var artifact in artifacts)
+            if (artifacts.Count != 2) return false;
+            var api = artifacts.Single(item => item.ArtifactKind == "api");
+            var portal = artifacts.Single(item => item.ArtifactKind == "portal");
+            var expected = CanonicalizeSerialized(new
             {
-                var item = root.GetProperty("artifacts").GetProperty(artifact.ArtifactKind);
-                if (item.GetProperty("artifactKind").GetString() != artifact.ArtifactKind || item.GetProperty("sha256").GetString() != artifact.Sha256 ||
-                    item.GetProperty("sizeBytes").GetInt64() != artifact.SizeBytes || item.GetProperty("verificationOutcome").GetString() != "verified" ||
-                    item.GetProperty("fullStreamCount").GetInt32() != 1 || item.GetProperty("rangeRetryCount").GetInt32() != 0 ||
-                    item.GetProperty("bytesReceived").GetInt64() != artifact.SizeBytes) return false;
-            }
-            var safe = root.GetProperty("safeResult");
-            return safe.GetProperty("code").GetString() == "runtime_artifacts_verified" && safe.GetProperty("state").GetString() == "completed";
+                contractVersion = "pagemaker365.runtime-delivery-receipt.v1",
+                deliverySessionId = session.SessionId,
+                packageHash = package.PackageHash,
+                releaseId = package.ReleaseId,
+                manifestSha256 = package.ManifestSha256,
+                eventId = "synthetic-w09-verified",
+                idempotencyKey = "synthetic-w09-receipt",
+                occurredAt = "2026-08-30T12:00:00.000Z",
+                installerVersion = "0.0.0-synthetic",
+                outcome = "completed",
+                artifacts = new { api = ReceiptArtifact(api), portal = ReceiptArtifact(portal) },
+                safeResult = new { code = "runtime_artifacts_verified", state = "completed" }
+            });
+            return bytes.SequenceEqual(expected);
         }
         catch { return false; }
     }
@@ -994,19 +1155,60 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
     {
         try
         {
-            using var document = JsonDocument.Parse(bytes);
-            if (!bytes.SequenceEqual(PrivateRuntimeCanonicalJson.Canonicalize(document.RootElement))) return false;
-            var root = document.RootElement;
-            if (!root.EnumerateObject().Select(item => item.Name).SequenceEqual(new[] { "created", "ok", "receipt" }, StringComparer.Ordinal) ||
-                !root.GetProperty("ok").GetBoolean() || !root.GetProperty("created").GetBoolean()) return false;
-            var receipt = root.GetProperty("receipt");
-            return receipt.GetProperty("deliverySessionId").GetString() == session.SessionId &&
-                receipt.GetProperty("packageHash").GetString() == package.PackageHash && receipt.GetProperty("releaseId").GetString() == package.ReleaseId &&
-                receipt.GetProperty("eventId").GetString() == "synthetic-w09-verified" && receipt.GetProperty("occurredAt").GetString() == "2026-08-30T12:00:00.000Z" &&
-                receipt.GetProperty("installerVersion").GetString() == "0.0.0-synthetic" && receipt.GetProperty("outcome").GetString() == "completed" &&
-                receipt.GetProperty("createdAt").GetString() == "2026-08-30T12:00:00.000+00:00";
+            using var requestDocument = JsonDocument.Parse(ReceiptRequestBodyForResponse(package, session));
+            var request = requestDocument.RootElement;
+            var expected = CanonicalizeSerialized(new
+            {
+                ok = true,
+                created = true,
+                receipt = new
+                {
+                    deliverySessionId = session.SessionId,
+                    packageHash = package.PackageHash,
+                    releaseId = package.ReleaseId,
+                    eventId = "synthetic-w09-verified",
+                    occurredAt = "2026-08-30T12:00:00.000Z",
+                    installerVersion = "0.0.0-synthetic",
+                    outcome = "completed",
+                    artifacts = request.GetProperty("artifacts"),
+                    safeResult = request.GetProperty("safeResult"),
+                    createdAt = "2026-08-30T12:00:00.000+00:00"
+                }
+            });
+            return bytes.SequenceEqual(expected);
         }
         catch { return false; }
+    }
+
+    private static object ReceiptArtifact(RuntimeBridgeVerifiedArtifact artifact) => new
+    {
+        artifactKind = artifact.ArtifactKind,
+        sha256 = artifact.Sha256,
+        sizeBytes = artifact.SizeBytes,
+        verificationOutcome = "verified",
+        fullStreamCount = 1,
+        rangeRetryCount = 0,
+        bytesReceived = artifact.SizeBytes
+    };
+
+    private static byte[] ReceiptRequestBodyForResponse(PrivateRuntimeDeliveryPackageV07 package, RuntimeBridgeArtifactSession session)
+    {
+        var api = package.Artifact("api");
+        var portal = package.Artifact("portal");
+        object Row(PrivateRuntimeArtifact artifact) => new
+        {
+            artifactKind = artifact.ArtifactKind, sha256 = artifact.Sha256, sizeBytes = artifact.SizeBytes,
+            verificationOutcome = "verified", fullStreamCount = 1, rangeRetryCount = 0, bytesReceived = artifact.SizeBytes
+        };
+        return CanonicalizeSerialized(new
+        {
+            contractVersion = "pagemaker365.runtime-delivery-receipt.v1", deliverySessionId = session.SessionId,
+            packageHash = package.PackageHash, releaseId = package.ReleaseId, manifestSha256 = package.ManifestSha256,
+            eventId = "synthetic-w09-verified", idempotencyKey = "synthetic-w09-receipt",
+            occurredAt = "2026-08-30T12:00:00.000Z", installerVersion = "0.0.0-synthetic", outcome = "completed",
+            artifacts = new { api = Row(api), portal = Row(portal) },
+            safeResult = new { code = "runtime_artifacts_verified", state = "completed" }
+        });
     }
     private static readonly IReadOnlyList<RuntimeBridgeHttpHeader> SessionRequestHeaders =
     [
@@ -1082,7 +1284,7 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         IReadOnlyList<PreparedEntry> Entries, IReadOnlyList<RuntimeBridgeOwnedStageEntry> Inventory);
     private sealed record FileIdentity(uint VolumeSerialNumber, ulong FileIndex);
     private sealed class OwnedStageState(string invocationId, byte[] marker, FileIdentity rootIdentity, FileIdentity stageIdentity,
-        Dictionary<string, FileIdentity> ownedPaths, Dictionary<string, bool> declaredPaths, List<SafeFileHandle> ownershipHandles)
+        Dictionary<string, FileIdentity> ownedPaths, Dictionary<string, bool> declaredPaths, Dictionary<string, SafeFileHandle> ownershipHandles)
     {
         internal string InvocationId { get; } = invocationId;
         internal byte[] Marker { get; } = marker;
@@ -1090,7 +1292,13 @@ internal sealed class RuntimeDeploymentRecoveryBridge : IRuntimeBridgeOwnedStage
         internal FileIdentity StageIdentity { get; } = stageIdentity;
         internal Dictionary<string, FileIdentity> OwnedPaths { get; } = ownedPaths;
         internal Dictionary<string, bool> DeclaredPaths { get; } = declaredPaths;
-        internal List<SafeFileHandle> OwnershipHandles { get; } = ownershipHandles;
+        internal Dictionary<string, SafeFileHandle> OwnershipHandles { get; } = ownershipHandles;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileDispositionInformation
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        internal bool DeleteFile;
     }
     [StructLayout(LayoutKind.Sequential)]
     private struct ByHandleFileInformation
