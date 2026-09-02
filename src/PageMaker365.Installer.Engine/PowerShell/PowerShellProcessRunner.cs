@@ -3,7 +3,7 @@ using System.Text;
 
 namespace PageMaker365.Installer.Engine.PowerShell;
 
-public sealed class PowerShellProcessRunner
+public sealed class PowerShellProcessRunner : IPowerShellProcessRunner
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(60);
     private static readonly TimeSpan TerminationWaitTimeout = TimeSpan.FromSeconds(5);

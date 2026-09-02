@@ -28,6 +28,7 @@ internal static class Program
             {
                 "--initial-install-local-harness" => await InitialInstallLocalHarnessCommand.RunAsync(args),
                 "--private-runtime-loopback-harness" => await PrivateRuntimeLoopbackHarnessCommand.RunAsync(args),
+                "--fixture-lifecycle-runner" => await FixtureLifecycleRunnerCommand.RunAsync(args),
                 _ => await InitialInstallLocalHarnessCommand.RunAsync(args)
             };
         }
@@ -52,6 +53,10 @@ internal static class Program
             ("Removal evidence lifecycle supports inventory refresh", RemovalEvidenceLifecycleSupportsInventoryRefresh),
             ("Removal evidence lifecycle rejects inconsistent event semantics", RemovalEvidenceLifecycleRejectsInconsistentEventSemantics),
             ("Removal evidence lifecycle preserves prior attempt outbox", RemovalEvidenceLifecyclePreservesPriorAttemptOutbox),
+            ("Fixture lifecycle runner replays evidence through recovery, reinstall, and removal", FixtureLifecycleRunnerTests.ExecutesRecoveryReinstallRemovalAndEvidenceReplay),
+            ("Fixture lifecycle runner refuses cloud mutation before bootstrap access", FixtureLifecycleRunnerTests.RefusesCloudMutationBeforeReadingBootstrap),
+            ("Fixture lifecycle runner command writes only a sanitized result", FixtureLifecycleRunnerTests.CommandWritesSanitizedResult),
+            ("Fixture runtime bootstrap rejects mismatched bindings and tampered opaque payloads", FixtureLifecycleRunnerTests.RejectsBootstrapBindingMismatchAndPayloadTampering),
             ("DownloadPackageAsync saves portal package to support bundle", DownloadPackageAsyncSavesPortalPackageToSupportBundle),
             ("DownloadPackageAsync retries transient rate limits", DownloadPackageAsyncRetriesTransientRateLimits),
             ("DownloadPackageAsync cancels transient retry wait", DownloadPackageAsyncCancelsTransientRetryWait),
