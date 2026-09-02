@@ -32,6 +32,62 @@ type RuntimeSecretReference = {
   keyVaultSecretName: string
 }
 
+@sealed()
+type ApiRuntimeConfigurationV2 = {
+  API_APP_VERSION: string
+  API_ENV: string
+  API_HOST: string
+  API_CORS_ORIGIN: string[]
+  API_ENTRA_TENANT_ID: string
+  API_ENTRA_AUDIENCE: string[]
+  API_ENTRA_CLIENT_ID: string
+  API_GRAPH_SCOPES: string[]
+  API_REQUIRED_SCOPES: string[]
+  API_SHAREPOINT_SITE_URL: string
+  API_SHAREPOINT_UPLOADS_LIBRARY_NAME: string
+  API_SHAREPOINT_ISSUES_LIST_NAME: string
+  API_TENANT_CONNECTION_ID: string
+  API_TENANT_DISPLAY_NAME: string
+  PAGEMAKER365_PORTAL_URL: string
+  API_LICENSE_PUBLIC_KEY_PEM: string
+  API_LICENSE_ENVIRONMENT_KEY: string
+  API_LICENSE_RUNTIME_HOSTNAME: string
+  API_LICENSE_VALIDATION_GRACE_HOURS: int
+  API_LICENSE_VALIDATION_INTERVAL_HOURS: int
+  API_AZURE_KEY_VAULT_URL: string
+  API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST: bool
+  API_RUNTIME_TRUST_FORWARDED_HOST: bool
+  NODE_ENV: string
+  PM365_PRODUCT: string
+  PM365_DEPLOYMENT_EXPORT_ID: string
+  PM365_RUNTIME_RELEASE_ID: string
+  PM365_RUNTIME_VERSION: string
+  API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS: string[]
+  API_FILE_PREVIEW_DOWNLOAD_POLICY: string
+  API_FILE_PREVIEW_SOURCE_FALLBACK_POLICY: string
+}
+
+@sealed()
+type PortalRuntimeConfigurationV2 = {
+  WEB_API_BASE_URL: string
+  WEB_ENTRA_CLIENT_ID: string
+  WEB_ENTRA_TENANT_ID: string
+  WEB_ENTRA_AUTHORITY: string
+  WEB_API_SCOPE: string
+  WEB_RUNTIME_ENVIRONMENT: string
+  WEB_PRODUCT_NAME: string
+  WEB_PRODUCT_LOGO_URL: string
+  WEB_CUSTOMER_DISPLAY_NAME: string
+  WEB_CUSTOMER_SHORT_NAME: string
+  WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS: string[]
+}
+
+@sealed()
+type ApiRuntimeConfigurationVersionedReferencesV2 = {
+  DATABASE_URL: string
+  API_ENTRA_CLIENT_SECRET: string
+}
+
 @description('The PageMaker365 application name for this customer deployment.')
 @minLength(1)
 param appName string
@@ -90,6 +146,18 @@ param resourceNames ResourceNames
 
 @description('Secret-name-only App Service references. Values are provisioned separately through a secure ARM parameter.')
 param runtimeSecretReferences RuntimeSecretReference[]
+
+@description('Default-disabled package-0.7 runtime-configuration application gate.')
+param enableRuntimeConfigurationProjectionV2 bool = false
+
+@description('Exact validated projection-v2 API public settings.')
+param apiRuntimeConfiguration ApiRuntimeConfigurationV2?
+
+@description('Exact validated projection-v2 portal public settings.')
+param portalRuntimeConfiguration PortalRuntimeConfigurationV2?
+
+@description('Only already-versioned projection-v2 API Key Vault references. Pending license and cursor destinations are excluded.')
+param apiRuntimeConfigurationVersionedReferences ApiRuntimeConfigurationVersionedReferencesV2?
 
 @description('Immutable PageMaker365 runtime release identifier.')
 @minLength(1)
@@ -198,6 +266,9 @@ module apiApp 'modules/api-app-service.bicep' = {
     keyVaultUri: keyVault.outputs.keyVaultUri
     keyVaultName: resourceNames.keyVaultName
     runtimeSecretReferences: runtimeSecretReferences
+    enableRuntimeConfigurationProjectionV2: enableRuntimeConfigurationProjectionV2
+    runtimeConfiguration: apiRuntimeConfiguration
+    runtimeConfigurationVersionedReferences: apiRuntimeConfigurationVersionedReferences
     customerTenantId: customerTenantId
     apiClientId: apiClientId
     portalOrigin: portalDefaultOrigin
@@ -219,6 +290,8 @@ module portalApp 'modules/frontend-app-service.bicep' = {
     applicationInsightsConnectionString: appInsights.outputs.connectionString
     apiUrl: apiApp.outputs.apiUrl
     runtimeReleaseId: runtimeReleaseId
+    enableRuntimeConfigurationProjectionV2: enableRuntimeConfigurationProjectionV2
+    runtimeConfiguration: portalRuntimeConfiguration
     customerTenantId: customerTenantId
     portalClientId: portalClientId
     apiClientId: apiClientId

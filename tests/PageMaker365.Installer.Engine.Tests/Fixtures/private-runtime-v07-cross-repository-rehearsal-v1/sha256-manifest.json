@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "pagemaker365.fixture-sha256-manifest.v1",
+  "algorithm": "SHA-256",
+  "files": [
+    {
+      "name": "customer-install-0.7.json",
+      "sizeBytes": 13023,
+      "sha256": "4b77efdefb48a83cd839c07f0a734c39bfaa38b160e3808e5eb35b6c1feeb642"
+    },
+    {
+      "name": "customer-install-package-v0.7.schema.json",
+      "sizeBytes": 8839,
+      "sha256": "c083ec6e80859316ae9e6c1278a9579eddffac42732c87d0bcbae81c498f571c"
+    },
+    {
+      "name": "runtime-configuration-projection-v2.json",
+      "sizeBytes": 9719,
+      "sha256": "76f9fa3058fb33c9658ead53bab9f2cc49747c73cce6ea933b285bb75de3fc29"
+    },
+    {
+      "name": "runtime-configuration-projection-v2.schema.json",
+      "sizeBytes": 38045,
+      "sha256": "ee146ac4d90ad9ccb08be94cb3f27fa8c43b02c85566f8931656fab82570d63b"
+    },
+    {
+      "name": "runtime-configuration.catalog.json",
+      "sizeBytes": 19132,
+      "sha256": "441a7083b27c6a76a0910b68b0aab3bd47efaf977cf48d594b5a3e48374e9cc6"
+    },
+    {
+      "name": "runtime-configuration.schema.json",
+      "sizeBytes": 2013,
+      "sha256": "fb0df2a4b19c0dc8b4a951e4aeb4cd9cb21217ee4e91d86399e64809ce8b8f7e"
+    },
+    {
+      "name": "runtime-configuration-source-map-v2.json",
+      "sizeBytes": 9344,
+      "sha256": "e19f53134d6747d1239bae6136d71d8101268e1d8293cbe7de42aa2765eb40d7"
+    },
+    {
+      "name": "spo-runtime-manifest-v3.json",
+      "sizeBytes": 810,
+      "sha256": "964eb317c66b9b1a24880d272598f5fff42daf471fa23e4dc5a14b4196300b99"
+    },
+    {
+      "name": "runtime-release-manifest-v3.schema.json",
+      "sizeBytes": 2967,
+      "sha256": "4e78056803f5838acf21f5e0aebcad9201c7002cce3adf61b9908f277c3eff48"
+    },
+    {
+      "name": "signing-public-key.pem",
+      "sizeBytes": 113,
+      "sha256": "567af416d4df29c5712a013d0bfbfaabcb1931b28cd4b1d5e1c6885bd3febda0"
+    },
+    {
+      "name": "signing-trust.json",
+      "sizeBytes": 268,
+      "sha256": "95b1fe3469ebbf30b410d427888e6452f4230686c41c07f9e08afc16bf4f1487"
+    },
+    {
+      "name": "signature-vector.json",
+      "sizeBytes": 495,
+      "sha256": "8c50df280ef15c4dfd6aad1c19d2c348a239f2e127d16a8cc7588692dbebeaca"
+    },
+    {
+      "name": "license-signing-public-key.pem",
+      "sizeBytes": 113,
+      "sha256": "3f55459b7e38204bc2c081f17b801e9f339054185b3d6fd57c06f95ec9032fcd"
+    },
+    {
+      "name": "license-signature-vector.json",
+      "sizeBytes": 743,
+      "sha256": "c9a7ac67342c8aa40b4bcb82bfbbcf5b2831de6bcd9e0c676273811b50370982"
+    },
+    {
+      "name": "runtime-delivery-http-vectors.json",
+      "sizeBytes": 17069,
+      "sha256": "c691dc09049d8aa120854a74997e272860586dc4241e9bd94d334cf208893c0f"
+    },
+    {
+      "name": "protected-setting-acquisition-http-vectors.json",
+      "sizeBytes": 15249,
+      "sha256": "d0eed76d2fd3e2574c5e2c16ac21d373760bdb892f52828da83a1858091cd16b"
+    },
+    {
+      "name": "provenance.json",
+      "sizeBytes": 881,
+      "sha256": "66e8348dabfdfb58df917146bd24153bcc2d901769f20b1a8072161d296de4c4"
+    },
+    {
+      "name": "rehearsal.json",
+      "sizeBytes": 977,
+      "sha256": "b6fae315a12e0cc3cb0f3f8cb5b56986a681d186994eea8d1039aa0febf87898"
+    },
+    {
+      "name": "artifacts/api.zip",
+      "sizeBytes": 1015,
+      "sha256": "39ef9ad37514c68dfaad09950e88016516a2f2514fba0e3ca409084f5d66d3fc"
+    },
+    {
+      "name": "artifacts/portal.zip",
+      "sizeBytes": 1809,
+      "sha256": "e947f260d344ed6371fce23e7f53f4d31c33a7ca11ccac66dbe5bcdfe7824862"
+    }
+  ]
+}

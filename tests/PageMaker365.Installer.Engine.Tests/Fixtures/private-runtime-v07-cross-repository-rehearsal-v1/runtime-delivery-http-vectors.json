@@ -1,0 +1,525 @@
+{
+  "schemaVersion": "pagemaker365.private-runtime-delivery-rehearsal.v1",
+  "classification": "synthetic-test-only",
+  "fixedNow": "2026-08-30T12:00:00.000Z",
+  "authorization": {
+    "mode": "injected-test-only",
+    "requiredHeaderNames": [
+      "Authorization",
+      "X-PM365-Onboarding-Session",
+      "X-PM365-Onboarding-Code"
+    ],
+    "containsHeaderValues": false
+  },
+  "sessionCreation": {
+    "method": "POST",
+    "path": "/api/onboarding/installer/runtime-delivery-sessions",
+    "request": {
+      "packageFile": "customer-install-0.7.json"
+    },
+    "expected": {
+      "status": 201,
+      "response": {
+        "ok": true,
+        "created": true,
+        "deliverySession": {
+          "contractVersion": "pagemaker365.runtime-delivery-session.v1",
+          "deliverySessionId": "rds_SYNTHETIC_W09_REHEARSAL_0001",
+          "expiresAt": "2099-08-30T12:00:00.000Z",
+          "artifactKinds": [
+            "api",
+            "portal"
+          ],
+          "status": "active"
+        }
+      }
+    }
+  },
+  "artifactDownloads": [
+    {
+      "id": "api-full",
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/api",
+      "requestHeaders": {
+        "requiredNames": [
+          "Authorization",
+          "X-PM365-Onboarding-Session",
+          "X-PM365-Onboarding-Code",
+          "X-PM365-Runtime-Delivery-Session",
+          "X-PM365-Runtime-Delivery-Ref"
+        ],
+        "artifactReferencePlaceholder": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+        "range": null,
+        "containsHeaderValues": false
+      },
+      "expectedStatus": 200,
+      "expectedHeaders": {
+        "Cache-Control": "private, no-store",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "ETag": "\"sha256:39ef9ad37514c68dfaad09950e88016516a2f2514fba0e3ca409084f5d66d3fc\"",
+        "Content-Length": "1015",
+        "Content-Range": null
+      },
+      "bodyFile": "artifacts/api.zip",
+      "bodyOffset": 0,
+      "bodyLength": 1015
+    },
+    {
+      "id": "api-range",
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/api",
+      "requestHeaders": {
+        "requiredNames": [
+          "Authorization",
+          "X-PM365-Onboarding-Session",
+          "X-PM365-Onboarding-Code",
+          "X-PM365-Runtime-Delivery-Session",
+          "X-PM365-Runtime-Delivery-Ref"
+        ],
+        "artifactReferencePlaceholder": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+        "range": "bytes=17-113",
+        "containsHeaderValues": false
+      },
+      "expectedStatus": 206,
+      "expectedHeaders": {
+        "Cache-Control": "private, no-store",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "ETag": "\"sha256:39ef9ad37514c68dfaad09950e88016516a2f2514fba0e3ca409084f5d66d3fc\"",
+        "Content-Length": "97",
+        "Content-Range": "bytes 17-113/1015"
+      },
+      "bodyFile": "artifacts/api.zip",
+      "bodyOffset": 17,
+      "bodyLength": 97
+    },
+    {
+      "id": "portal-full",
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/portal",
+      "requestHeaders": {
+        "requiredNames": [
+          "Authorization",
+          "X-PM365-Onboarding-Session",
+          "X-PM365-Onboarding-Code",
+          "X-PM365-Runtime-Delivery-Session",
+          "X-PM365-Runtime-Delivery-Ref"
+        ],
+        "artifactReferencePlaceholder": "ard_BBBBBBBBBBBBBBBBBBBBBBBB",
+        "range": null,
+        "containsHeaderValues": false
+      },
+      "expectedStatus": 200,
+      "expectedHeaders": {
+        "Cache-Control": "private, no-store",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "ETag": "\"sha256:e947f260d344ed6371fce23e7f53f4d31c33a7ca11ccac66dbe5bcdfe7824862\"",
+        "Content-Length": "1809",
+        "Content-Range": null
+      },
+      "bodyFile": "artifacts/portal.zip",
+      "bodyOffset": 0,
+      "bodyLength": 1809
+    },
+    {
+      "id": "portal-range",
+      "method": "GET",
+      "path": "/api/onboarding/installer/runtime-artifacts/portal",
+      "requestHeaders": {
+        "requiredNames": [
+          "Authorization",
+          "X-PM365-Onboarding-Session",
+          "X-PM365-Onboarding-Code",
+          "X-PM365-Runtime-Delivery-Session",
+          "X-PM365-Runtime-Delivery-Ref"
+        ],
+        "artifactReferencePlaceholder": "ard_BBBBBBBBBBBBBBBBBBBBBBBB",
+        "range": "bytes=29-159",
+        "containsHeaderValues": false
+      },
+      "expectedStatus": 206,
+      "expectedHeaders": {
+        "Cache-Control": "private, no-store",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "ETag": "\"sha256:e947f260d344ed6371fce23e7f53f4d31c33a7ca11ccac66dbe5bcdfe7824862\"",
+        "Content-Length": "131",
+        "Content-Range": "bytes 29-159/1809"
+      },
+      "bodyFile": "artifacts/portal.zip",
+      "bodyOffset": 29,
+      "bodyLength": 131
+    }
+  ],
+  "receipt": {
+    "method": "POST",
+    "path": "/api/onboarding/installer/runtime-delivery-receipts",
+    "request": {
+      "contractVersion": "pagemaker365.runtime-delivery-receipt.v1",
+      "deliverySessionId": "rds_SYNTHETIC_W09_REHEARSAL_0001",
+      "packageHash": "sha256:82dbb820acd4762e61e39dbda177c7a6f3cda53b1b14cd83ced80151e548964f",
+      "releaseId": "pm365-runtime-1.4.3+c31427d",
+      "manifestSha256": "964eb317c66b9b1a24880d272598f5fff42daf471fa23e4dc5a14b4196300b99",
+      "eventId": "synthetic-w09-verified",
+      "idempotencyKey": "synthetic-w09-receipt",
+      "occurredAt": "2026-08-30T12:00:00.000Z",
+      "installerVersion": "0.0.0-synthetic",
+      "outcome": "completed",
+      "artifacts": {
+        "api": {
+          "artifactKind": "api",
+          "sha256": "39ef9ad37514c68dfaad09950e88016516a2f2514fba0e3ca409084f5d66d3fc",
+          "sizeBytes": 1015,
+          "verificationOutcome": "verified",
+          "fullStreamCount": 1,
+          "rangeRetryCount": 0,
+          "bytesReceived": 1015
+        },
+        "portal": {
+          "artifactKind": "portal",
+          "sha256": "e947f260d344ed6371fce23e7f53f4d31c33a7ca11ccac66dbe5bcdfe7824862",
+          "sizeBytes": 1809,
+          "verificationOutcome": "verified",
+          "fullStreamCount": 1,
+          "rangeRetryCount": 0,
+          "bytesReceived": 1809
+        }
+      },
+      "safeResult": {
+        "code": "runtime_artifacts_verified",
+        "state": "completed"
+      }
+    },
+    "expected": {
+      "status": 201,
+      "replayStatus": 200,
+      "mutationCount": 1
+    }
+  },
+  "negativeVectors": [
+    {
+      "id": "feature-absent",
+      "operation": "artifact-download",
+      "mutation": "feature-absent",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "feature-false",
+      "operation": "artifact-download",
+      "mutation": "feature-false",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "package-noncanonical",
+      "operation": "artifact-download",
+      "mutation": "package-noncanonical",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "package-durable-mismatch",
+      "operation": "artifact-download",
+      "mutation": "package-durable-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "session-mismatch",
+      "operation": "artifact-download",
+      "mutation": "session-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "authentication-missing",
+      "operation": "artifact-download",
+      "mutation": "authentication-missing",
+      "expectedStatus": 401,
+      "expectedErrorCode": "runtime_delivery_auth_required",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "authentication-invalid",
+      "operation": "artifact-download",
+      "mutation": "authentication-invalid",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "onboarding-session-mismatch",
+      "operation": "artifact-download",
+      "mutation": "onboarding-session-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "onboarding-code-mismatch",
+      "operation": "artifact-download",
+      "mutation": "onboarding-code-mismatch",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "delivery-session-missing",
+      "operation": "artifact-download",
+      "mutation": "delivery-session-missing",
+      "expectedStatus": 401,
+      "expectedErrorCode": "runtime_delivery_session_required",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "delivery-session-expired",
+      "operation": "artifact-download",
+      "mutation": "delivery-session-expired",
+      "expectedStatus": 410,
+      "expectedErrorCode": "runtime_delivery_session_terminal",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "reference-missing",
+      "operation": "artifact-download",
+      "mutation": "reference-missing",
+      "expectedStatus": 401,
+      "expectedErrorCode": "runtime_delivery_ref_required",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "reference-wrong",
+      "operation": "artifact-download",
+      "mutation": "reference-wrong",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "reference-cross-kind",
+      "operation": "artifact-download",
+      "mutation": "reference-cross-kind",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "if-match-invalid",
+      "operation": "artifact-download",
+      "mutation": "if-match-invalid",
+      "expectedStatus": 412,
+      "expectedErrorCode": "runtime_delivery_etag_mismatch",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "range-malformed",
+      "operation": "artifact-download",
+      "mutation": "range-malformed",
+      "expectedStatus": 416,
+      "expectedErrorCode": "runtime_delivery_range_invalid",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "range-multiple",
+      "operation": "artifact-download",
+      "mutation": "range-multiple",
+      "expectedStatus": 416,
+      "expectedErrorCode": "runtime_delivery_range_invalid",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "range-out-of-bounds",
+      "operation": "artifact-download",
+      "mutation": "range-out-of-bounds",
+      "expectedStatus": 416,
+      "expectedErrorCode": "runtime_delivery_range_invalid",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "artifact-short",
+      "operation": "artifact-download",
+      "mutation": "artifact-short",
+      "expectedStatus": 200,
+      "expectedErrorCode": null,
+      "expectedArtifactOpenCount": 1,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 1014
+    },
+    {
+      "id": "artifact-long",
+      "operation": "artifact-download",
+      "mutation": "artifact-long",
+      "expectedStatus": 200,
+      "expectedErrorCode": null,
+      "expectedArtifactOpenCount": 1,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "artifact-hash-mismatch",
+      "operation": "artifact-download",
+      "mutation": "artifact-hash-mismatch",
+      "expectedStatus": 200,
+      "expectedErrorCode": null,
+      "expectedArtifactOpenCount": 1,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 1015
+    },
+    {
+      "id": "artifact-redirect",
+      "operation": "artifact-download",
+      "mutation": "artifact-redirect",
+      "expectedStatus": 503,
+      "expectedErrorCode": "runtime_delivery_source_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "package-expired",
+      "operation": "artifact-download",
+      "mutation": "package-expired",
+      "expectedStatus": 410,
+      "expectedErrorCode": "runtime_delivery_session_terminal",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "package-revoked",
+      "operation": "artifact-download",
+      "mutation": "package-revoked",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "rate-limited",
+      "operation": "artifact-download",
+      "mutation": "rate-limited",
+      "expectedStatus": 429,
+      "expectedErrorCode": "rate_limited",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 33
+    },
+    {
+      "id": "aborted",
+      "operation": "artifact-download",
+      "mutation": "aborted",
+      "expectedStatus": 200,
+      "expectedErrorCode": null,
+      "expectedArtifactOpenCount": 1,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "package-race",
+      "operation": "artifact-download",
+      "mutation": "package-race",
+      "expectedStatus": 404,
+      "expectedErrorCode": "runtime_delivery_unavailable",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "session-race",
+      "operation": "artifact-download",
+      "mutation": "session-race",
+      "expectedStatus": 410,
+      "expectedErrorCode": "runtime_delivery_session_terminal",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "concurrent-downloads",
+      "operation": "artifact-download",
+      "mutation": "concurrent-downloads",
+      "expectedStatus": 200,
+      "expectedErrorCode": null,
+      "expectedArtifactOpenCount": 2,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 2030
+    },
+    {
+      "id": "receipt-binding-mismatch",
+      "operation": "receipt",
+      "mutation": "receipt-binding-mismatch",
+      "expectedStatus": 400,
+      "expectedErrorCode": "runtime_delivery_receipt_binding_invalid",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 0,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "receipt-event-mismatch",
+      "operation": "receipt",
+      "mutation": "receipt-event-mismatch",
+      "expectedStatus": 409,
+      "expectedErrorCode": "runtime_delivery_receipt_conflict",
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 1,
+      "expectedResponseBodyBytes": 0
+    },
+    {
+      "id": "receipt-replay",
+      "operation": "receipt",
+      "mutation": "receipt-replay",
+      "expectedStatus": 200,
+      "expectedErrorCode": null,
+      "expectedArtifactOpenCount": 0,
+      "expectedReceiptMutationCount": 1,
+      "expectedResponseBodyBytes": 924
+    }
+  ],
+  "containsReusableCredential": false,
+  "authorizesDeployment": false
+}

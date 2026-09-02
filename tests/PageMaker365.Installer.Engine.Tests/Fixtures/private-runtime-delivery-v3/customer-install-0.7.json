@@ -1,0 +1,401 @@
+{
+  "contractVersion": "0.7",
+  "customer": {
+    "customerId": "2f8d99e4-1bc2-4f73-8a5d-91e64730c2bb"
+  },
+  "installation": {
+    "installationId": "a52d731f-6d90-4681-b274-18e39c50fa62",
+    "environmentId": "7c91e4b8-35af-42d6-9b73-e06f128ad954",
+    "tenantId": "d43a8f61-20e7-4c95-a13b-5792fd84c6e0",
+    "azureSubscriptionId": "61b7c2e9-8f34-45ad-b062-3ea19d75f48c"
+  },
+  "deployment": {
+    "deploymentExportId": "934be217-c568-49f0-8d3a-62e15b74c09f"
+  },
+  "controlPlane": {
+    "onboardingSessionId": "onb_w07_projection_v2_0001",
+    "expiresAt": "2099-08-30T12:00:00.000Z",
+    "acceptedInstallerCapability": "pagemaker365.customer-install.0.7.protected-acquisition.v1",
+    "packageHash": "sha256:717746cf43d930878053421c646cfae20392e2b423d833147c7b10365c3141a8",
+    "packageHashAlgorithm": "SHA-256",
+    "canonicalization": "json-c14n-v1",
+    "signatureAlgorithm": "Ed25519",
+    "signingKeyId": "test-only-w07-v07-ed25519",
+    "signature": "7pQRMju3OSmCDpy2ERcWKk0SF6L0_iAHvwQXuz2VJZi77RGfMab43NFTtpaAMRlM-kPIr5hjGHzIeKQ8j64EAw"
+  },
+  "runtimeArtifacts": {
+    "manifestContractVersion": "3.0",
+    "manifestSha256": "acbd151cbede093360bb9f8c1e12310b251f31514a077de21c81c4b166d64b8c",
+    "product": "PageMaker365",
+    "releaseId": "pm365-runtime-1.4.3+c31427d",
+    "runtimeVersion": "1.4.3",
+    "sourceRepository": "cloudbossdev/spo-ui",
+    "sourceCommit": "c31427d0027adb4fd03de142fde18c4209ca44ce",
+    "provenanceSchemaVersion": "pagemaker365.runtime-provenance.v1",
+    "api": {
+      "artifactKind": "api",
+      "fileName": "pagemaker365-api-1.4.3.zip",
+      "sizeBytes": 1024,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "startupCommand": "node dist/index.js"
+    },
+    "portal": {
+      "artifactKind": "portal",
+      "fileName": "pagemaker365-portal-1.4.3.zip",
+      "sizeBytes": 2048,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "startupCommand": "node .pm365/start-portal-runtime.mjs"
+    }
+  },
+  "protectedAcquisition": {
+    "contractVersion": "pagemaker365.protected-acquisition.v1",
+    "sessionPath": "/api/onboarding/installer/runtime-delivery-sessions",
+    "artifactPath": "/api/onboarding/installer/runtime-artifacts/{artifactKind}",
+    "receiptPath": "/api/onboarding/installer/runtime-delivery-receipts",
+    "authorizationMode": "installer-session-v1",
+    "expiresAt": "2099-08-30T12:00:00.000Z",
+    "artifactReferences": {
+      "api": "ard_AAAAAAAAAAAAAAAAAAAAAAAA",
+      "portal": "ard_BBBBBBBBBBBBBBBBBBBBBBBB"
+    }
+  },
+  "runtimeConfiguration": {
+    "schemaVersion": "pagemaker365.runtime-configuration-projection.v2",
+    "catalog": {
+      "schemaVersion": "pagemaker365.runtime-configuration.v1",
+      "sourceRepository": "cloudbossdev/spo-ui",
+      "sourceCommit": "c31427d0027adb4fd03de142fde18c4209ca44ce",
+      "catalogSha256": "441a7083b27c6a76a0910b68b0aab3bd47efaf977cf48d594b5a3e48374e9cc6",
+      "catalogSchemaSha256": "fb0df2a4b19c0dc8b4a951e4aeb4cd9cb21217ee4e91d86399e64809ce8b8f7e",
+      "targetQualifiedOrderSha256": "09974fc243584b7f89e64241d8cb5a19ca7dd0244d0bf88f50967ae4c97257b6",
+      "settingCount": 70
+    },
+    "binding": {
+      "packageContractVersion": "0.7",
+      "customerId": "2f8d99e4-1bc2-4f73-8a5d-91e64730c2bb",
+      "installationId": "a52d731f-6d90-4681-b274-18e39c50fa62",
+      "environmentId": "7c91e4b8-35af-42d6-9b73-e06f128ad954",
+      "tenantId": "d43a8f61-20e7-4c95-a13b-5792fd84c6e0",
+      "azureSubscriptionId": "61b7c2e9-8f34-45ad-b062-3ea19d75f48c",
+      "deploymentExportId": "934be217-c568-49f0-8d3a-62e15b74c09f",
+      "runtimeReleaseId": "pm365-runtime-1.4.3+c31427d",
+      "runtimeVersion": "1.4.3",
+      "manifestSha256": "acbd151cbede093360bb9f8c1e12310b251f31514a077de21c81c4b166d64b8c"
+    },
+    "featureProfile": {
+      "connectorSynchronization": false,
+      "webPartSynchronization": false
+    },
+    "publicSettings": [
+      {
+        "targetApp": "api",
+        "name": "API_APP_VERSION",
+        "valueType": "string",
+        "value": "1.4.3"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_ENV",
+        "valueType": "string",
+        "value": "production"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_HOST",
+        "valueType": "string",
+        "value": "0.0.0.0"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_CORS_ORIGIN",
+        "valueType": "string-list",
+        "value": [
+          "https://portal.customer.example"
+        ]
+      },
+      {
+        "targetApp": "api",
+        "name": "API_ENTRA_TENANT_ID",
+        "valueType": "string",
+        "value": "d43a8f61-20e7-4c95-a13b-5792fd84c6e0"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_ENTRA_AUDIENCE",
+        "valueType": "string-list",
+        "value": [
+          "api://18cd7a42-95e1-4b60-a37f-2d894ce56b10"
+        ]
+      },
+      {
+        "targetApp": "api",
+        "name": "API_ENTRA_CLIENT_ID",
+        "valueType": "string",
+        "value": "18cd7a42-95e1-4b60-a37f-2d894ce56b10"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_GRAPH_SCOPES",
+        "valueType": "string-list",
+        "value": [
+          "https://graph.microsoft.com/.default"
+        ]
+      },
+      {
+        "targetApp": "api",
+        "name": "API_REQUIRED_SCOPES",
+        "valueType": "string-list",
+        "value": [
+          "access_as_user"
+        ]
+      },
+      {
+        "targetApp": "api",
+        "name": "API_SHAREPOINT_SITE_URL",
+        "valueType": "string",
+        "value": "https://customer.sharepoint.com/sites/pagemaker365"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_SHAREPOINT_UPLOADS_LIBRARY_NAME",
+        "valueType": "string",
+        "value": "Uploads"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_SHAREPOINT_ISSUES_LIST_NAME",
+        "valueType": "string",
+        "value": "Issues"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_TENANT_CONNECTION_ID",
+        "valueType": "string",
+        "value": "customer"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_TENANT_DISPLAY_NAME",
+        "valueType": "string",
+        "value": "Customer"
+      },
+      {
+        "targetApp": "api",
+        "name": "PAGEMAKER365_PORTAL_URL",
+        "valueType": "string",
+        "value": "https://portal.customer.example"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_LICENSE_PUBLIC_KEY_PEM",
+        "valueType": "string",
+        "value": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n-----END PUBLIC KEY-----\n"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_LICENSE_ENVIRONMENT_KEY",
+        "valueType": "string",
+        "value": "production"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_LICENSE_RUNTIME_HOSTNAME",
+        "valueType": "string",
+        "value": "license.customer.example"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_LICENSE_VALIDATION_GRACE_HOURS",
+        "valueType": "integer",
+        "value": 24
+      },
+      {
+        "targetApp": "api",
+        "name": "API_LICENSE_VALIDATION_INTERVAL_HOURS",
+        "valueType": "integer",
+        "value": 1
+      },
+      {
+        "targetApp": "api",
+        "name": "API_AZURE_KEY_VAULT_URL",
+        "valueType": "string",
+        "value": "https://pm365fixture.vault.azure.net"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_CONNECTOR_EGRESS_REQUIRE_ALLOWLIST",
+        "valueType": "boolean",
+        "value": true
+      },
+      {
+        "targetApp": "api",
+        "name": "API_RUNTIME_TRUST_FORWARDED_HOST",
+        "valueType": "boolean",
+        "value": false
+      },
+      {
+        "targetApp": "api",
+        "name": "NODE_ENV",
+        "valueType": "string",
+        "value": "production"
+      },
+      {
+        "targetApp": "api",
+        "name": "PM365_PRODUCT",
+        "valueType": "string",
+        "value": "PageMaker365"
+      },
+      {
+        "targetApp": "api",
+        "name": "PM365_DEPLOYMENT_EXPORT_ID",
+        "valueType": "string",
+        "value": "934be217-c568-49f0-8d3a-62e15b74c09f"
+      },
+      {
+        "targetApp": "api",
+        "name": "PM365_RUNTIME_RELEASE_ID",
+        "valueType": "string",
+        "value": "pm365-runtime-1.4.3+c31427d"
+      },
+      {
+        "targetApp": "api",
+        "name": "PM365_RUNTIME_VERSION",
+        "valueType": "string",
+        "value": "1.4.3"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS",
+        "valueType": "string-list",
+        "value": [
+          "https://customer.sharepoint.com"
+        ]
+      },
+      {
+        "targetApp": "api",
+        "name": "API_FILE_PREVIEW_DOWNLOAD_POLICY",
+        "valueType": "string",
+        "value": "disabled"
+      },
+      {
+        "targetApp": "api",
+        "name": "API_FILE_PREVIEW_SOURCE_FALLBACK_POLICY",
+        "valueType": "string",
+        "value": "disabled"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_API_BASE_URL",
+        "valueType": "string",
+        "value": "https://api.customer.example"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_ENTRA_CLIENT_ID",
+        "valueType": "string",
+        "value": "b63e20d5-4a87-419c-8f26-75d103ae92c4"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_ENTRA_TENANT_ID",
+        "valueType": "string",
+        "value": "d43a8f61-20e7-4c95-a13b-5792fd84c6e0"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_ENTRA_AUTHORITY",
+        "valueType": "string",
+        "value": "https://login.microsoftonline.com/d43a8f61-20e7-4c95-a13b-5792fd84c6e0"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_API_SCOPE",
+        "valueType": "string",
+        "value": "api://18cd7a42-95e1-4b60-a37f-2d894ce56b10/access_as_user"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_RUNTIME_ENVIRONMENT",
+        "valueType": "string",
+        "value": "production"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_PRODUCT_NAME",
+        "valueType": "string",
+        "value": "PageMaker365"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_PRODUCT_LOGO_URL",
+        "valueType": "string",
+        "value": "/branding/pagemaker365-logo.png"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_CUSTOMER_DISPLAY_NAME",
+        "valueType": "string",
+        "value": "Customer"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_CUSTOMER_SHORT_NAME",
+        "valueType": "string",
+        "value": "Customer"
+      },
+      {
+        "targetApp": "portal",
+        "name": "WEB_FILE_PREVIEW_ALLOWED_FRAME_ORIGINS",
+        "valueType": "string-list",
+        "value": [
+          "https://customer.sharepoint.com"
+        ]
+      }
+    ],
+    "protectedSettings": [
+      {
+        "targetApp": "api",
+        "name": "DATABASE_URL",
+        "mode": "customer-azure-key-vault-reference",
+        "reference": {
+          "vaultResourceId": "/subscriptions/61b7c2e9-8f34-45ad-b062-3ea19d75f48c/resourceGroups/pm365-fixture/providers/Microsoft.KeyVault/vaults/pm365fixture",
+          "secretName": "database-url",
+          "secretVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      {
+        "targetApp": "api",
+        "name": "API_ENTRA_CLIENT_SECRET",
+        "mode": "customer-azure-key-vault-reference",
+        "reference": {
+          "vaultResourceId": "/subscriptions/61b7c2e9-8f34-45ad-b062-3ea19d75f48c/resourceGroups/pm365-fixture/providers/Microsoft.KeyVault/vaults/pm365fixture",
+          "secretName": "entra-client-secret",
+          "secretVersion": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      {
+        "targetApp": "api",
+        "name": "API_LICENSE_SIGNED_PAYLOAD",
+        "mode": "control-plane-protected-setting-delivery",
+        "reference": {
+          "contractVersion": "pagemaker365.protected-setting-acquisition.v1",
+          "opaqueReference": "psr_CCCCCCCCCCCCCCCCCCCCCCCC",
+          "vaultResourceId": "/subscriptions/61b7c2e9-8f34-45ad-b062-3ea19d75f48c/resourceGroups/pm365-fixture/providers/Microsoft.KeyVault/vaults/pm365fixture",
+          "secretName": "license-payload"
+        }
+      },
+      {
+        "targetApp": "api",
+        "name": "API_IMAGE_ASSET_CURSOR_SECRET",
+        "mode": "installer-generated-key-vault-secret",
+        "reference": {
+          "vaultResourceId": "/subscriptions/61b7c2e9-8f34-45ad-b062-3ea19d75f48c/resourceGroups/pm365-fixture/providers/Microsoft.KeyVault/vaults/pm365fixture",
+          "secretName": "image-cursor-secret",
+          "generationAlgorithm": "random-base64url",
+          "minimumEntropyBytes": 32
+        }
+      }
+    ],
+    "projectionSha256": "9d31633a636e8daee4ad370da2d49664d89ee484adb01cd0a015272a95b7b4c6"
+  }
+}

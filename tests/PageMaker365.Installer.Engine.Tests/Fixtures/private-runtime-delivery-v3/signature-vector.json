@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "pagemaker365.customer-install-signature-vector.v1",
+  "algorithm": "Ed25519",
+  "canonicalization": "json-c14n-v1",
+  "keyId": "test-only-w07-v07-ed25519",
+  "packageHash": "sha256:717746cf43d930878053421c646cfae20392e2b423d833147c7b10365c3141a8",
+  "canonicalPayloadSha256": "717746cf43d930878053421c646cfae20392e2b423d833147c7b10365c3141a8",
+  "signature": "7pQRMju3OSmCDpy2ERcWKk0SF6L0_iAHvwQXuz2VJZi77RGfMab43NFTtpaAMRlM-kPIr5hjGHzIeKQ8j64EAw"
+}

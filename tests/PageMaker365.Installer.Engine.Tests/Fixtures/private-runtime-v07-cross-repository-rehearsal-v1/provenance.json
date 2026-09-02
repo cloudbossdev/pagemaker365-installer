@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pagemaker365.private-runtime-v07-cross-repository-rehearsal-provenance.v1",
+  "classification": "synthetic-test-only",
+  "producerRepository": "cloudbossdev/pagemaker365",
+  "producerBaselineCommit": "7eb338e7ea00118018327a80c5dd925e8c1f091c",
+  "fixtureContractVersion": "pagemaker365.dynamic-local-runtime-handoff.v3",
+  "runtimeContractRepository": "cloudbossdev/spo-ui",
+  "runtimeContractCommit": "c31427d0027adb4fd03de142fde18c4209ca44ce",
+  "generatorPath": "apps/api/test/generatePrivateRuntimeV07CrossRepositoryRehearsalFixture.mjs",
+  "fixedNow": "2026-08-30T12:00:00.000Z",
+  "synthetic": true,
+  "nondeployable": true,
+  "authorizesDeployment": false,
+  "containsCustomerData": false,
+  "containsCustomerSecret": false,
+  "containsReusableCredential": false,
+  "containsPrivateKey": false,
+  "runtimeArtifactBytesDerivedFromSourceCommit": false
+}
